@@ -16,12 +16,14 @@ HyperOps 是一个聚焦于 Jenkins 与 GitLab 运维管理的 Django + Vue 平�
 ```text
 hyperops/
 ├── backend/
-│   ├── core/              # Django settings、URL、Celery 启动
-│   ├── accounts/          # 鉴权、Profile、Role、访问画像
-│   ├── jenkins_trigger/   # Jenkins 实例、入口、记录
-│   ├── gitlab_resource/   # GitLab 资源管理
-│   └── agentcore/         # 可选集成
-└── frontend/              # Vue 3 + Vite 前端
+│   ├── core/                  # Django settings、URL、Celery 启动
+│   ├── accounts/              # 鉴权、Profile、Role、访问画像
+│   ├── jenkins_trigger/       # Jenkins 实例、入口、记录
+│   ├── gitlab_resource/       # GitLab 资源管理
+│   ├── action_orchestration/  # 可复用动作模板与执行
+│   ├── tests/                 # 跨 app 复用的 pytest 入口与配置
+│   └── agentcore/             # 可选集成（git submodule）
+└── frontend/                  # Vue 3 + Vite 前端
 ```
 
 ## 可选集成

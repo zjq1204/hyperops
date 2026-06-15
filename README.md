@@ -16,12 +16,14 @@ HyperOps is a focused Jenkins and GitLab operations platform built on Django and
 ```text
 hyperops/
 ├── backend/
-│   ├── core/              # Django settings, URLs, Celery bootstrap
-│   ├── accounts/          # Auth, profile, role, access profile
-│   ├── jenkins_trigger/   # Jenkins instances, entries, records
-│   ├── gitlab_resource/   # GitLab resource management
-│   └── agentcore/         # Optional integrations
-└── frontend/              # Vue 3 + Vite application
+│   ├── core/                  # Django settings, URLs, Celery bootstrap
+│   ├── accounts/              # Auth, profile, role, access profile
+│   ├── jenkins_trigger/       # Jenkins instances, entries, records
+│   ├── gitlab_resource/       # GitLab resource management
+│   ├── action_orchestration/  # Reusable action templates and execution
+│   ├── tests/                 # Shared pytest settings for cross-app test runs
+│   └── agentcore/             # Optional integrations (git submodules)
+└── frontend/                  # Vue 3 + Vite application
 ```
 
 ## Optional Integrations

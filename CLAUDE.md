@@ -1,57 +1,65 @@
-# HyperOps - Jenkins & GitLab 统一管理平台
+# CLAUDE.md
 
-## 项目概述
+Project facts live in [`README.md`](README.md) (English) and
+[`README.zh-CN.md`](README.zh-CN.md) (Chinese). This file is the agent
+operating contract — what to do, what to avoid, how to verify — when
+working in this repository.
 
-HyperOps 是一个基于 devmind 架构的 Jenkins & GitLab 统一管理平台，包含 Django REST API 后端和配套的 Vue 3 前端。
+## What this project is
 
-## 技术栈
+HyperOps is a Django 5 + Vue 3 platform for Jenkins and GitLab
+operations: instance / trigger / record management on top of an
+account / role / LDAP auth core. Notifier is an optional add-on, not
+part of the default scope. See README for full scope, architecture,
+and optional integrations.
 
-- **后端**：Django 5 + Django REST Framework + Celery + Redis
-- **前端**：Vue 3 + Vite + Tailwind CSS + Pinia + Vue Router
-- **数据库**：PostgreSQL
-- **通知**：复用 devmind agentcore-notifier（飞书 + 邮件）
+## Working rules
 
-## 功能模块
+- **TDD by default.** New behavior lands as a failing test first
+  (pytest on backend, vitest / node-runner on frontend), then the
+  smallest implementation that turns it green, then a cleanup pass.
+- **No new top-level apps** without a written justification in
+  README's "Architecture" section first.
+- **No silent scope expansion.** If a task pulls you into modules
+  outside the requested area, stop and confirm with the user before
+  continuing.
+- **No `rm -rf` of `.git`, dependency directories, or anything the
+  user did not explicitly name.** When in doubt, list candidates and
+  ask.
+- **Match existing style.** Backend: PEP 8 + Django conventions.
+  Frontend: Vue 3 `<script setup>`, Pinia stores, Tailwind utility
+  classes, no new top-level deps without a reason.
+- **English for code, comments, and commits.** User-facing strings go
+  through i18n; never hard-code Chinese / English in components.
 
-- **Jenkins 触发**：配置触发入口，自动拉取 job 参数，用户触发构建
-- **GitLab 资源管理**：群组、项目、分支、Tag、Webhook 的增删改查
+## Verification gate
 
-## 常用命令
-
-### 初始化
-
-```bash
-git submodule update --init --recursive   # 拉取 agentcore 子模块
-```
-
-### Docker 开发
-
-```bash
-cp env.sample .env.dev
-docker-compose -f docker-compose.dev.yml up -d
-# Web: http://localhost:8000
-# API docs: http://localhost:8000/swagger/
-```
-
-### Docker 生产
-
-```bash
-cp env.sample .env
-docker-compose up -d
-# HTTP: 10080, HTTPS: 10443
-```
-
-### Django
+Before claiming work is done, run — and have all green:
 
 ```bash
-python backend/manage.py migrate
-python backend/manage.py createsuperuser
+# Backend (use the project venv; system python is PEP 668 protected)
+PYTHONPATH=backend /tmp/hyperops-venv/bin/python -m pytest \
+    backend/accounts/tests \
+    backend/jenkins_trigger/tests.py \
+    backend/gitlab_resource/tests.py \
+    -q
 ```
 
-### 前端
+Frontend has no runner in CI; if you touched `.vue` / `.js`, at
+minimum run `npm run build` from `frontend/`.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## Key paths
+
+- Backend apps: `backend/{accounts,jenkins_trigger,gitlab_resource,action_orchestration,core}`
+- Optional / submodules: `backend/agentcore/{agentcore-notifier,agentcore-task,agentcore-metering}`
+- Frontend admin module: `frontend/src/admin/` (see `frontend/docs/ADMIN_REUSE.md`)
+- Frontend router: `frontend/src/router/index.js`
+- Env sample: `env.sample`; dev override: `.env.dev`
+- Docker: `docker-compose.yml` (prod), `docker-compose.dev.yml` (dev)
+
+## Out of scope for this contract
+
+- License, certificates, and submodule internals are not edited
+  from this file's authority.
+- Dependency version bumps require a separate decision and a note in
+  README.
