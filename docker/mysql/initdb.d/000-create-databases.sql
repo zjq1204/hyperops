@@ -1,0 +1,4 @@
+CREATE DATABASE IF NOT EXISTS hyperops;
+CREATE USER 'hyperops'@'%' IDENTIFIED BY 'hyperops';
+GRANT ALL PRIVILEGES ON hyperops.* TO 'hyperops'@'%';
+FLUSH PRIVILEGES;

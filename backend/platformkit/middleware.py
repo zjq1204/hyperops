@@ -1,0 +1,25 @@
+"""Shared middleware utilities for backend products."""
+
+from django.conf import settings
+
+from platformkit.i18n import remap_accept_language_header
+
+
+class LanguageCodeMappingMiddleware:
+    """Map browser language codes to the project's configured Django codes."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.language_mapping = getattr(
+            settings,
+            "LANGUAGE_CODE_MAPPING",
+            {},
+        )
+
+    def __call__(self, request):
+        accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE", "")
+        request.META["HTTP_ACCEPT_LANGUAGE"] = remap_accept_language_header(
+            accept_language,
+            self.language_mapping,
+        )
+        return self.get_response(request)

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hyperops"
+version = "0.1.0"
+description = "HyperOps - Jenkins & GitLab unified management platform"
+authors = [
+    {name = "Ray Sun", email = "xiaoquqi@gmail.com"}
+]
+requires-python = ">=3.8"
+dependencies = [
+    "django==5.1.4",
+    "djangorestframework==3.15.2",
+    "djangorestframework_simplejwt==5.3.1",
+    "djangorestframework-camel-case==1.4.2",
+    "dj-rest-auth==7.0.0",
+    "drf-spectacular",
+    "python-dotenv",
+    "dj_database_url==2.3.0",
+    # "mysqlclient==2.1.1",  # Kept for backward compatibility (MySQL/MariaDB support)
+    "PyMySQL",
+    "psycopg2-binary>=2.9.9",  # PostgreSQL adapter (recommended)
+    "celery==5.3.1",
+    "django-celery-beat==2.7.0",
+    "django_celery_results",
+    "flower==2.0.1",
+    "redis",
+    "channels>=4.1,<4.2",
+    "daphne>=4.1,<4.2",
+    "channels_redis>=4.2,<4.3",
+    "gunicorn==20.1.0",
+    "requests>=2.31.0",
+    "python-gitlab>=4.0.0",
+    "ldap3>=2.9.1",
+    "cryptography>=44.0.0",
+    "django-json-widget>=1.1.1",
+    "django-allauth>=0.57.0",
+    "django-cors-headers>=4.3.0",
+    "django-extensions>=3.2.3",
+    # Optional integrations. Enable with ENABLE_NOTIFIER / ENABLE_AGENTCORE_* flags.
+    "agentcore-metering @ git+https://github.com/cloud2ai/agentcore-metering.git",
+    "agentcore-task @ git+https://github.com/cloud2ai/agentcore-task.git",
+    "agentcore-notifier @ git+https://github.com/cloud2ai/agentcore-notifier.git",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-django>=4.5.2",
+    "black>=22.0.0",
+    "flake8>=6.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0"
+]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+markers = [
+    "unit: App-level unit tests (domain logic, services, model methods).",
+]
+
+[tool.setuptools]
+packages = ["backend"]
+
+[project.scripts]
+backend-manager = "backend.manage:main"
