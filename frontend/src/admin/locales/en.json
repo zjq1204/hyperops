@@ -77,7 +77,9 @@
     "notificationStats": "Stats",
     "notificationRecords": "Records",
     "notificationChannels": "Channels",
-    "notificationSettings": "Settings"
+    "notificationSettings": "Settings",
+    "actionOrchestration": "Action orchestration",
+    "actionTemplates": "Action templates"
   },
   "adminPages": {
     "ldap": {
@@ -790,6 +792,278 @@
       },
       "toast": {
         "loadFailed": "Failed to load operation records: {message}"
+      }
+    },
+    "actionTemplates": {
+      "eyebrow": "Action orchestration",
+      "title": "Action template management",
+      "subtitle": "Chain Jenkins, GitLab branches, and manual approvals into an executable template.",
+      "actions": {
+        "newTemplate": "New template",
+        "refresh": "Refresh",
+        "preview": "Preview",
+        "edit": "Edit",
+        "delete": "Delete",
+        "close": "Close",
+        "cancel": "Cancel",
+        "save": "Save template",
+        "next": "Next",
+        "previous": "Previous",
+        "remove": "Remove",
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "more": "More"
+      },
+      "search": {
+        "label": "Search templates",
+        "placeholder": "Template name / description"
+      },
+      "table": {
+        "template": "Template",
+        "authorization": "Authorization",
+        "status": "Status",
+        "actions": "Actions",
+        "usersAndGroups": "Users {users} / Groups {groups}",
+        "noDescription": "No description",
+        "active": "Active",
+        "inactive": "Inactive"
+      },
+      "empty": {
+        "title": "No action templates yet",
+        "description": "Once you create a template, authorized users can run the whole flow on the workspace."
+      },
+      "modal": {
+        "newTitle": "New action template",
+        "editTitle": "Edit action template",
+        "kickerNew": "New Template",
+        "kickerEdit": "Template Editor",
+        "unnamedTemplate": "Unnamed action template",
+        "personalTag": "Personal template",
+        "adminTag": "Admin template",
+        "activeStatus": "Active",
+        "inactiveStatus": "Inactive"
+      },
+      "tabs": {
+        "basic": {
+          "label": "Basic information",
+          "hint": "Name, description, scope"
+        },
+        "params": {
+          "label": "Global parameters",
+          "hint": "Filled at runtime"
+        },
+        "steps": {
+          "label": "Execution steps",
+          "hint": "Action chain"
+        },
+        "auth": {
+          "label": "Authorization scope",
+          "hint": "Users and groups"
+        }
+      },
+      "basic": {
+        "name": "Template name",
+        "scope": "Template scope",
+        "description": "Description",
+        "hint": "Keep only the essentials; template name and scope decide how it appears on the workspace.",
+        "namePlaceholder": "e.g. Release preparation flow",
+        "descriptionPlaceholder": "Describe what this action set will do, and who should run it."
+      },
+      "params": {
+        "title": "Global parameters",
+        "hint": "Parameters can be referenced as ${param_name} in Jenkins parameters, branch names, or refs.",
+        "add": "Add parameter",
+        "fillExample": "Fill example",
+        "head": {
+          "name": "Parameter name",
+          "label": "Display name",
+          "default": "Default value",
+          "required": "Required"
+        },
+        "empty": {
+          "title": "No global parameters yet",
+          "description": "e.g. branch_name, source_ref; usable in Jenkins parameters or GitLab branch names.",
+          "cta": "Add parameter"
+        }
+      },
+      "steps": {
+        "title": "Execution steps",
+        "hint": "Steps are previewed as a flow by default; edit a single step only when you need to adjust it.",
+        "add": "Add step",
+        "policyContinue": "Fail and continue",
+        "policyStop": "Fail and stop",
+        "policyName": "Failure policy",
+        "empty": {
+          "title": "No execution steps yet",
+          "description": "Add the first action, such as triggering Jenkins or creating a GitLab branch.",
+          "cta": "Add step"
+        },
+        "noEditable": {
+          "title": "No editable step",
+          "description": "Add a step first, then enter the single-step editor.",
+          "cta": "Add step"
+        },
+        "editor": {
+          "kicker": "Step Editor",
+          "title": "Edit execution step",
+          "hint": "This editor only handles one step at a time. Return to the step preview to see the full chain.",
+          "back": "Back to step preview",
+          "name": "Step name",
+          "category": "Action category",
+          "specificAction": "Specific action",
+          "currentStep": "Current step",
+          "namePlaceholder": "e.g. Build backend service"
+        },
+        "types": {
+          "jenkins": "Jenkins",
+          "gitlab": "GitLab",
+          "approval": "Manual approval",
+          "jenkinsTrigger": "Trigger Jenkins",
+          "gitlabBranchCreate": "Create GitLab branch",
+          "gitlabBranchOperation": "GitLab branch operation",
+          "gitlabTagOperation": "GitLab tag operation",
+          "gitlabWebhookOperation": "GitLab webhook operation",
+          "manualApproval": "Manual approval",
+          "unknown": "Unrecognized action"
+        },
+        "step": "Step {count}"
+      },
+      "jenkins": {
+        "entry": "Trigger entry",
+        "selectEntry": "Select an entry",
+        "waitForCompletion": "Wait for the Jenkins build to complete before moving on",
+        "paramsTitle": "Jenkins parameters",
+        "loading": "Loading Jenkins parameters...",
+        "empty": "Pick a trigger entry to configure its Jenkins parameters one by one.",
+        "refresh": "Refresh parameters",
+        "advancedShow": "Advanced JSON",
+        "advancedHide": "Collapse JSON",
+        "placeholder": "BRANCH: ${branch_name}",
+        "tableHead": {
+          "param": "Parameter",
+          "source": "Value source",
+          "value": "Value"
+        },
+        "source": {
+          "default": "Use entry default",
+          "fixed": "Fixed value",
+          "param": "Use global parameter"
+        },
+        "modeReadonly": "Read-only",
+        "modeEditable": "Editable",
+        "valuePlaceholder": "Parameter value",
+        "selectParam": "Select a parameter"
+      },
+      "gitlab": {
+        "paramTitle": "Parameter settings",
+        "allowRuntime": "Allow extra projects at runtime",
+        "primaryFieldBranch": "Branch name",
+        "primaryFieldTag": "Tag name",
+        "primaryFieldUrl": "Webhook URL",
+        "primaryPlaceholderBranch": "${branch_name}",
+        "primaryPlaceholderTag": "v${version}",
+        "primaryPlaceholderUrl": "https://example.com/hooks/${channel}",
+        "ref": "Base ref",
+        "refPlaceholder": "main",
+        "branchFilter": "Branch filter",
+        "branchFilterPlaceholder": "Optional, e.g. ${branch_name}",
+        "triggerEvents": "Trigger events",
+        "push": "Push",
+        "tagPush": "Tag Push",
+        "mergeRequest": "Merge Request",
+        "sslVerify": "SSL verify",
+        "fixedProjects": "Fixed projects",
+        "selectedCount": "{count} selected",
+        "selectAll": "Select all current",
+        "clear": "Clear",
+        "group": "Project group",
+        "allGroups": "All project groups",
+        "search": "Search projects",
+        "searchPlaceholder": "Search project name or path",
+        "selectedOnly": "Selected only",
+        "emptyNoMatch": "No matching projects",
+        "emptyNoSelected": "No projects selected for this step",
+        "operations": {
+          "create": "Create branch",
+          "protect": "Protect branch",
+          "unprotect": "Unprotect branch"
+        },
+        "tagOperations": {
+          "create": "Create tag"
+        },
+        "webhookOperations": {
+          "create": "Create Webhook"
+        }
+      },
+      "approval": {
+        "message": "Approval message",
+        "messagePlaceholder": "Please confirm whether to continue with the following steps",
+        "users": "Approver users",
+        "groups": "Approver groups"
+      },
+      "auth": {
+        "title": "Authorization scope",
+        "hint": "Admin templates are visible only to authorized users or groups; personal templates are visible to the creator by default.",
+        "users": "Authorized users",
+        "groups": "Authorized groups"
+      },
+      "summary": {
+        "entry": "Entry",
+        "entryNotSelected": "No trigger entry selected",
+        "entryLabel": "Entry #{id}",
+        "wait": "Wait",
+        "waitComplete": "Wait for completion",
+        "triggerContinue": "Continue after trigger",
+        "branch": "Branch",
+        "base": "Base",
+        "operation": "Operation",
+        "tag": "Tag",
+        "url": "URL",
+        "urlNotSet": "URL not set",
+        "projects": "{count} project(s)",
+        "type": "Type",
+        "approverCount": "{count}",
+        "approverGroupLabel": "Groups",
+        "approverUserLabel": "Users",
+        "branchNameMissing": "Branch name not set",
+        "projectsLabel": "Projects",
+        "tagNameMissing": "Tag name not set",
+        "unknown": "Unrecognized"
+      },
+      "preview": {
+        "title": "Flow preview: {name}",
+        "titleFallback": "Flow preview",
+        "kicker": "Action Flow",
+        "noDescription": "No description",
+        "stepCount": "{count} step(s)",
+        "scopeAdmin": "Admin template",
+        "scopePersonal": "Personal template",
+        "empty": {
+          "title": "No execution steps yet",
+          "description": "Edit the template to add steps, then you can preview the flow here."
+        },
+        "branchCreateSummary": "{branch}, based on {ref}, {count} fixed project(s)",
+        "branchOperationSummary": "{operation}: {branch}{ref}, {count} fixed project(s)",
+        "tagCreateSummary": "Create tag: {tag}, based on {ref}, {count} fixed project(s)",
+        "webhookCreateSummary": "Create webhook: {url}, {count} fixed project(s)",
+        "approvalSummary": "Approver users {users}, approver groups {groups}",
+        "unknown": "Unrecognized action",
+        "basedOn": "based on {ref}"
+      },
+      "toast": {
+        "loadTemplatesFailed": "Failed to load action templates: {message}",
+        "loadJenkinsParamsFailed": "Failed to load Jenkins parameters: {message}",
+        "templateSaved": "Action template saved",
+        "templateDeleted": "Action template deleted",
+        "saveFailed": "Save failed: {message}",
+        "deleteFailed": "Delete failed: {message}",
+        "deleteConfirm": "Delete the action template \"{name}\"?"
+      },
+      "error": {
+        "nameRequired": "Please enter a template name",
+        "paramDuplicate": "Global parameter names must be unique",
+        "paramJsonInvalid": "Step {index} parameters are not valid JSON",
+        "jenkinsJsonInvalid": "Jenkins parameters are not valid JSON"
       }
     }
   },

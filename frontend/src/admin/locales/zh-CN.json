@@ -110,7 +110,9 @@
     "notificationStats": "通知统计",
     "notificationRecords": "发送记录",
     "notificationChannels": "通知渠道",
-    "notificationSettings": "通知设置"
+    "notificationSettings": "通知设置",
+    "actionOrchestration": "动作编排管理",
+    "actionTemplates": "动作模板"
   },
   "adminPages": {
     "ldap": {
@@ -582,8 +584,6 @@
       "allGroups": "全部群组",
       "allProjects": "全部项目",
       "selectGroup": "请选择群组",
-      "resourceLabels": "资源标签",
-      "noResourceLabels": "暂无资源标签",
       "selectProject": "请选择项目",
       "scopeTitle": "分支视图",
       "scopeHint": "按群组和项目聚焦查看分支，批量操作只作用于当前列表中勾选的分支。",
@@ -825,6 +825,278 @@
       },
       "toast": {
         "loadFailed": "加载操作记录失败: {message}"
+      }
+    },
+    "actionTemplates": {
+      "eyebrow": "动作编排",
+      "title": "动作模板管理",
+      "subtitle": "把 Jenkins、GitLab 分支和人工确认按顺序组合成可执行模板。",
+      "actions": {
+        "newTemplate": "新增模板",
+        "refresh": "刷新",
+        "preview": "预览",
+        "edit": "编辑",
+        "delete": "删除",
+        "close": "关闭",
+        "cancel": "取消",
+        "save": "保存模板",
+        "next": "下一步",
+        "previous": "上一步",
+        "remove": "移除",
+        "moveUp": "上移",
+        "moveDown": "下移",
+        "more": "更多"
+      },
+      "search": {
+        "label": "搜索模板",
+        "placeholder": "模板名称 / 描述"
+      },
+      "table": {
+        "template": "模板",
+        "authorization": "授权",
+        "status": "状态",
+        "actions": "操作",
+        "usersAndGroups": "用户 {users} / 群组 {groups}",
+        "noDescription": "无描述",
+        "active": "启用",
+        "inactive": "停用"
+      },
+      "empty": {
+        "title": "还没有动作模板",
+        "description": "新增模板后，授权用户可以在工作台执行整套动作。"
+      },
+      "modal": {
+        "newTitle": "新增动作模板",
+        "editTitle": "编辑动作模板",
+        "kickerNew": "New Template",
+        "kickerEdit": "Template Editor",
+        "unnamedTemplate": "未命名动作模板",
+        "personalTag": "个人模板",
+        "adminTag": "管理员模板",
+        "activeStatus": "已启用",
+        "inactiveStatus": "已停用"
+      },
+      "tabs": {
+        "basic": {
+          "label": "基础信息",
+          "hint": "名称、描述、范围"
+        },
+        "params": {
+          "label": "全局参数",
+          "hint": "执行时输入"
+        },
+        "steps": {
+          "label": "执行步骤",
+          "hint": "动作链路"
+        },
+        "auth": {
+          "label": "授权范围",
+          "hint": "用户和群组"
+        }
+      },
+      "basic": {
+        "name": "模板名称",
+        "scope": "模板范围",
+        "description": "描述",
+        "hint": "只保留必要字段，模板名称和范围决定它在工作台中的可见方式。",
+        "namePlaceholder": "例如：发版准备流程",
+        "descriptionPlaceholder": "说明这套动作会做什么，以及谁适合执行。"
+      },
+      "params": {
+        "title": "全局参数",
+        "hint": "参数可通过 ${param_name} 引用到 Jenkins 参数、分支名或 ref 中。",
+        "add": "新增参数",
+        "fillExample": "填入示例",
+        "head": {
+          "name": "参数名",
+          "label": "显示名",
+          "default": "默认值",
+          "required": "必填"
+        },
+        "empty": {
+          "title": "还没有全局参数",
+          "description": "例如 branch_name、source_ref，可在 Jenkins 参数或 GitLab 分支名中引用。",
+          "cta": "新增参数"
+        }
+      },
+      "steps": {
+        "title": "执行步骤",
+        "hint": "默认以流程预览方式查看步骤链路，需要调整某一步时再进入单独编辑页。",
+        "add": "添加步骤",
+        "policyContinue": "失败继续",
+        "policyStop": "失败停止",
+        "policyName": "失败策略",
+        "empty": {
+          "title": "还没有执行步骤",
+          "description": "添加第一个动作，比如触发 Jenkins 或新增 GitLab 分支。",
+          "cta": "添加步骤"
+        },
+        "noEditable": {
+          "title": "没有可编辑步骤",
+          "description": "先添加一个步骤，再进入单步骤编辑页。",
+          "cta": "添加步骤"
+        },
+        "editor": {
+          "kicker": "Step Editor",
+          "title": "编辑执行步骤",
+          "hint": "当前只处理一个步骤的配置，完成后返回步骤预览页查看整体链路。",
+          "back": "返回步骤预览",
+          "name": "步骤名称",
+          "category": "动作大类",
+          "specificAction": "具体动作",
+          "currentStep": "当前步骤",
+          "namePlaceholder": "例如：构建后端服务"
+        },
+        "types": {
+          "jenkins": "Jenkins",
+          "gitlab": "GitLab",
+          "approval": "人工确认",
+          "jenkinsTrigger": "触发 Jenkins",
+          "gitlabBranchCreate": "新增 GitLab 分支",
+          "gitlabBranchOperation": "GitLab 分支操作",
+          "gitlabTagOperation": "GitLab 标签操作",
+          "gitlabWebhookOperation": "GitLab Webhook 操作",
+          "manualApproval": "人工确认",
+          "unknown": "未识别动作"
+        },
+        "step": "步骤 {count}"
+      },
+      "jenkins": {
+        "entry": "触发入口",
+        "selectEntry": "请选择入口",
+        "waitForCompletion": "等待 Jenkins 构建完成后再进入下一步",
+        "paramsTitle": "Jenkins 参数",
+        "loading": "正在读取 Jenkins 参数...",
+        "empty": "选择触发入口后，可以在这里逐项配置 Jenkins 参数。",
+        "refresh": "刷新参数",
+        "advancedShow": "高级 JSON",
+        "advancedHide": "收起 JSON",
+        "placeholder": "BRANCH: ${branch_name}",
+        "tableHead": {
+          "param": "参数",
+          "source": "取值方式",
+          "value": "值"
+        },
+        "source": {
+          "default": "使用入口默认值",
+          "fixed": "固定值",
+          "param": "引用全局参数"
+        },
+        "modeReadonly": "只读",
+        "modeEditable": "可编辑",
+        "valuePlaceholder": "参数值",
+        "selectParam": "请选择参数"
+      },
+      "gitlab": {
+        "paramTitle": "参数设置",
+        "allowRuntime": "执行时可追加项目",
+        "primaryFieldBranch": "分支名",
+        "primaryFieldTag": "标签名",
+        "primaryFieldUrl": "Webhook URL",
+        "primaryPlaceholderBranch": "${branch_name}",
+        "primaryPlaceholderTag": "v${version}",
+        "primaryPlaceholderUrl": "https://example.com/hooks/${channel}",
+        "ref": "起点 ref",
+        "refPlaceholder": "main",
+        "branchFilter": "分支过滤",
+        "branchFilterPlaceholder": "可选，例如 ${branch_name}",
+        "triggerEvents": "触发事件",
+        "push": "Push",
+        "tagPush": "Tag Push",
+        "mergeRequest": "Merge Request",
+        "sslVerify": "SSL 校验",
+        "fixedProjects": "固定项目",
+        "selectedCount": "已选择 {count} 个",
+        "selectAll": "全选当前",
+        "clear": "清空",
+        "group": "项目组",
+        "allGroups": "全部项目组",
+        "search": "搜索项目",
+        "searchPlaceholder": "搜索项目名称或路径",
+        "selectedOnly": "只看已选",
+        "emptyNoMatch": "没有匹配的项目",
+        "emptyNoSelected": "当前步骤还没有选择项目",
+        "operations": {
+          "create": "新增分支",
+          "protect": "保护分支",
+          "unprotect": "取消保护分支"
+        },
+        "tagOperations": {
+          "create": "新增标签"
+        },
+        "webhookOperations": {
+          "create": "新增 Webhook"
+        }
+      },
+      "approval": {
+        "message": "确认说明",
+        "messagePlaceholder": "请确认是否继续执行后续步骤",
+        "users": "确认用户",
+        "groups": "确认群组"
+      },
+      "auth": {
+        "title": "授权范围",
+        "hint": "管理员模板只对授权用户或群组可见；个人模板默认只有创建人可见。",
+        "users": "授权用户",
+        "groups": "授权群组"
+      },
+      "summary": {
+        "entry": "入口",
+        "entryNotSelected": "未选择触发入口",
+        "entryLabel": "入口 #{id}",
+        "wait": "等待",
+        "waitComplete": "等待完成",
+        "triggerContinue": "触发后继续",
+        "branch": "分支",
+        "base": "起点",
+        "operation": "操作",
+        "tag": "标签",
+        "url": "URL",
+        "urlNotSet": "未设置",
+        "projects": "{count} 个",
+        "type": "类型",
+        "approverCount": "{count} 个",
+        "approverGroupLabel": "确认群组",
+        "approverUserLabel": "确认用户",
+        "branchNameMissing": "未设置分支名",
+        "projectsLabel": "项目",
+        "tagNameMissing": "未设置标签名",
+        "unknown": "未识别"
+      },
+      "preview": {
+        "title": "流程预览：{name}",
+        "titleFallback": "流程预览",
+        "kicker": "Action Flow",
+        "noDescription": "无描述",
+        "stepCount": "{count} 个步骤",
+        "scopeAdmin": "管理员模板",
+        "scopePersonal": "个人模板",
+        "empty": {
+          "title": "还没有执行步骤",
+          "description": "编辑模板添加步骤后，就可以在这里预览动作流程。"
+        },
+        "branchCreateSummary": "{branch}，基于 {ref}，固定项目 {count} 个",
+        "branchOperationSummary": "{operation}：{branch}{ref}，固定项目 {count} 个",
+        "tagCreateSummary": "新增标签：{tag}，基于 {ref}，固定项目 {count} 个",
+        "webhookCreateSummary": "新增 Webhook：{url}，固定项目 {count} 个",
+        "approvalSummary": "确认用户 {users} 个，确认群组 {groups} 个",
+        "unknown": "未识别动作",
+        "basedOn": "，基于 {ref}"
+      },
+      "toast": {
+        "loadTemplatesFailed": "加载动作模板失败：{message}",
+        "loadJenkinsParamsFailed": "读取 Jenkins 参数失败：{message}",
+        "templateSaved": "动作模板已保存",
+        "templateDeleted": "动作模板已删除",
+        "saveFailed": "保存失败：{message}",
+        "deleteFailed": "删除失败：{message}",
+        "deleteConfirm": "确定删除动作模板「{name}」吗？"
+      },
+      "error": {
+        "nameRequired": "请填写模板名称",
+        "paramDuplicate": "全局参数名不能重复",
+        "paramJsonInvalid": "步骤 {index} 参数不是合法 JSON",
+        "jenkinsJsonInvalid": "Jenkins 参数不是合法 JSON"
       }
     }
   },

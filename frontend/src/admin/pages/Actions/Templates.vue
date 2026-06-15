@@ -2,29 +2,29 @@
   <AdminLayout>
     <PageFrame
       variant="soft"
-      eyebrow="动作编排"
-      title="动作模板管理"
-      subtitle="把 Jenkins、GitLab 分支和人工确认按顺序组合成可执行模板。"
+      :eyebrow="t('adminPages.actionTemplates.eyebrow')"
+      :title="t('adminPages.actionTemplates.title')"
+      :subtitle="t('adminPages.actionTemplates.subtitle')"
     >
       <template #actions>
-        <BaseButton @click="openCreateModal">新增模板</BaseButton>
+        <BaseButton @click="openCreateModal">{{ t('adminPages.actionTemplates.actions.newTemplate') }}</BaseButton>
       </template>
 
       <section class="admin-list-layout">
         <div class="admin-filter-panel">
           <div class="admin-toolbar-start">
             <div class="admin-filter-field min-w-[18rem]">
-              <label class="admin-filter-label">搜索模板</label>
+              <label class="admin-filter-label">{{ t('adminPages.actionTemplates.search.label') }}</label>
               <input
                 v-model="searchQuery"
                 class="admin-filter-control"
-                placeholder="模板名称 / 描述"
+                :placeholder="t('adminPages.actionTemplates.search.placeholder')"
               />
             </div>
           </div>
           <div class="admin-toolbar-end">
             <BaseButton variant="secondary" size="sm" @click="loadTemplates">
-              刷新
+              {{ t('adminPages.actionTemplates.actions.refresh') }}
             </BaseButton>
           </div>
         </div>
@@ -32,10 +32,10 @@
         <AdminTable v-if="filteredTemplates.length">
           <thead>
             <tr>
-              <th class="admin-table-head">模板</th>
-              <th class="admin-table-head">授权</th>
-              <th class="admin-table-head">状态</th>
-              <th class="admin-table-head text-right">操作</th>
+              <th class="admin-table-head">{{ t('adminPages.actionTemplates.table.template') }}</th>
+              <th class="admin-table-head">{{ t('adminPages.actionTemplates.table.authorization') }}</th>
+              <th class="admin-table-head">{{ t('adminPages.actionTemplates.table.status') }}</th>
+              <th class="admin-table-head text-right">{{ t('adminPages.actionTemplates.table.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -49,13 +49,12 @@
                   {{ template.name }}
                 </div>
                 <div class="mt-1 max-w-xl truncate text-sm text-slate-500">
-                  {{ template.description || '无描述' }}
+                  {{ template.description || t('adminPages.actionTemplates.table.noDescription') }}
                 </div>
               </td>
               <td class="admin-table-cell">
                 <div class="text-sm text-slate-600">
-                  用户 {{ template.visible_users?.length || 0 }} / 群组
-                  {{ template.visible_groups?.length || 0 }}
+                  {{ t('adminPages.actionTemplates.table.usersAndGroups', { users: template.visible_users?.length || 0, groups: template.visible_groups?.length || 0 }) }}
                 </div>
               </td>
               <td class="admin-table-cell">
@@ -66,7 +65,7 @@
                       : 'admin-status-badge admin-status-badge--muted'
                   "
                 >
-                  {{ template.is_active ? '启用' : '停用' }}
+                  {{ template.is_active ? t('adminPages.actionTemplates.table.active') : t('adminPages.actionTemplates.table.inactive') }}
                 </span>
               </td>
               <td class="admin-table-cell">
@@ -76,21 +75,21 @@
                     size="sm"
                     @click="openPreviewModal(template)"
                   >
-                    预览
+                    {{ t('adminPages.actionTemplates.actions.preview') }}
                   </BaseButton>
                   <BaseButton
                     variant="secondary"
                     size="sm"
                     @click="openEditModal(template)"
                   >
-                    编辑
+                    {{ t('adminPages.actionTemplates.actions.edit') }}
                   </BaseButton>
                   <BaseButton
                     variant="danger"
                     size="sm"
                     @click="deleteTemplate(template)"
                   >
-                    删除
+                    {{ t('adminPages.actionTemplates.actions.delete') }}
                   </BaseButton>
                 </div>
               </td>
@@ -101,34 +100,34 @@
         <EmptyState
           v-else
           variant="admin"
-          title="还没有动作模板"
-          description="新增模板后，授权用户可以在工作台执行整套动作。"
+          :title="t('adminPages.actionTemplates.empty.title')"
+          :description="t('adminPages.actionTemplates.empty.description')"
         />
       </section>
 
       <BaseModal
         :show="showModal"
         size="wide"
-        :title="editingTemplate ? '编辑动作模板' : '新增动作模板'"
+        :title="editingTemplate ? t('adminPages.actionTemplates.modal.editTitle') : t('adminPages.actionTemplates.modal.newTitle')"
         @close="closeModal"
       >
         <div class="action-editor action-editor-redesigned">
           <section class="action-editor-topbar">
             <div class="action-editor-topbar-main">
               <span class="action-editor-kicker">
-                {{ editingTemplate ? 'Template Editor' : 'New Template' }}
+                {{ editingTemplate ? t('adminPages.actionTemplates.modal.kickerEdit') : t('adminPages.actionTemplates.modal.kickerNew') }}
               </span>
               <div class="action-editor-title-line">
-                <strong>{{ form.name || '未命名动作模板' }}</strong>
-                <em>{{ form.scope === 'admin' ? '管理员模板' : '个人模板' }}</em>
+                <strong>{{ form.name || t('adminPages.actionTemplates.modal.unnamedTemplate') }}</strong>
+                <em>{{ form.scope === 'admin' ? t('adminPages.actionTemplates.modal.adminTag') : t('adminPages.actionTemplates.modal.personalTag') }}</em>
               </div>
-              <small>{{ form.description || '在基础信息里补充模板描述' }}</small>
+              <small>{{ form.description || t('adminPages.actionTemplates.basic.hint') }}</small>
             </div>
 
             <div class="action-editor-topbar-actions">
               <label class="action-switch action-switch-pill">
                 <input v-model="form.is_active" type="checkbox" />
-                <span>{{ form.is_active ? '已启用' : '已停用' }}</span>
+                <span>{{ form.is_active ? t('adminPages.actionTemplates.modal.activeStatus') : t('adminPages.actionTemplates.modal.inactiveStatus') }}</span>
               </label>
               <div class="action-scope-switch">
                 <button
@@ -136,14 +135,14 @@
                   :class="{ active: form.scope === 'admin' }"
                   @click="form.scope = 'admin'"
                 >
-                  管理员模板
+                  {{ t('adminPages.actionTemplates.modal.adminTag') }}
                 </button>
                 <button
                   type="button"
                   :class="{ active: form.scope === 'personal' }"
                   @click="form.scope = 'personal'"
                 >
-                  个人模板
+                  {{ t('adminPages.actionTemplates.modal.personalTag') }}
                 </button>
               </div>
             </div>
@@ -169,27 +168,27 @@
             <main class="action-editor-panel">
               <section v-if="activeEditorTab === 'basic'" class="action-pane">
                 <div class="action-pane-heading">
-                  <h3>基础信息</h3>
-                  <p>只保留必要字段，模板名称和范围决定它在工作台中的可见方式。</p>
+                  <h3>{{ t('adminPages.actionTemplates.tabs.basic.label') }}</h3>
+                  <p>{{ t('adminPages.actionTemplates.basic.hint') }}</p>
                 </div>
                 <div class="action-field-grid">
                   <label class="action-field">
-                    <span>模板名称</span>
-                    <input v-model="form.name" placeholder="例如：发版准备流程" />
+                    <span>{{ t('adminPages.actionTemplates.basic.name') }}</span>
+                    <input v-model="form.name" :placeholder="t('adminPages.actionTemplates.basic.namePlaceholder')" />
                   </label>
                   <label class="action-field">
-                    <span>模板范围</span>
+                    <span>{{ t('adminPages.actionTemplates.basic.scope') }}</span>
                     <select v-model="form.scope">
-                      <option value="admin">管理员模板</option>
-                      <option value="personal">个人模板</option>
+                      <option value="admin">{{ t('adminPages.actionTemplates.modal.adminTag') }}</option>
+                      <option value="personal">{{ t('adminPages.actionTemplates.modal.personalTag') }}</option>
                     </select>
                   </label>
                   <label class="action-field action-field-wide">
-                    <span>描述</span>
+                    <span>{{ t('adminPages.actionTemplates.basic.description') }}</span>
                     <textarea
                       v-model="form.description"
                       rows="4"
-                      placeholder="说明这套动作会做什么，以及谁适合执行。"
+                      :placeholder="t('adminPages.actionTemplates.basic.descriptionPlaceholder')"
                     ></textarea>
                   </label>
                 </div>
@@ -198,25 +197,25 @@
               <section v-else-if="activeEditorTab === 'params'" class="action-pane">
                 <div class="action-pane-heading action-pane-heading-row">
                   <div>
-                    <h3>全局参数</h3>
-                    <p>参数可通过 ${param_name} 引用到 Jenkins 参数、分支名或 ref 中。</p>
+                    <h3>{{ t('adminPages.actionTemplates.params.title') }}</h3>
+                    <p>{{ t('adminPages.actionTemplates.params.hint') }}</p>
                   </div>
                   <div class="flex gap-2">
                     <BaseButton variant="secondary" size="sm" @click="addParamRow">
-                      新增参数
+                      {{ t('adminPages.actionTemplates.params.add') }}
                     </BaseButton>
                     <BaseButton variant="secondary" size="sm" @click="fillParamExample">
-                      填入示例
+                      {{ t('adminPages.actionTemplates.params.fillExample') }}
                     </BaseButton>
                   </div>
                 </div>
 
                 <div v-if="parameterRows.length" class="action-global-param-list">
                   <div class="action-global-param-head">
-                    <span>参数名</span>
-                    <span>显示名</span>
-                    <span>默认值</span>
-                    <span>必填</span>
+                    <span>{{ t('adminPages.actionTemplates.params.head.name') }}</span>
+                    <span>{{ t('adminPages.actionTemplates.params.head.label') }}</span>
+                    <span>{{ t('adminPages.actionTemplates.params.head.default') }}</span>
+                    <span>{{ t('adminPages.actionTemplates.params.head.required') }}</span>
                     <span></span>
                   </div>
                   <div
@@ -231,7 +230,7 @@
                     />
                     <input
                       v-model="param.label"
-                      placeholder="分支名"
+                      :placeholder="t('adminPages.actionTemplates.params.head.label')"
                       @input="syncParameterSchemaText"
                     />
                     <input
@@ -245,22 +244,22 @@
                         type="checkbox"
                         @change="syncParameterSchemaText"
                       />
-                      必填
+                      {{ t('adminPages.actionTemplates.params.head.required') }}
                     </label>
                     <button
                       type="button"
                       class="action-link-button"
                       @click="removeParamRow(index)"
                     >
-                      删除
+                      {{ t('adminPages.actionTemplates.actions.delete') }}
                     </button>
                   </div>
                 </div>
 
                 <div v-else class="action-empty-box">
-                  <strong>还没有全局参数</strong>
-                  <p>例如 branch_name、source_ref，可在 Jenkins 参数或 GitLab 分支名中引用。</p>
-                  <BaseButton size="sm" @click="addParamRow">新增参数</BaseButton>
+                  <strong>{{ t('adminPages.actionTemplates.params.empty.title') }}</strong>
+                  <p>{{ t('adminPages.actionTemplates.params.empty.description') }}</p>
+                  <BaseButton size="sm" @click="addParamRow">{{ t('adminPages.actionTemplates.params.empty.cta') }}</BaseButton>
                 </div>
               </section>
 
@@ -268,11 +267,11 @@
                 <template v-if="!stepEditorOpen">
                   <div class="action-pane-heading action-pane-heading-row">
                     <div>
-                      <h3>执行步骤</h3>
-                      <p>默认以流程预览方式查看步骤链路，需要调整某一步时再进入单独编辑页。</p>
+                      <h3>{{ t('adminPages.actionTemplates.steps.title') }}</h3>
+                      <p>{{ t('adminPages.actionTemplates.steps.hint') }}</p>
                     </div>
                     <BaseButton variant="secondary" size="sm" @click="addStepAndEdit">
-                      添加步骤
+                      {{ t('adminPages.actionTemplates.steps.add') }}
                     </BaseButton>
                   </div>
 
@@ -294,7 +293,7 @@
                             </div>
                             <div class="action-flow-node-index">{{ index + 1 }}</div>
                           </div>
-                          <h4>{{ step.name || `步骤 ${index + 1}` }}</h4>
+                          <h4>{{ step.name || t('adminPages.actionTemplates.steps.step', { count: index + 1 }) }}</h4>
                           <dl class="action-flow-node-summary">
                             <div
                               v-for="item in stepSummaryItems(step)"
@@ -312,7 +311,7 @@
                                   : 'action-flow-policy'
                               "
                             >
-                              {{ step.failure_policy === 'continue' ? '失败继续' : '失败停止' }}
+                              {{ step.failure_policy === 'continue' ? t('adminPages.actionTemplates.steps.policyContinue') : t('adminPages.actionTemplates.steps.policyStop') }}
                             </span>
                             <div class="action-flow-node-actions">
                               <button
@@ -320,27 +319,27 @@
                                 class="action-flow-node-edit"
                                 @click.stop="openStepEditor(index)"
                               >
-                                编辑
+                                {{ t('adminPages.actionTemplates.actions.edit') }}
                               </button>
                               <details class="action-flow-node-more" @click.stop>
-                                <summary>更多</summary>
+                                <summary>{{ t('adminPages.actionTemplates.actions.more') }}</summary>
                                 <div class="action-flow-node-menu">
                                   <button
                                     type="button"
                                     :disabled="index === 0"
                                     @click="moveStep(index, -1)"
                                   >
-                                    上移
+                                    {{ t('adminPages.actionTemplates.actions.moveUp') }}
                                   </button>
                                   <button
                                     type="button"
                                     :disabled="index === form.steps.length - 1"
                                     @click="moveStep(index, 1)"
                                   >
-                                    下移
+                                    {{ t('adminPages.actionTemplates.actions.moveDown') }}
                                   </button>
                                   <button type="button" @click="removeStep(index)">
-                                    删除
+                                    {{ t('adminPages.actionTemplates.actions.delete') }}
                                   </button>
                                 </div>
                               </details>
@@ -357,29 +356,29 @@
                   </div>
 
                   <div v-else class="action-empty-box">
-                    <strong>还没有执行步骤</strong>
-                    <p>添加第一个动作，比如触发 Jenkins 或新增 GitLab 分支。</p>
-                    <BaseButton size="sm" @click="addStepAndEdit">添加步骤</BaseButton>
+                    <strong>{{ t('adminPages.actionTemplates.steps.empty.title') }}</strong>
+                    <p>{{ t('adminPages.actionTemplates.steps.empty.description') }}</p>
+                    <BaseButton size="sm" @click="addStepAndEdit">{{ t('adminPages.actionTemplates.steps.empty.cta') }}</BaseButton>
                   </div>
                 </template>
 
                 <template v-else>
                   <div class="action-pane-heading action-pane-heading-row">
                     <div>
-                      <p class="action-editor-eyebrow">Step Editor</p>
-                      <h3>编辑执行步骤</h3>
-                      <p>当前只处理一个步骤的配置，完成后返回步骤预览页查看整体链路。</p>
+                      <p class="action-editor-eyebrow">{{ t('adminPages.actionTemplates.steps.editor.kicker') }}</p>
+                      <h3>{{ t('adminPages.actionTemplates.steps.editor.title') }}</h3>
+                      <p>{{ t('adminPages.actionTemplates.steps.editor.hint') }}</p>
                     </div>
                     <BaseButton variant="secondary" size="sm" @click="closeStepEditor">
-                      返回步骤预览
+                      {{ t('adminPages.actionTemplates.steps.editor.back') }}
                     </BaseButton>
                   </div>
 
                   <article v-if="selectedStep" class="action-step-detail action-step-detail--page">
                     <div class="action-step-detail-head">
                       <div>
-                        <p>当前步骤</p>
-                        <h4>{{ selectedStep.name || `步骤 ${selectedStepIndex + 1}` }}</h4>
+                        <p>{{ t('adminPages.actionTemplates.steps.editor.currentStep') }}</p>
+                        <h4>{{ selectedStep.name || t('adminPages.actionTemplates.steps.step', { count: selectedStepIndex + 1 }) }}</h4>
                       </div>
                       <div class="flex gap-2">
                         <BaseButton
@@ -388,7 +387,7 @@
                           :disabled="selectedStepIndex === 0"
                           @click="moveStep(selectedStepIndex, -1)"
                         >
-                          上移
+                          {{ t('adminPages.actionTemplates.actions.moveUp') }}
                         </BaseButton>
                         <BaseButton
                           variant="secondary"
@@ -396,39 +395,39 @@
                           :disabled="selectedStepIndex === form.steps.length - 1"
                           @click="moveStep(selectedStepIndex, 1)"
                         >
-                          下移
+                          {{ t('adminPages.actionTemplates.actions.moveDown') }}
                         </BaseButton>
                         <BaseButton
                           variant="ghost"
                           size="sm"
                           @click="removeStep(selectedStepIndex)"
                         >
-                          移除
+                          {{ t('adminPages.actionTemplates.actions.remove') }}
                         </BaseButton>
                       </div>
                     </div>
 
                     <div class="action-field-grid action-step-grid">
                       <label class="action-field">
-                        <span>步骤名称</span>
+                        <span>{{ t('adminPages.actionTemplates.steps.editor.name') }}</span>
                         <input
                           v-model="selectedStep.name"
-                          placeholder="例如：构建后端服务"
+                          :placeholder="t('adminPages.actionTemplates.steps.editor.namePlaceholder')"
                         />
                       </label>
                       <label class="action-field">
-                        <span>动作大类</span>
+                        <span>{{ t('adminPages.actionTemplates.steps.editor.category') }}</span>
                         <select
                           :value="actionCategory(selectedStep)"
                           @change="setActionCategory(selectedStep, $event.target.value)"
                         >
-                          <option value="jenkins">Jenkins</option>
-                          <option value="gitlab">GitLab</option>
-                          <option value="approval">人工确认</option>
+                          <option value="jenkins">{{ t('adminPages.actionTemplates.steps.types.jenkins') }}</option>
+                          <option value="gitlab">{{ t('adminPages.actionTemplates.steps.types.gitlab') }}</option>
+                          <option value="approval">{{ t('adminPages.actionTemplates.steps.types.approval') }}</option>
                         </select>
                       </label>
                       <label v-if="isGitLabStep(selectedStep)" class="action-field">
-                        <span>具体动作</span>
+                        <span>{{ t('adminPages.actionTemplates.steps.editor.specificAction') }}</span>
                         <select
                           :value="gitlabStepValue(selectedStep)"
                           @change="setGitLabStepValue(selectedStep, $event.target.value)"
@@ -443,10 +442,10 @@
                         </select>
                       </label>
                       <label class="action-field">
-                        <span>失败策略</span>
+                        <span>{{ t('adminPages.actionTemplates.steps.policyName') }}</span>
                         <select v-model="selectedStep.failure_policy">
-                          <option value="stop">失败停止</option>
-                          <option value="continue">失败继续</option>
+                          <option value="stop">{{ t('adminPages.actionTemplates.steps.policyStop') }}</option>
+                          <option value="continue">{{ t('adminPages.actionTemplates.steps.policyContinue') }}</option>
                         </select>
                       </label>
                     </div>
@@ -456,12 +455,12 @@
                       class="action-step-config"
                     >
                       <label class="action-field">
-                        <span>触发入口</span>
+                        <span>{{ t('adminPages.actionTemplates.jenkins.entry') }}</span>
                         <select
                           v-model.number="selectedStep.config.entry_id"
                           @change="loadJenkinsStepParams(selectedStep)"
                         >
-                          <option value="">请选择入口</option>
+                          <option value="">{{ t('adminPages.actionTemplates.jenkins.selectEntry') }}</option>
                           <option
                             v-for="entry in jenkinsEntries"
                             :key="entry.id"
@@ -476,11 +475,11 @@
                           v-model="selectedStep.config.wait_for_completion"
                           type="checkbox"
                         />
-                        等待 Jenkins 构建完成后再进入下一步
+                        {{ t('adminPages.actionTemplates.jenkins.waitForCompletion') }}
                       </label>
                       <div class="action-field action-field-wide">
                         <div class="action-param-head">
-                          <span>Jenkins 参数</span>
+                          <span>{{ t('adminPages.actionTemplates.jenkins.paramsTitle') }}</span>
                           <div class="flex items-center gap-2">
                             <button
                               type="button"
@@ -488,29 +487,29 @@
                               :disabled="!selectedStep.config.entry_id"
                               @click="loadJenkinsStepParams(selectedStep)"
                             >
-                              刷新参数
+                              {{ t('adminPages.actionTemplates.jenkins.refresh') }}
                             </button>
                             <button
                               type="button"
                               class="action-link-button"
                               @click="toggleJenkinsAdvanced(selectedStep)"
                             >
-                              {{ selectedStep.showAdvancedParams ? '收起 JSON' : '高级 JSON' }}
+                              {{ selectedStep.showAdvancedParams ? t('adminPages.actionTemplates.jenkins.advancedHide') : t('adminPages.actionTemplates.jenkins.advancedShow') }}
                             </button>
                           </div>
                         </div>
 
                         <div v-if="selectedStep.paramsLoading" class="action-param-empty">
-                          正在读取 Jenkins 参数...
+                          {{ t('adminPages.actionTemplates.jenkins.loading') }}
                         </div>
                         <div
                           v-else-if="selectedStep.paramRows?.length"
                           class="action-param-table"
                         >
                           <div class="action-param-table-head">
-                            <span>参数</span>
-                            <span>取值方式</span>
-                            <span>值</span>
+                            <span>{{ t('adminPages.actionTemplates.jenkins.tableHead.param') }}</span>
+                            <span>{{ t('adminPages.actionTemplates.jenkins.tableHead.source') }}</span>
+                            <span>{{ t('adminPages.actionTemplates.jenkins.tableHead.value') }}</span>
                           </div>
                           <div
                             v-for="row in selectedStep.paramRows"
@@ -527,7 +526,7 @@
                                       : 'action-param-mode editable'
                                   "
                                 >
-                                  {{ row.mode === 'readonly' ? '只读' : '可编辑' }}
+                                  {{ row.mode === 'readonly' ? t('adminPages.actionTemplates.jenkins.modeReadonly') : t('adminPages.actionTemplates.jenkins.modeEditable') }}
                                 </em>
                               </strong>
                               <small>{{ row.description || row.type || 'String' }}</small>
@@ -536,16 +535,16 @@
                               v-if="row.mode === 'readonly'"
                               class="action-param-readonly-mode"
                             >
-                              入口固定
+                              {{ t('adminPages.actionTemplates.jenkins.entry') }}
                             </div>
                             <select
                               v-else
                               v-model="row.source"
                               @change="syncJenkinsParamsFromRows(selectedStep)"
                             >
-                              <option value="default">使用入口默认值</option>
-                              <option value="fixed">固定值</option>
-                              <option value="param">引用全局参数</option>
+                              <option value="default">{{ t('adminPages.actionTemplates.jenkins.source.default') }}</option>
+                              <option value="fixed">{{ t('adminPages.actionTemplates.jenkins.source.fixed') }}</option>
+                              <option value="param">{{ t('adminPages.actionTemplates.jenkins.source.param') }}</option>
                             </select>
                             <select
                               v-if="row.source === 'param'"
@@ -553,7 +552,7 @@
                               :disabled="row.mode === 'readonly'"
                               @change="syncJenkinsParamsFromRows(selectedStep)"
                             >
-                              <option value="">请选择参数</option>
+                              <option value="">{{ t('adminPages.actionTemplates.jenkins.selectParam') }}</option>
                               <option
                                 v-for="param in globalParamNames"
                                 :key="param"
@@ -580,13 +579,13 @@
                               v-else
                               v-model="row.value"
                               :disabled="row.source === 'default' || row.mode === 'readonly'"
-                              placeholder="参数值"
+                              :placeholder="t('adminPages.actionTemplates.jenkins.valuePlaceholder')"
                               @input="syncJenkinsParamsFromRows(selectedStep)"
                             />
                           </div>
                         </div>
                         <div v-else class="action-param-empty">
-                          选择触发入口后，可以在这里逐项配置 Jenkins 参数。
+                          {{ t('adminPages.actionTemplates.jenkins.empty') }}
                         </div>
 
                         <textarea
@@ -595,7 +594,7 @@
                           rows="5"
                           class="mt-3"
                           spellcheck="false"
-                          placeholder='{"BRANCH": "${branch_name}"}'
+                          :placeholder="t('adminPages.actionTemplates.jenkins.placeholder')"
                           @input="syncJenkinsRowsFromParamsText(selectedStep)"
                         ></textarea>
                       </div>
@@ -608,7 +607,7 @@
                       <section class="action-gitlab-section">
                         <div class="action-gitlab-section-head">
                           <div>
-                            <strong>参数设置</strong>
+                            <strong>{{ t('adminPages.actionTemplates.gitlab.paramTitle') }}</strong>
                             <small>{{ gitlabOperationText(selectedStep) }}</small>
                           </div>
                           <label class="action-inline-switch">
@@ -616,7 +615,7 @@
                               v-model="selectedStep.config.allow_runtime_project_selection"
                               type="checkbox"
                             />
-                            <span>执行时可追加项目</span>
+                            <span>{{ t('adminPages.actionTemplates.gitlab.allowRuntime') }}</span>
                           </label>
                         </div>
 
@@ -632,41 +631,41 @@
                             v-if="gitlabNeedsRef(selectedStep)"
                             class="action-field"
                           >
-                            <span>起点 ref</span>
-                            <input v-model="selectedStep.config.ref" placeholder="main" />
+                            <span>{{ t('adminPages.actionTemplates.gitlab.ref') }}</span>
+                            <input v-model="selectedStep.config.ref" :placeholder="t('adminPages.actionTemplates.gitlab.refPlaceholder')" />
                           </label>
                           <template v-if="selectedStep.action_type === 'gitlab_webhook_operation'">
                             <label class="action-field">
-                              <span>分支过滤</span>
+                              <span>{{ t('adminPages.actionTemplates.gitlab.branchFilter') }}</span>
                               <input
                                 v-model="selectedStep.config.push_events_branch_filter"
-                                placeholder="可选，例如 ${branch_name}"
+                                :placeholder="t('adminPages.actionTemplates.gitlab.branchFilterPlaceholder')"
                               />
                             </label>
                             <div class="action-field action-field-wide">
-                              <span>触发事件</span>
+                              <span>{{ t('adminPages.actionTemplates.gitlab.triggerEvents') }}</span>
                               <div class="action-toggle-row">
                                 <label class="action-checkbox-line">
                                   <input v-model="selectedStep.config.push_events" type="checkbox" />
-                                  Push
+                                  {{ t('adminPages.actionTemplates.gitlab.push') }}
                                 </label>
                                 <label class="action-checkbox-line">
                                   <input v-model="selectedStep.config.tag_push_events" type="checkbox" />
-                                  Tag Push
+                                  {{ t('adminPages.actionTemplates.gitlab.tagPush') }}
                                 </label>
                                 <label class="action-checkbox-line">
                                   <input
                                     v-model="selectedStep.config.merge_requests_events"
                                     type="checkbox"
                                   />
-                                  Merge Request
+                                  {{ t('adminPages.actionTemplates.gitlab.mergeRequest') }}
                                 </label>
                                 <label class="action-checkbox-line">
                                   <input
                                     v-model="selectedStep.config.enable_ssl_verification"
                                     type="checkbox"
                                   />
-                                  SSL 校验
+                                  {{ t('adminPages.actionTemplates.gitlab.sslVerify') }}
                                 </label>
                               </div>
                             </div>
@@ -677,8 +676,8 @@
                       <section class="action-gitlab-section">
                         <div class="action-gitlab-section-head">
                           <div>
-                            <strong>固定项目</strong>
-                            <small>已选择 {{ selectedStep.config.project_ids?.length || 0 }} 个</small>
+                            <strong>{{ t('adminPages.actionTemplates.gitlab.fixedProjects') }}</strong>
+                            <small>{{ t('adminPages.actionTemplates.gitlab.selectedCount', { count: selectedStep.config.project_ids?.length || 0 }) }}</small>
                           </div>
                           <div class="action-project-picker-actions">
                             <button
@@ -686,7 +685,7 @@
                               :disabled="!filteredActionProjects.length"
                               @click="selectAllActionProjects(selectedStep)"
                             >
-                              全选当前
+                              {{ t('adminPages.actionTemplates.gitlab.selectAll') }}
                             </button>
                             <span>|</span>
                             <button
@@ -694,15 +693,15 @@
                               :disabled="!selectedStep.config.project_ids?.length"
                               @click="clearActionProjects(selectedStep)"
                             >
-                              清空
+                              {{ t('adminPages.actionTemplates.gitlab.clear') }}
                             </button>
                           </div>
                         </div>
                         <div class="action-project-picker-toolbar">
                           <label class="action-field">
-                            <span>项目组</span>
+                            <span>{{ t('adminPages.actionTemplates.gitlab.group') }}</span>
                             <select v-model="actionProjectGroupFilter">
-                              <option value="">全部项目组</option>
+                              <option value="">{{ t('adminPages.actionTemplates.gitlab.allGroups') }}</option>
                               <option
                                 v-for="group in actionProjectGroupOptions"
                                 :key="group.id"
@@ -713,15 +712,15 @@
                             </select>
                           </label>
                           <label class="action-field">
-                            <span>搜索项目</span>
+                            <span>{{ t('adminPages.actionTemplates.gitlab.search') }}</span>
                             <input
                               v-model="actionProjectSearch"
-                              placeholder="搜索项目名称或路径"
+                              :placeholder="t('adminPages.actionTemplates.gitlab.searchPlaceholder')"
                             />
                           </label>
                           <label class="action-project-selected-only">
                             <input v-model="actionProjectSelectedOnly" type="checkbox" />
-                            <span>只看已选</span>
+                            <span>{{ t('adminPages.actionTemplates.gitlab.selectedOnly') }}</span>
                           </label>
                         </div>
                         <div v-if="filteredActionProjects.length" class="action-project-grid">
@@ -746,8 +745,8 @@
                         <div v-else class="action-project-empty">
                           {{
                             actionProjectSelectedOnly
-                              ? '当前步骤还没有选择项目'
-                              : '没有匹配的项目'
+                              ? t('adminPages.actionTemplates.gitlab.emptyNoSelected')
+                              : t('adminPages.actionTemplates.gitlab.emptyNoMatch')
                           }}
                         </div>
                       </section>
@@ -755,15 +754,15 @@
 
                     <div v-else class="action-step-config">
                       <label class="action-field action-field-wide">
-                        <span>确认说明</span>
+                        <span>{{ t('adminPages.actionTemplates.approval.message') }}</span>
                         <textarea
                           v-model="selectedStep.config.message"
                           rows="3"
-                          placeholder="请确认是否继续执行后续步骤"
+                          :placeholder="t('adminPages.actionTemplates.approval.messagePlaceholder')"
                         ></textarea>
                       </label>
                       <div class="action-field">
-                        <span>确认用户</span>
+                        <span>{{ t('adminPages.actionTemplates.approval.users') }}</span>
                         <div class="action-option-grid compact">
                           <label
                             v-for="user in users"
@@ -781,7 +780,7 @@
                         </div>
                       </div>
                       <div class="action-field">
-                        <span>确认群组</span>
+                        <span>{{ t('adminPages.actionTemplates.approval.groups') }}</span>
                         <div class="action-option-grid compact">
                           <label
                             v-for="group in groups"
@@ -802,21 +801,21 @@
                   </article>
 
                   <div v-else class="action-empty-box">
-                    <strong>没有可编辑步骤</strong>
-                    <p>先添加一个步骤，再进入单步骤编辑页。</p>
-                    <BaseButton size="sm" @click="addStepAndEdit">添加步骤</BaseButton>
+                    <strong>{{ t('adminPages.actionTemplates.steps.noEditable.title') }}</strong>
+                    <p>{{ t('adminPages.actionTemplates.steps.noEditable.description') }}</p>
+                    <BaseButton size="sm" @click="addStepAndEdit">{{ t('adminPages.actionTemplates.steps.noEditable.cta') }}</BaseButton>
                   </div>
                 </template>
               </section>
 
               <section v-else class="action-pane">
                 <div class="action-pane-heading">
-                  <h3>授权范围</h3>
-                  <p>管理员模板只对授权用户或群组可见；个人模板默认只有创建人可见。</p>
+                  <h3>{{ t('adminPages.actionTemplates.auth.title') }}</h3>
+                  <p>{{ t('adminPages.actionTemplates.auth.hint') }}</p>
                 </div>
                 <div class="action-auth-grid">
                   <div class="action-field">
-                    <span>授权用户</span>
+                    <span>{{ t('adminPages.actionTemplates.auth.users') }}</span>
                     <div class="action-option-grid tall">
                       <label
                         v-for="user in users"
@@ -834,7 +833,7 @@
                     </div>
                   </div>
                   <div class="action-field">
-                    <span>授权群组</span>
+                    <span>{{ t('adminPages.actionTemplates.auth.groups') }}</span>
                     <div class="action-option-grid tall">
                       <label
                         v-for="group in groups"
@@ -864,19 +863,19 @@
         <template #footer>
           <div class="action-editor-footer">
             <div class="action-editor-footer-actions">
-              <BaseButton variant="secondary" @click="closeModal">取消</BaseButton>
+              <BaseButton variant="secondary" @click="closeModal">{{ t('adminPages.actionTemplates.actions.cancel') }}</BaseButton>
               <BaseButton
                 v-if="!isFirstEditorTab"
                 variant="secondary"
                 @click="goPreviousEditorTab"
               >
-                上一步
+                {{ t('adminPages.actionTemplates.actions.previous') }}
               </BaseButton>
               <BaseButton v-if="!isLastEditorTab" @click="goNextEditorTab">
-                下一步
+                {{ t('adminPages.actionTemplates.actions.next') }}
               </BaseButton>
               <BaseButton v-else :loading="saving" @click="saveTemplate">
-                保存模板
+                {{ t('adminPages.actionTemplates.actions.save') }}
               </BaseButton>
             </div>
           </div>
@@ -886,22 +885,22 @@
       <BaseModal
         :show="showPreviewModal"
         size="wide"
-        :title="previewTemplate ? `流程预览：${previewTemplate.name}` : '流程预览'"
+        :title="previewTemplate ? t('adminPages.actionTemplates.preview.title') : t('adminPages.actionTemplates.preview.titleFallback')"
         @close="closePreviewModal"
       >
         <div v-if="previewTemplate" class="action-preview">
           <section class="action-preview-summary">
             <div>
-              <p class="action-editor-eyebrow">Action Flow</p>
+              <p class="action-editor-eyebrow">{{ t('adminPages.actionTemplates.preview.kicker') }}</p>
               <h3>{{ previewTemplate.name }}</h3>
-              <p>{{ previewTemplate.description || '无描述' }}</p>
+              <p>{{ previewTemplate.description || t('adminPages.actionTemplates.preview.noDescription') }}</p>
             </div>
             <div class="action-preview-stats">
-              <span>{{ previewTemplate.steps?.length || 0 }} 个步骤</span>
+              <span>{{ t('adminPages.actionTemplates.preview.stepCount', { count: previewTemplate.steps?.length || 0 }) }}</span>
               <span>
-                {{ previewTemplate.scope === 'admin' ? '管理员模板' : '个人模板' }}
+                {{ previewTemplate.scope === 'admin' ? t('adminPages.actionTemplates.preview.scopeAdmin') : t('adminPages.actionTemplates.preview.scopePersonal') }}
               </span>
-              <span>{{ previewTemplate.is_active ? '启用' : '停用' }}</span>
+              <span>{{ previewTemplate.is_active ? t('adminPages.actionTemplates.table.active') : t('adminPages.actionTemplates.table.inactive') }}</span>
             </div>
           </section>
 
@@ -917,7 +916,7 @@
                 <div class="action-flow-node-type">
                   {{ actionTypeText(step.action_type) }}
                 </div>
-                <h4>{{ step.name || `步骤 ${index + 1}` }}</h4>
+                <h4>{{ step.name || t('adminPages.actionTemplates.steps.step', { count: index + 1 }) }}</h4>
                 <p>{{ previewStepSummary(step) }}</p>
                 <span
                   :class="
@@ -926,7 +925,7 @@
                       : 'action-flow-policy'
                   "
                 >
-                  {{ step.failure_policy === 'continue' ? '失败继续' : '失败停止' }}
+                  {{ step.failure_policy === 'continue' ? t('adminPages.actionTemplates.steps.policyContinue') : t('adminPages.actionTemplates.steps.policyStop') }}
                 </span>
               </div>
               <div v-if="index < previewSteps.length - 1" class="action-flow-arrow">
@@ -936,14 +935,14 @@
           </div>
 
           <div v-else class="action-empty-box">
-            <strong>还没有执行步骤</strong>
-            <p>编辑模板添加步骤后，就可以在这里预览动作流程。</p>
+            <strong>{{ t('adminPages.actionTemplates.preview.empty.title') }}</strong>
+            <p>{{ t('adminPages.actionTemplates.preview.empty.description') }}</p>
           </div>
         </div>
 
         <template #footer>
           <div class="flex w-full justify-end">
-            <BaseButton @click="closePreviewModal">关闭</BaseButton>
+            <BaseButton @click="closePreviewModal">{{ t('adminPages.actionTemplates.actions.close') }}</BaseButton>
           </div>
         </template>
       </BaseModal>
@@ -963,6 +962,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import AdminTable from '@/admin/components/AdminTable.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -973,6 +973,8 @@ import actionsApi from '@/api/actions'
 import jenkinsApi from '@/api/jenkins'
 import gitlabApi from '@/api/gitlab'
 import { managementApi } from '@/admin/api/management'
+
+const { t } = useI18n()
 
 const templates = ref([])
 const users = ref([])
@@ -1016,26 +1018,26 @@ const editorTabs = computed(() => [
   {
     key: 'basic',
     index: '01',
-    label: '基础信息',
-    hint: '名称、描述、范围'
+    label: t('adminPages.actionTemplates.tabs.basic.label'),
+    hint: t('adminPages.actionTemplates.tabs.basic.hint')
   },
   {
     key: 'params',
     index: '02',
-    label: '全局参数',
-    hint: '执行时输入'
+    label: t('adminPages.actionTemplates.tabs.params.label'),
+    hint: t('adminPages.actionTemplates.tabs.params.hint')
   },
   {
     key: 'steps',
     index: '03',
-    label: '执行步骤',
-    hint: '动作链路'
+    label: t('adminPages.actionTemplates.tabs.steps.label'),
+    hint: t('adminPages.actionTemplates.tabs.steps.hint')
   },
   {
     key: 'auth',
     index: '04',
-    label: '授权范围',
-    hint: '用户和群组'
+    label: t('adminPages.actionTemplates.tabs.auth.label'),
+    hint: t('adminPages.actionTemplates.tabs.auth.hint')
   }
 ])
 
@@ -1097,23 +1099,23 @@ const globalParamNames = computed(() => {
 const gitlabStepOptions = [
   {
     value: 'gitlab_branch_operation:create',
-    label: '新增分支'
+    label: t('adminPages.actionTemplates.gitlab.operations.create')
   },
   {
     value: 'gitlab_branch_operation:protect',
-    label: '保护分支'
+    label: t('adminPages.actionTemplates.gitlab.operations.protect')
   },
   {
     value: 'gitlab_branch_operation:unprotect',
-    label: '取消保护分支'
+    label: t('adminPages.actionTemplates.gitlab.operations.unprotect')
   },
   {
     value: 'gitlab_tag_operation:create',
-    label: '新增标签'
+    label: t('adminPages.actionTemplates.gitlab.tagOperations.create')
   },
   {
     value: 'gitlab_webhook_operation:create',
-    label: '新增 Webhook'
+    label: t('adminPages.actionTemplates.gitlab.webhookOperations.create')
   }
 ]
 
@@ -1146,7 +1148,7 @@ async function loadTemplates() {
   try {
     templates.value = normalizeList(await actionsApi.listAdminTemplates())
   } catch (error) {
-    showToast(error.message || '加载动作模板失败', 'error')
+    showToast(t('adminPages.actionTemplates.toast.loadTemplatesFailed', { message: error.message || '' }), 'error')
   }
 }
 
@@ -1238,8 +1240,8 @@ function closePreviewModal() {
 
 function fillParamExample() {
   parameterRows.value = buildParameterRows([
-    { name: 'branch_name', label: '分支名', required: true, default: '' },
-    { name: 'source_ref', label: '起点 ref', required: false, default: 'main' }
+    { name: 'branch_name', label: t('adminPages.actionTemplates.params.head.name'), required: true, default: '' },
+    { name: 'source_ref', label: t('adminPages.actionTemplates.gitlab.ref'), required: false, default: t('adminPages.actionTemplates.gitlab.refPlaceholder') }
   ])
   syncParameterSchemaText()
 }
@@ -1352,7 +1354,7 @@ function normalizeStep(step = {}) {
 function addStep() {
   form.value.steps.push(
     normalizeStep({
-      name: `步骤 ${form.value.steps.length + 1}`,
+      name: t('adminPages.actionTemplates.steps.step', { count: form.value.steps.length + 1 }),
       order: form.value.steps.length + 1
     })
   )
@@ -1471,16 +1473,16 @@ function isGitLabStep(step) {
 function gitlabOperationOptions(actionType) {
   if (actionType === 'gitlab_branch_create' || actionType === 'gitlab_branch_operation') {
     return [
-      { value: 'create', label: '新增分支' },
-      { value: 'protect', label: '保护分支' },
-      { value: 'unprotect', label: '取消保护分支' }
+      { value: 'create', label: t('adminPages.actionTemplates.gitlab.operations.create') },
+      { value: 'protect', label: t('adminPages.actionTemplates.gitlab.operations.protect') },
+      { value: 'unprotect', label: t('adminPages.actionTemplates.gitlab.operations.unprotect') }
     ]
   }
   if (actionType === 'gitlab_tag_operation') {
-    return [{ value: 'create', label: '新增标签' }]
+    return [{ value: 'create', label: t('adminPages.actionTemplates.gitlab.tagOperations.create') }]
   }
   if (actionType === 'gitlab_webhook_operation') {
-    return [{ value: 'create', label: '新增 Webhook' }]
+    return [{ value: 'create', label: t('adminPages.actionTemplates.gitlab.webhookOperations.create') }]
   }
   return []
 }
@@ -1492,15 +1494,15 @@ function gitlabPrimaryFieldKey(step) {
 }
 
 function gitlabPrimaryFieldLabel(step) {
-  if (step?.action_type === 'gitlab_tag_operation') return '标签名'
-  if (step?.action_type === 'gitlab_webhook_operation') return 'Webhook URL'
-  return '分支名'
+  if (step?.action_type === 'gitlab_tag_operation') return t('adminPages.actionTemplates.gitlab.primaryFieldTag')
+  if (step?.action_type === 'gitlab_webhook_operation') return t('adminPages.actionTemplates.gitlab.primaryFieldUrl')
+  return t('adminPages.actionTemplates.gitlab.primaryFieldBranch')
 }
 
 function gitlabPrimaryFieldPlaceholder(step) {
-  if (step?.action_type === 'gitlab_tag_operation') return 'v${version}'
-  if (step?.action_type === 'gitlab_webhook_operation') return 'https://example.com/hooks/${channel}'
-  return '${branch_name}'
+  if (step?.action_type === 'gitlab_tag_operation') return t('adminPages.actionTemplates.gitlab.primaryPlaceholderTag')
+  if (step?.action_type === 'gitlab_webhook_operation') return t('adminPages.actionTemplates.gitlab.primaryPlaceholderUrl')
+  return t('adminPages.actionTemplates.gitlab.primaryPlaceholderBranch')
 }
 
 function gitlabNeedsRef(step) {
@@ -1588,11 +1590,11 @@ async function loadJenkinsStepParams(step) {
   step.paramsLoading = true
   try {
     const data = await jenkinsApi.getEntryAdminParams(step.config.entry_id)
-    const savedParams = parseJson(step.paramsText, {}, 'Jenkins 参数')
+    const savedParams = parseJson(step.paramsText, {}, t('adminPages.actionTemplates.jenkins.paramsTitle'))
     step.paramRows = buildJenkinsParamRows(data.params || [], savedParams)
     syncJenkinsParamsFromRows(step)
   } catch (error) {
-    showToast(error.message || '读取 Jenkins 参数失败', 'error')
+    showToast(t('adminPages.actionTemplates.toast.loadJenkinsParamsFailed', { message: error.message || '' }), 'error')
   } finally {
     step.paramsLoading = false
   }
@@ -1674,7 +1676,7 @@ function parseJson(text, fallback, label) {
   try {
     return JSON.parse(text || JSON.stringify(fallback))
   } catch {
-    throw new Error(`${label} 不是合法 JSON`)
+    throw new Error(t('adminPages.actionTemplates.error.jenkinsJsonInvalid', { label }))
   }
 }
 
@@ -1682,23 +1684,23 @@ function buildPayload() {
   const parameterSchema = buildParameterSchemaFromRows()
   const paramNames = parameterSchema.map((item) => item.name)
   if (new Set(paramNames).size !== paramNames.length) {
-    throw new Error('全局参数名不能重复')
+    throw new Error(t('adminPages.actionTemplates.error.paramDuplicate'))
   }
   if (!form.value.name.trim()) {
-    throw new Error('请填写模板名称')
+    throw new Error(t('adminPages.actionTemplates.error.nameRequired'))
   }
   const steps = form.value.steps
     .map((step, index) => {
       const config = { ...(step.config || {}) }
       if (step.action_type === 'jenkins_trigger') {
-        config.params = parseJson(step.paramsText, {}, `步骤 ${index + 1} 参数`)
+        config.params = parseJson(step.paramsText, {}, t('adminPages.actionTemplates.error.paramJsonInvalid', { index: index + 1 }))
       }
       if (isGitLabActionType(step.action_type)) {
         config.operation = config.operation || 'create'
         config.project_ids = (config.project_ids || []).map((item) => Number(item))
       }
       return {
-        name: step.name || `步骤 ${index + 1}`,
+        name: step.name || t('adminPages.actionTemplates.steps.step', { count: index + 1 }),
         order: Number(step.order) || index + 1,
         action_type: step.action_type,
         failure_policy: step.failure_policy || 'stop',
@@ -1731,35 +1733,35 @@ async function saveTemplate() {
     }
     closeModal()
     await loadTemplates()
-    showToast('动作模板已保存')
+    showToast(t('adminPages.actionTemplates.toast.templateSaved'))
   } catch (error) {
-    formError.value = error.message || '保存失败'
+    formError.value = error.message || t('adminPages.actionTemplates.toast.saveFailed', { message: '' })
   } finally {
     saving.value = false
   }
 }
 
 async function deleteTemplate(template) {
-  if (!window.confirm(`确定删除动作模板「${template.name}」吗？`)) return
+  if (!window.confirm(t('adminPages.actionTemplates.toast.deleteConfirm', { name: template.name }))) return
   try {
     await actionsApi.deleteTemplate(template.id)
     await loadTemplates()
-    showToast('动作模板已删除')
+    showToast(t('adminPages.actionTemplates.toast.templateDeleted'))
   } catch (error) {
-    showToast(error.message || '删除失败', 'error')
+    showToast(t('adminPages.actionTemplates.toast.deleteFailed', { message: error.message || '' }), 'error')
   }
 }
 
 function actionTypeText(type) {
   const map = {
-    jenkins_trigger: '触发 Jenkins',
-    gitlab_branch_create: '新增 GitLab 分支',
-    gitlab_branch_operation: 'GitLab 分支操作',
-    gitlab_tag_operation: 'GitLab 标签操作',
-    gitlab_webhook_operation: 'GitLab Webhook 操作',
-    manual_approval: '人工确认'
+    jenkins_trigger: t('adminPages.actionTemplates.steps.types.jenkinsTrigger'),
+    gitlab_branch_create: t('adminPages.actionTemplates.steps.types.gitlabBranchCreate'),
+    gitlab_branch_operation: t('adminPages.actionTemplates.steps.types.gitlabBranchOperation'),
+    gitlab_tag_operation: t('adminPages.actionTemplates.steps.types.gitlabTagOperation'),
+    gitlab_webhook_operation: t('adminPages.actionTemplates.steps.types.gitlabWebhookOperation'),
+    manual_approval: t('adminPages.actionTemplates.steps.types.manualApproval')
   }
-  return map[type] || type
+  return map[type] || t('adminPages.actionTemplates.steps.types.unknown')
 }
 
 function gitlabOperationText(step) {
@@ -1778,55 +1780,55 @@ function stepSummaryItems(step) {
     )
     return [
       {
-        label: '入口',
-        value: entry?.name || (config.entry_id ? `#${config.entry_id}` : '未选择')
+        label: t('adminPages.actionTemplates.summary.entry'),
+        value: entry?.name || (config.entry_id ? t('adminPages.actionTemplates.summary.entryLabel', { id: config.entry_id }) : t('adminPages.actionTemplates.summary.entryNotSelected'))
       },
       {
-        label: '等待',
-        value: config.wait_for_completion ? '等待完成' : '触发后继续'
+        label: t('adminPages.actionTemplates.summary.wait'),
+        value: config.wait_for_completion ? t('adminPages.actionTemplates.summary.waitComplete') : t('adminPages.actionTemplates.summary.triggerContinue')
       }
     ]
   }
   if (step.action_type === 'gitlab_branch_create') {
     return [
-      { label: '分支', value: config.branch_name || '未设置' },
-      { label: '起点', value: config.ref || 'main' },
-      { label: '项目', value: `${(config.project_ids || []).length} 个` }
+      { label: t('adminPages.actionTemplates.summary.branch'), value: config.branch_name || t('adminPages.actionTemplates.summary.urlNotSet') },
+      { label: t('adminPages.actionTemplates.summary.base'), value: config.ref || t('adminPages.actionTemplates.gitlab.refPlaceholder') },
+      { label: t('adminPages.actionTemplates.summary.projectsLabel'), value: t('adminPages.actionTemplates.summary.projects', { count: (config.project_ids || []).length }) }
     ]
   }
   if (step.action_type === 'gitlab_branch_operation') {
     return [
-      { label: '操作', value: gitlabOperationText(step) },
-      { label: '分支', value: config.branch_name || '未设置' },
-      { label: '项目', value: `${(config.project_ids || []).length} 个` }
+      { label: t('adminPages.actionTemplates.summary.operation'), value: gitlabOperationText(step) },
+      { label: t('adminPages.actionTemplates.summary.branch'), value: config.branch_name || t('adminPages.actionTemplates.summary.urlNotSet') },
+      { label: t('adminPages.actionTemplates.summary.projectsLabel'), value: t('adminPages.actionTemplates.summary.projects', { count: (config.project_ids || []).length }) }
     ]
   }
   if (step.action_type === 'gitlab_tag_operation') {
     return [
-      { label: '标签', value: config.tag_name || '未设置' },
-      { label: '起点', value: config.ref || 'main' },
-      { label: '项目', value: `${(config.project_ids || []).length} 个` }
+      { label: t('adminPages.actionTemplates.summary.tag'), value: config.tag_name || t('adminPages.actionTemplates.summary.urlNotSet') },
+      { label: t('adminPages.actionTemplates.summary.base'), value: config.ref || t('adminPages.actionTemplates.gitlab.refPlaceholder') },
+      { label: t('adminPages.actionTemplates.summary.projectsLabel'), value: t('adminPages.actionTemplates.summary.projects', { count: (config.project_ids || []).length }) }
     ]
   }
   if (step.action_type === 'gitlab_webhook_operation') {
     return [
-      { label: 'URL', value: config.url || '未设置' },
-      { label: '项目', value: `${(config.project_ids || []).length} 个` }
+      { label: t('adminPages.actionTemplates.summary.url'), value: config.url || t('adminPages.actionTemplates.summary.urlNotSet') },
+      { label: t('adminPages.actionTemplates.summary.projectsLabel'), value: t('adminPages.actionTemplates.summary.projects', { count: (config.project_ids || []).length }) }
     ]
   }
   if (step.action_type === 'manual_approval') {
     return [
       {
-        label: '用户',
-        value: `${(config.approver_user_ids || []).length} 个`
+        label: t('adminPages.actionTemplates.summary.approverUserLabel'),
+        value: t('adminPages.actionTemplates.summary.approverCount', { count: (config.approver_user_ids || []).length })
       },
       {
-        label: '群组',
-        value: `${(config.approver_group_ids || []).length} 个`
+        label: t('adminPages.actionTemplates.summary.approverGroupLabel'),
+        value: t('adminPages.actionTemplates.summary.approverCount', { count: (config.approver_group_ids || []).length })
       }
     ]
   }
-  return [{ label: '类型', value: '未识别动作' }]
+  return [{ label: t('adminPages.actionTemplates.summary.type'), value: t('adminPages.actionTemplates.summary.unknown') }]
 }
 
 function previewStepSummary(step) {
@@ -1836,38 +1838,38 @@ function previewStepSummary(step) {
       (item) => Number(item.id) === Number(config.entry_id)
     )
     return entry
-      ? `${entry.name}${config.wait_for_completion ? '，等待完成' : '，触发后继续'}`
+      ? `${entry.name}${config.wait_for_completion ? t('adminPages.actionTemplates.summary.waitComplete') : t('adminPages.actionTemplates.summary.triggerContinue')}`
       : config.entry_id
-        ? `入口 #${config.entry_id}`
-        : '未选择触发入口'
+        ? t('adminPages.actionTemplates.summary.entryLabel', { id: config.entry_id })
+        : t('adminPages.actionTemplates.summary.entryNotSelected')
   }
   if (step.action_type === 'gitlab_branch_create') {
     const count = (config.project_ids || []).length
-    const branch = config.branch_name || '未设置分支名'
+    const branch = config.branch_name || t('adminPages.actionTemplates.summary.branchNameMissing')
     const ref = config.ref || 'main'
-    return `${branch}，基于 ${ref}，固定项目 ${count} 个`
+    return t('adminPages.actionTemplates.preview.branchCreateSummary', { branch, ref, count })
   }
   if (step.action_type === 'gitlab_branch_operation') {
     const count = (config.project_ids || []).length
-    const branch = config.branch_name || '未设置分支名'
-    const ref = config.operation === 'create' ? `，基于 ${config.ref || 'main'}` : ''
-    return `${gitlabOperationText(step)}：${branch}${ref}，固定项目 ${count} 个`
+    const branch = config.branch_name || t('adminPages.actionTemplates.summary.branchNameMissing')
+    const ref = config.operation === 'create' ? t('adminPages.actionTemplates.preview.basedOn', { ref: config.ref || t('adminPages.actionTemplates.gitlab.refPlaceholder') }) : ''
+    return t('adminPages.actionTemplates.preview.branchOperationSummary', { operation: gitlabOperationText(step), branch, ref, count })
   }
   if (step.action_type === 'gitlab_tag_operation') {
     const count = (config.project_ids || []).length
-    const tag = config.tag_name || '未设置标签名'
-    return `新增标签：${tag}，基于 ${config.ref || 'main'}，固定项目 ${count} 个`
+    const tag = config.tag_name || t('adminPages.actionTemplates.summary.tagNameMissing')
+    return t('adminPages.actionTemplates.preview.tagCreateSummary', { tag, ref: config.ref || t('adminPages.actionTemplates.gitlab.refPlaceholder'), count })
   }
   if (step.action_type === 'gitlab_webhook_operation') {
     const count = (config.project_ids || []).length
-    return `新增 Webhook：${config.url || '未设置 URL'}，固定项目 ${count} 个`
+    return t('adminPages.actionTemplates.preview.webhookCreateSummary', { url: config.url || t('adminPages.actionTemplates.summary.urlNotSet'), count })
   }
   if (step.action_type === 'manual_approval') {
     const userCount = (config.approver_user_ids || []).length
     const groupCount = (config.approver_group_ids || []).length
-    return `确认用户 ${userCount} 个，确认群组 ${groupCount} 个`
+    return t('adminPages.actionTemplates.preview.approvalSummary', { users: userCount, groups: groupCount })
   }
-  return '未识别动作'
+  return t('adminPages.actionTemplates.preview.unknown')
 }
 
 onMounted(() => {

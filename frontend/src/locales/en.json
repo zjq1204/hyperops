@@ -1564,7 +1564,10 @@
     "jenkins": "Jenkins",
     "jenkinsWorkspace": "Workspace",
     "jenkinsRecords": "Build Records",
-    "adminConsole": "Admin Console"
+    "adminConsole": "Admin Console",
+    "actionOrchestration": "Action orchestration",
+    "actionWorkspace": "Workspace",
+    "actionRuns": "Run records"
   },
   "routeTitles": {
     "JenkinsWorkspace": "Jenkins Workspace",

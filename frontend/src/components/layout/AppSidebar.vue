@@ -206,7 +206,7 @@
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m2 3h2m0 0v2m0-2l-4 4"
             />
           </svg>
-          <span class="flex-1 text-left">动作编排</span>
+          <span class="flex-1 text-left">{{ t('navigation.actionOrchestration') }}</span>
           <svg
             class="w-4 h-4 transition-transform"
             :class="actionsMenuOpen ? 'rotate-90' : ''"
@@ -250,7 +250,7 @@
                   d="M4 6h16M4 12h16M4 18h7"
                 />
               </svg>
-              <span>工作台</span>
+              <span>{{ t('navigation.actionWorkspace') }}</span>
             </router-link>
             <router-link
               to="/actions/runs"
@@ -271,7 +271,7 @@
                   d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"
                 />
               </svg>
-              <span>执行记录</span>
+              <span>{{ t('navigation.actionRuns') }}</span>
             </router-link>
           </div>
         </Transition>

@@ -1576,7 +1576,10 @@
     "jenkins": "Jenkins",
     "jenkinsWorkspace": "工作台",
     "jenkinsRecords": "触发记录",
-    "adminConsole": "管理后台"
+    "adminConsole": "管理后台",
+    "actionOrchestration": "动作编排",
+    "actionWorkspace": "工作台",
+    "actionRuns": "执行记录"
   },
   "routeTitles": {
     "JenkinsWorkspace": "Jenkins 工作台",

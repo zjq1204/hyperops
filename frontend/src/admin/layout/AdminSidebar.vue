@@ -394,7 +394,7 @@ const allNavSections = computed(() => [
   {
     key: 'actions',
     requiredFeature: 'admin_actions',
-    title: '动作编排管理',
+    title: t('adminNav.actionOrchestration'),
     iconClass: 'admin-section-icon-slate',
     iconPaths: [
       'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2',
@@ -403,7 +403,7 @@ const allNavSections = computed(() => [
     items: [
       {
         path: '/management/actions/templates',
-        label: '动作模板',
+        label: t('adminNav.actionTemplates'),
         iconPaths: ['M4 6h16M4 12h16M4 18h10']
       }
     ]
