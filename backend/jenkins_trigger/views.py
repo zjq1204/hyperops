@@ -3,9 +3,11 @@ Jenkins Trigger views.
 """
 
 import logging
+from copy import deepcopy
 from datetime import datetime, timezone as dt_timezone
 
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -15,8 +17,13 @@ from rest_framework.views import APIView
 
 from accounts.permissions import HasRequiredFeature
 
+from django.db.models import Count
+from django.utils.text import slugify as _slugify
+
 from .models import (
     JenkinsInstance,
+    JenkinsJobIdentity,
+    JenkinsResourceLabel,
     TriggerEntry,
     TriggerRecord,
     UserEntryNotificationPreference,
@@ -29,6 +36,8 @@ from .serializers import (
     JenkinsInstanceConnectionTestSerializer,
     JenkinsInstanceCreateSerializer,
     JenkinsInstanceSerializer,
+    JenkinsJobIdentitySerializer,
+    JenkinsResourceLabelSerializer,
     TriggerEntryCreateSerializer,
     TriggerEntrySerializer,
     TriggerParamsSerializer,
@@ -361,7 +370,11 @@ def normalize_job_enabled(node: JenkinsJobNode) -> bool | None:
     return None
 
 
-def serialize_job_node(node: JenkinsJobNode) -> dict:
+def serialize_job_node(
+    node: JenkinsJobNode,
+    label_map: dict | None = None,
+) -> dict:
+    label_map = label_map or {}
     return {
         "full_name": node.full_name,
         "display_name": node.display_name,
@@ -371,7 +384,10 @@ def serialize_job_node(node: JenkinsJobNode) -> dict:
         "buildable": node.buildable,
         "color": node.color,
         "enabled": normalize_job_enabled(node),
-        "children": [serialize_job_node(child) for child in node.children],
+        "labels": label_map.get(node.full_name, []),
+        "children": [
+            serialize_job_node(child, label_map) for child in node.children
+        ],
     }
 
 
@@ -507,14 +523,137 @@ def build_trigger_params(
     return final_params
 
 
+def collect_job_full_names(nodes: list[JenkinsJobNode]) -> list[str]:
+    """Walk a Jenkins job tree and return all leaf full_name values."""
+    names: list[str] = []
+    stack: list[JenkinsJobNode] = list(nodes)
+    while stack:
+        node = stack.pop()
+        if node.type == "job" and not node.has_children:
+            names.append(node.full_name)
+        if node.children:
+            stack.extend(node.children)
+    return names
+
+
+def build_job_label_map(
+    instance: JenkinsInstance, jobs: list[JenkinsJobNode]
+) -> dict:
+    """Return {full_name: [label_dict, ...]} for every leaf job in the tree.
+
+    Also upserts JenkinsJobIdentity rows so that we have a stable admin-side
+    anchor for label assignment, even though the live job tree itself is
+    fetched fresh from Jenkins on every refresh.
+    """
+    full_names = collect_job_full_names(jobs)
+    if not full_names:
+        return {}
+
+    existing = {
+        identity.full_name: identity
+        for identity in JenkinsJobIdentity.objects.filter(
+            instance=instance, full_name__in=full_names
+        )
+    }
+    now = timezone.now()
+    new_identities: list[JenkinsJobIdentity] = []
+    for full_name in full_names:
+        identity = existing.get(full_name)
+        if identity is None:
+            identity = JenkinsJobIdentity(
+                instance=instance, full_name=full_name
+            )
+            new_identities.append(identity)
+        else:
+            identity.last_seen_at = now
+    if new_identities:
+        JenkinsJobIdentity.objects.bulk_create(new_identities)
+    if existing:
+        JenkinsJobIdentity.objects.filter(
+            id__in=[identity.id for identity in existing.values()]
+        ).update(last_seen_at=now)
+
+    identities = list(
+        JenkinsJobIdentity.objects.filter(
+            instance=instance, full_name__in=full_names
+        ).prefetch_related("labels")
+    )
+
+    label_map: dict[str, list[dict]] = {}
+    for identity in identities:
+        label_map[identity.full_name] = [
+            {"id": label.id, "name": label.name, "slug": label.slug}
+            for label in identity.labels.all()
+        ]
+    return label_map
+
+
+def collect_serialized_job_full_names(nodes: list[dict]) -> list[str]:
+    """Walk a serialized Jenkins job tree and return leaf full_name values."""
+    names: list[str] = []
+    stack: list[dict] = list(nodes or [])
+    while stack:
+        node = stack.pop()
+        if node.get("type") == "job" and not node.get("has_children"):
+            full_name = node.get("full_name")
+            if full_name:
+                names.append(full_name)
+        stack.extend(node.get("children") or [])
+    return names
+
+
+def build_serialized_job_label_map(
+    instance: JenkinsInstance, jobs: list[dict]
+) -> dict[str, list[dict]]:
+    """Return latest labels for serialized cached job nodes."""
+    full_names = collect_serialized_job_full_names(jobs)
+    if not full_names:
+        return {}
+
+    identities = (
+        JenkinsJobIdentity.objects.filter(
+            instance=instance, full_name__in=full_names
+        )
+        .prefetch_related("labels")
+    )
+    return {
+        identity.full_name: [
+            {"id": label.id, "name": label.name, "slug": label.slug}
+            for label in identity.labels.all()
+        ]
+        for identity in identities
+    }
+
+
+def hydrate_cached_job_labels(
+    instance: JenkinsInstance, cached_payload: dict
+) -> dict:
+    """Merge latest admin-side labels into cached Jenkins job payload."""
+    hydrated_payload = deepcopy(cached_payload)
+    jobs = hydrated_payload.get("jobs") or []
+    label_map = build_serialized_job_label_map(instance, jobs)
+
+    def hydrate(nodes: list[dict]) -> None:
+        for node in nodes or []:
+            full_name = node.get("full_name")
+            if full_name in label_map:
+                node["labels"] = label_map[full_name]
+            if node.get("children"):
+                hydrate(node["children"])
+
+    hydrate(jobs)
+    return hydrated_payload
+
+
 def build_job_catalog_payload(instance: JenkinsInstance, jobs: list[JenkinsJobNode]) -> dict:
+    label_map = build_job_label_map(instance, jobs)
     return {
         "instance": {
             "id": instance.id,
             "name": instance.name,
             "url": instance.url,
         },
-        "jobs": [serialize_job_node(job) for job in jobs],
+        "jobs": [serialize_job_node(job, label_map) for job in jobs],
         "fetched_at": timezone.now().isoformat(),
     }
 
@@ -598,9 +737,10 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
 
         cached_payload = cache.get(cache_key)
         if cached_payload and not force_refresh:
+            hydrated_payload = hydrate_cached_job_labels(instance, cached_payload)
             return Response(
                 {
-                    **cached_payload,
+                    **hydrated_payload,
                     "cached": True,
                     "stale": False,
                 }
@@ -621,9 +761,10 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
         except Exception as exc:
             logger.error("Failed to list Jenkins jobs: %s", exc)
             if cached_payload:
+                hydrated_payload = hydrate_cached_job_labels(instance, cached_payload)
                 return Response(
                     {
-                        **cached_payload,
+                        **hydrated_payload,
                         "cached": True,
                         "stale": True,
                         "warning": f"刷新 Jenkins Job 列表失败，已返回缓存数据: {exc}",
@@ -634,6 +775,110 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
                 {"message": f"获取 Job 列表失败: {exc}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    @action(
+        detail=True,
+        methods=["put"],
+        url_path=r"jobs/(?P<full_name>.+)/labels",
+    )
+    def assign_job_labels(self, request, pk=None, full_name=None):
+        """Assign resource labels to a Jenkins job (auto-creates its identity)."""
+        instance = self.get_object()
+
+        try:
+            identity = JenkinsJobIdentity.objects.get(
+                instance=instance, full_name=full_name
+            )
+        except JenkinsJobIdentity.DoesNotExist:
+            identity = JenkinsJobIdentity.objects.create(
+                instance=instance, full_name=full_name
+            )
+
+        label_ids = request.data.get("label_ids", [])
+        if not isinstance(label_ids, list):
+            return Response(
+                {"message": "label_ids must be a list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            labels = list(
+                JenkinsResourceLabel.objects.filter(id__in=label_ids)
+            )
+        except (TypeError, ValueError):
+            return Response(
+                {"message": "label_ids must be integers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(labels) != len(label_ids):
+            return Response(
+                {"message": "Unknown label id provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        identity.labels.set(labels)
+        return Response(JenkinsJobIdentitySerializer(identity).data)
+
+    @action(detail=True, methods=["post"], url_path="jobs/bulk-add-label")
+    def bulk_add_job_label(self, request, pk=None):
+        """Append one resource label to multiple Jenkins jobs."""
+        instance = self.get_object()
+        label_id = request.data.get("label_id")
+        full_names = request.data.get("full_names", [])
+
+        if not isinstance(full_names, list):
+            return Response(
+                {"message": "full_names must be a list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        normalized_full_names = []
+        seen_full_names = set()
+        for full_name in full_names:
+            if not isinstance(full_name, str) or not full_name.strip():
+                return Response(
+                    {"message": "full_names must contain non-empty strings"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            normalized_full_name = full_name.strip()
+            if normalized_full_name in seen_full_names:
+                continue
+            seen_full_names.add(normalized_full_name)
+            normalized_full_names.append(normalized_full_name)
+
+        if not normalized_full_names:
+            return Response(
+                {"message": "full_names cannot be empty"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            label = JenkinsResourceLabel.objects.get(id=label_id)
+        except (TypeError, ValueError, JenkinsResourceLabel.DoesNotExist):
+            return Response(
+                {"message": "Unknown label id provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated_identities = []
+        with transaction.atomic():
+            for full_name in normalized_full_names:
+                identity, _ = JenkinsJobIdentity.objects.get_or_create(
+                    instance=instance,
+                    full_name=full_name,
+                )
+                identity.labels.add(label)
+                updated_identities.append(identity)
+
+        serializer = JenkinsJobIdentitySerializer(updated_identities, many=True)
+        return Response(
+            {
+                "updated_count": len(updated_identities),
+                "label": JenkinsResourceLabelSerializer(label).data,
+                "jobs": serializer.data,
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def fetch_params(self, request, pk=None):
@@ -658,6 +903,23 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
                 {"message": f"获取参数失败: {exc}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+class JenkinsResourceLabelViewSet(viewsets.ModelViewSet):
+    """ViewSet for JenkinsResourceLabel (resource tag library)."""
+
+    serializer_class = JenkinsResourceLabelSerializer
+    permission_classes = [HasRequiredFeature]
+    required_feature = "admin_jenkins"
+    queryset = JenkinsResourceLabel.objects.all()
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .annotate(job_count=Count("jobs", distinct=True))
+            .order_by("name")
+        )
 
 
 class TriggerEntryViewSet(viewsets.ModelViewSet):

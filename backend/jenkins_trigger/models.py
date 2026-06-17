@@ -194,3 +194,69 @@ class TriggerRecord(models.Model):
 
     def __str__(self):
         return f"{self.entry.name} - #{self.build_number} ({self.status})"
+
+
+class JenkinsResourceLabel(models.Model):
+    """Resource label (free-form business tag) for grouping Jenkins jobs."""
+
+    name = models.CharField(max_length=255, verbose_name="标签名称")
+    slug = models.SlugField(
+        max_length=255,
+        unique=True,
+        verbose_name="标签标识",
+        allow_unicode=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    class Meta:
+        verbose_name = "Jenkins 资源标签"
+        verbose_name_plural = verbose_name
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        normalized_name = (self.name or "").strip()
+        self.name = normalized_name
+        # Slug is regenerated from name to keep a stable 1:1 mapping.
+        # It is auto-derived, not user-editable.
+        from django.utils.text import slugify as _slugify
+
+        self.slug = _slugify(normalized_name, allow_unicode=True)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class JenkinsJobIdentity(models.Model):
+    """Cached identity for a Jenkins job (discovered from a Jenkins instance).
+
+    Tags (M2M to JenkinsResourceLabel) are stored against this identity, so
+    we keep admin-side annotations even though the job tree itself is
+    fetched live from Jenkins.
+    """
+
+    instance = models.ForeignKey(
+        JenkinsInstance,
+        on_delete=models.CASCADE,
+        related_name="job_identities",
+        verbose_name="Jenkins 实例",
+    )
+    full_name = models.CharField(max_length=512, verbose_name="Job 完整名称")
+    labels = models.ManyToManyField(
+        JenkinsResourceLabel,
+        blank=True,
+        related_name="jobs",
+        verbose_name="资源标签",
+    )
+    last_seen_at = models.DateTimeField(auto_now=True, verbose_name="最近一次出现时间")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        verbose_name = "Jenkins Job 身份"
+        verbose_name_plural = verbose_name
+        unique_together = [("instance", "full_name")]
+        ordering = ["full_name"]
+
+    def __str__(self):
+        return f"{self.instance.name} - {self.full_name}"

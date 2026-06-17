@@ -1,34 +1,34 @@
 <template>
   <AppLayout>
     <PageFrame
-      eyebrow="动作编排"
-      title="执行记录"
-      subtitle="查看动作编排的执行状态、步骤结果和人工确认处理。"
+      :eyebrow="t('actions.runs.eyebrow')"
+      :title="t('actions.runs.title')"
+      :subtitle="t('actions.runs.subtitle')"
     >
       <template #actions>
-        <BaseButton variant="secondary" @click="goToWorkspace">返回工作台</BaseButton>
-        <BaseButton variant="secondary" :loading="loadingRuns" @click="loadRuns">刷新</BaseButton>
+        <BaseButton variant="secondary" @click="goToWorkspace">{{ t('actions.runs.backToWorkspace') }}</BaseButton>
+        <BaseButton variant="secondary" :loading="loadingRuns" @click="loadRuns">{{ t('actions.runs.refresh') }}</BaseButton>
       </template>
 
       <section class="surface-panel-strong p-6">
         <div class="section-heading">
           <div>
-            <h2 class="section-title">全部记录</h2>
-            <p class="section-copy">按最近发起时间排序，点击记录可查看每一步明细。</p>
+            <h2 class="section-title">{{ t('actions.runs.allRecords') }}</h2>
+            <p class="section-copy">{{ t('actions.runs.allRecordsHint') }}</p>
           </div>
         </div>
 
         <div v-if="loadingRuns" class="py-12 text-center text-sm text-slate-500">
-          正在加载执行记录...
+          {{ t('actions.runs.loading') }}
         </div>
 
         <div v-else-if="runs.length" class="action-runs-list">
           <div class="action-runs-list__head">
-            <span>模板</span>
-            <span>状态</span>
-            <span>当前步骤</span>
-            <span>发起时间</span>
-            <span>操作</span>
+            <span>{{ t('actions.runs.table.template') }}</span>
+            <span>{{ t('actions.runs.table.status') }}</span>
+            <span>{{ t('actions.runs.table.currentStep') }}</span>
+            <span>{{ t('actions.runs.table.createdAt') }}</span>
+            <span>{{ t('actions.runs.table.actions') }}</span>
           </div>
 
           <button
@@ -54,22 +54,22 @@
               {{ formatDate(run.created_at) }}
             </span>
             <span class="action-run-row__actions">
-              查看详情
+              {{ t('actions.runs.table.viewDetail') }}
             </span>
           </button>
         </div>
 
         <EmptyState
           v-else
-          title="暂无执行记录"
-          description="从动作编排工作台执行模板后，这里会展示运行状态。"
+          :title="t('actions.runs.empty.title')"
+          :description="t('actions.runs.empty.description')"
         />
       </section>
 
       <BaseModal
         :show="showDetailModal"
         size="xl"
-        :title="selectedRun ? `执行记录 #${selectedRun.id}` : '执行详情'"
+        :title="selectedRun ? t('actions.runs.detail.titleWithId', { id: selectedRun.id }) : t('actions.runs.detail.title')"
         @close="closeDetailModal"
       >
         <div v-if="selectedRun" class="space-y-5">
@@ -80,7 +80,7 @@
                   {{ selectedRun.template_name }}
                 </h3>
                 <p class="mt-1 text-sm text-slate-500">
-                  发起人：{{ selectedRun.triggered_by_name || '-' }} ·
+                  {{ t('actions.runs.detail.triggeredBy', { name: selectedRun.triggered_by_name || '-' }) }}
                   {{ formatDate(selectedRun.created_at) }}
                 </p>
               </div>
@@ -107,7 +107,7 @@
                   <div class="mt-1 text-xs text-slate-500">
                     {{ actionTypeText(stepRun.action_type) }}
                     <span v-if="stepRun.jenkins_record_id">
-                      · Jenkins 记录 #{{ stepRun.jenkins_record_id }}
+                      · {{ t('actions.runs.detail.jenkinsRecordLink', { id: stepRun.jenkins_record_id }) }}
                     </span>
                   </div>
                 </div>
@@ -129,12 +129,12 @@
             v-if="selectedRun.status === 'waiting_approval'"
             class="rounded-2xl border border-amber-200 bg-amber-50 p-4"
           >
-            <h3 class="text-sm font-semibold text-amber-900">等待人工确认</h3>
+            <h3 class="text-sm font-semibold text-amber-900">{{ t('actions.runs.detail.waitingApproval') }}</h3>
             <textarea
               v-model="approvalComment"
               rows="2"
               class="mt-3 w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400"
-              placeholder="可选：填写确认说明"
+              :placeholder="t('actions.runs.detail.commentPlaceholder')"
             ></textarea>
             <div class="mt-3 flex justify-end gap-3">
               <BaseButton
@@ -143,14 +143,14 @@
                 :loading="approvalLoading === 'reject'"
                 @click="rejectRun"
               >
-                驳回
+                {{ t('actions.runs.detail.reject') }}
               </BaseButton>
               <BaseButton
                 size="sm"
                 :loading="approvalLoading === 'approve'"
                 @click="approveRun"
               >
-                确认继续
+                {{ t('actions.runs.detail.approve') }}
               </BaseButton>
             </div>
           </section>
@@ -159,9 +159,9 @@
         <template #footer>
           <div class="flex w-full justify-end gap-3">
             <BaseButton variant="secondary" @click="refreshSelectedRun">
-              刷新详情
+              {{ t('actions.runs.refreshDetail') }}
             </BaseButton>
-            <BaseButton @click="closeDetailModal">关闭</BaseButton>
+            <BaseButton @click="closeDetailModal">{{ t('actions.runs.close') }}</BaseButton>
           </div>
         </template>
       </BaseModal>
@@ -181,6 +181,7 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -191,6 +192,7 @@ import actionsApi from '@/api/actions'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const runs = ref([])
 const loadingRuns = ref(false)
 const showDetailModal = ref(false)
@@ -217,7 +219,7 @@ async function loadRuns() {
   try {
     runs.value = normalizeList(await actionsApi.listRuns())
   } catch (error) {
-    showToast(error.message || '加载执行记录失败', 'error')
+    showToast(t('actions.runs.toast.loadFailed', { message: error.message || '' }), 'error')
   } finally {
     loadingRuns.value = false
   }
@@ -233,7 +235,7 @@ async function openRunDetail(run) {
     approvalComment.value = ''
     showDetailModal.value = true
   } catch (error) {
-    showToast(error.message || '加载执行详情失败', 'error')
+    showToast(t('actions.runs.toast.loadDetailFailed', { message: error.message || '' }), 'error')
   }
 }
 
@@ -258,10 +260,10 @@ async function approveRun() {
       selectedRun.value.id,
       approvalComment.value
     )
-    showToast('已确认继续执行')
+    showToast(t('actions.runs.toast.approved'))
     await loadRuns()
   } catch (error) {
-    showToast(error.message || '确认失败', 'error')
+    showToast(t('actions.runs.toast.approveFailed', { message: error.message || '' }), 'error')
   } finally {
     approvalLoading.value = ''
   }
@@ -275,10 +277,10 @@ async function rejectRun() {
       selectedRun.value.id,
       approvalComment.value
     )
-    showToast('已驳回执行')
+    showToast(t('actions.runs.toast.rejected'))
     await loadRuns()
   } catch (error) {
-    showToast(error.message || '驳回失败', 'error')
+    showToast(t('actions.runs.toast.rejectFailed', { message: error.message || '' }), 'error')
   } finally {
     approvalLoading.value = ''
   }
@@ -292,24 +294,24 @@ async function openRunFromQuery() {
 
 function actionTypeText(type) {
   const map = {
-    jenkins_trigger: '触发 Jenkins',
-    gitlab_branch_create: '新增 GitLab 分支',
-    gitlab_branch_operation: 'GitLab 分支操作',
-    gitlab_tag_operation: 'GitLab 标签操作',
-    gitlab_webhook_operation: 'GitLab Webhook 操作',
-    manual_approval: '人工确认'
+    jenkins_trigger: t('actions.runs.actionTypes.jenkins_trigger'),
+    gitlab_branch_create: t('actions.runs.actionTypes.gitlab_branch_create'),
+    gitlab_branch_operation: t('actions.runs.actionTypes.gitlab_branch_operation'),
+    gitlab_tag_operation: t('actions.runs.actionTypes.gitlab_tag_operation'),
+    gitlab_webhook_operation: t('actions.runs.actionTypes.gitlab_webhook_operation'),
+    manual_approval: t('actions.runs.actionTypes.manual_approval')
   }
   return map[type] || type
 }
 
 function runStatusText(status) {
   const map = {
-    queued: '排队中',
-    running: '执行中',
-    waiting_approval: '待确认',
-    success: '成功',
-    failed: '失败',
-    rejected: '已驳回'
+    queued: t('actions.runs.status.queued'),
+    running: t('actions.runs.status.running'),
+    waiting_approval: t('actions.runs.status.waiting_approval'),
+    success: t('actions.runs.status.success'),
+    failed: t('actions.runs.status.failed'),
+    rejected: t('actions.runs.status.rejected')
   }
   return map[status] || status
 }
@@ -323,13 +325,13 @@ function runStatusClass(status) {
 
 function stepStatusText(status) {
   const map = {
-    pending: '等待中',
-    running: '执行中',
-    waiting_approval: '待确认',
-    success: '成功',
-    failed: '失败',
-    skipped: '已跳过',
-    rejected: '已驳回'
+    pending: t('actions.runs.status.pending'),
+    running: t('actions.runs.status.running'),
+    waiting_approval: t('actions.runs.status.waiting_approval'),
+    success: t('actions.runs.status.success'),
+    failed: t('actions.runs.status.failed'),
+    skipped: t('actions.runs.status.skipped'),
+    rejected: t('actions.runs.status.rejected')
   }
   return map[status] || status
 }

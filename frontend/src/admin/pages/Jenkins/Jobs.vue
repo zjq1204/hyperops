@@ -6,59 +6,114 @@
       :title="t('adminPages.jenkinsJobs.title')"
       :subtitle="t('adminPages.jenkinsJobs.subtitle')"
     >
-      <section class="metrics-strip metrics-strip--four">
-        <MetricTile
-          :label="t('adminPages.jenkinsJobs.totalJobs')"
-          :value="allJobsFlat.length"
-          :hint="t('adminPages.jenkinsJobs.totalJobsHint')"
-        />
-        <MetricTile
-          :label="t('adminPages.jenkinsJobs.folderCount')"
-          :value="folderCount"
-          :hint="t('adminPages.jenkinsJobs.folderCountHint')"
-        />
-        <MetricTile
-          :label="t('adminPages.jenkinsJobs.filteredJobs')"
-          :value="filteredJobs.length"
-          :hint="t('adminPages.jenkinsJobs.filteredJobsHint')"
-        />
-        <MetricTile
-          :label="t('adminPages.jenkinsJobs.selectedJob')"
-          :value="selectedJob ? '1' : '0'"
-          :hint="t('adminPages.jenkinsJobs.selectedJobHint')"
-        />
-      </section>
-
-      <section class="admin-filter-panel">
-        <div class="admin-filter-grid xl:grid-cols-none">
-          <div class="admin-filter-field">
-            <label class="admin-filter-label">
-              {{ t('adminPages.jenkinsJobs.selectInstance') }}
-            </label>
-            <select
-              v-model="selectedInstanceId"
-              class="admin-filter-control min-w-[18rem]"
+      <section class="admin-job-filter admin-job-filter--toolbar">
+        <div class="admin-job-filter__topbar">
+          <div class="admin-job-filter__primary">
+            <div
+              class="admin-job-filter__field admin-job-filter__field--instance"
             >
-              <option value="">
-                {{ t('adminPages.jenkinsJobs.selectInstancePlaceholder') }}
-              </option>
-              <option
-                v-for="inst in instances"
-                :key="inst.id"
-                :value="String(inst.id)"
-              >
-                {{ inst.name }}
-              </option>
-            </select>
-          </div>
+              <span class="admin-job-filter__field-label">
+                {{ t('adminPages.jenkinsJobs.selectInstance') }}
+              </span>
+              <div class="admin-filter-control-shell">
+                <svg
+                  class="admin-filter-control-icon"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 12h14M5 6h14M5 18h7"
+                  />
+                </svg>
+                <select
+                  v-model="selectedInstanceId"
+                  class="admin-filter-control admin-filter-control--with-icon"
+                >
+                  <option value="">
+                    {{ t('adminPages.jenkinsJobs.selectInstancePlaceholder') }}
+                  </option>
+                  <option
+                    v-for="inst in instances"
+                    :key="inst.id"
+                    :value="String(inst.id)"
+                  >
+                    {{ inst.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
 
-          <div class="admin-filter-field flex-1">
-            <label class="admin-filter-label">
-              {{ t('adminPages.jenkinsJobs.search') }}
-            </label>
-            <div class="relative">
+            <div
+              class="admin-job-filter__field admin-job-filter__field--search"
+            >
+              <span class="admin-job-filter__field-label">
+                {{ t('adminPages.jenkinsJobs.search') }}
+              </span>
+              <div class="admin-filter-control-shell">
+                <svg
+                  class="admin-filter-control-icon"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  :placeholder="t('adminPages.jenkinsJobs.searchPlaceholder')"
+                  class="admin-filter-control admin-filter-control--with-icon"
+                />
+              </div>
+            </div>
+
+            <div class="admin-job-filter__mode" role="group">
+              <span class="admin-job-filter__field-label">
+                {{ t('adminPages.jenkinsJobs.displayMode') }}
+              </span>
+              <div class="admin-job-filter__mode-control">
+                <button
+                  type="button"
+                  class="admin-job-filter__mode-option"
+                  :class="{ 'is-active': showEnabledOnly }"
+                  @click="showEnabledOnly = true"
+                >
+                  {{ t('adminPages.jenkinsJobs.showingEnabledOnly') }}
+                </button>
+                <button
+                  type="button"
+                  class="admin-job-filter__mode-option"
+                  :class="{ 'is-active': !showEnabledOnly }"
+                  @click="showEnabledOnly = false"
+                >
+                  {{ t('adminPages.jenkinsJobs.showingAllJobs') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-job-filter__labelbar">
+          <div class="admin-job-filter__label-head">
+            <span class="admin-job-filter__field-label">
+              {{ t('adminPages.jenkinsJobs.filterByLabel') }}
+            </span>
+            <button
+              type="button"
+              class="admin-filter-manage-link"
+              @click="openLabelLibraryModal"
+            >
               <svg
-                class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+                class="h-3.5 w-3.5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -67,58 +122,73 @@
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="2"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"
                 />
               </svg>
-              <input
-                v-model="searchQuery"
-                type="text"
-                :placeholder="t('adminPages.jenkinsJobs.searchPlaceholder')"
-                class="admin-filter-control w-full pl-12"
-              />
-            </div>
-          </div>
-
-          <div class="admin-filter-field">
-            <label class="admin-filter-label">
-              {{ t('adminPages.jenkinsJobs.displayMode') }}
-            </label>
+              {{ t('adminPages.jenkinsJobs.manageLabels') }}
+            </button>
             <button
+              v-if="resourceLabels.length"
               type="button"
-              class="admin-filter-control inline-flex w-full items-center justify-center gap-2 px-4 font-semibold transition-colors duration-200"
-              :class="
-                showEnabledOnly
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_8px_20px_rgba(16,185,129,0.12)] hover:border-emerald-300 hover:bg-emerald-100'
-                  : 'text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-              "
-              @click="showEnabledOnly = !showEnabledOnly"
+              class="admin-bulk-label-start"
+              @click="startBulkAddMode"
             >
-              <span
-                class="h-2.5 w-2.5 rounded-full"
-                :class="showEnabledOnly ? 'bg-emerald-500' : 'bg-slate-300'"
-              ></span>
-              {{
-                showEnabledOnly
-                  ? t('adminPages.jenkinsJobs.showingEnabledOnly')
-                  : t('adminPages.jenkinsJobs.showingAllJobs')
-              }}
+              <svg
+                class="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 5v14m7-7H5"
+                />
+              </svg>
+              {{ t('adminPages.jenkinsJobs.bulkAddCurrentLabel') }}
             </button>
           </div>
-        </div>
-
-        <div
-          v-if="jobSourceLabel || lastFetchedLabel"
-          class="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500"
-        >
-          <span
-            v-if="jobSourceLabel"
-            class="admin-status-badge admin-status-badge--muted"
-            >{{ jobSourceLabel }}</span
+          <div v-if="resourceLabels.length" class="admin-tag-filter-list">
+            <button
+              v-for="label in resourceLabels"
+              :key="label.id"
+              type="button"
+              class="admin-tag-filter-chip"
+              :class="{
+                'is-active': selectedLabelIds.includes(label.id)
+              }"
+              @click="toggleLabelFilter(label.id)"
+            >
+              <span class="admin-tag-filter-chip__check">
+                <svg
+                  v-if="selectedLabelIds.includes(label.id)"
+                  class="h-3 w-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </span>
+              {{ label.name }}
+            </button>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="admin-labels-empty-inline"
+            @click="openLabelLibraryModal"
           >
-          <span v-if="lastFetchedLabel">{{ lastFetchedLabel }}</span>
+            {{ t('adminPages.jenkinsJobs.noResourceLabels') }}
+          </button>
         </div>
       </section>
-
       <section
         v-if="loadingJobs"
         class="rounded-[1.75rem] border border-white/75 bg-white/78 px-6 py-16 shadow-[0_20px_50px_rgba(15,23,42,0.08)]"
@@ -210,6 +280,72 @@
             >
           </div>
 
+          <div v-if="bulkAddMode" class="admin-job-bulk-bar">
+            <label class="admin-job-bulk-target">
+              <span>{{
+                t('adminPages.jenkinsJobs.bulkTargetLabelPlain')
+              }}</span>
+              <select v-model="bulkTargetLabelId">
+                <option
+                  v-for="label in resourceLabels"
+                  :key="label.id"
+                  :value="label.id"
+                >
+                  {{ label.name }}
+                </option>
+              </select>
+            </label>
+            <label class="admin-job-bulk-select-all">
+              <input
+                type="checkbox"
+                :checked="allFilteredBulkJobsSelected"
+                @change="toggleSelectAllFilteredJobs"
+              />
+              <span>{{ t('adminPages.jenkinsJobs.bulkSelectVisible') }}</span>
+            </label>
+            <div class="admin-job-bulk-summary">
+              <strong>
+                {{
+                  t('adminPages.jenkinsJobs.bulkSelectedCount', {
+                    count: bulkSelectedJobNames.length
+                  })
+                }}
+              </strong>
+              <span>
+                {{
+                  t('adminPages.jenkinsJobs.bulkTargetLabel', {
+                    name: selectedBulkTargetLabel?.name || ''
+                  })
+                }}
+              </span>
+              <span>
+                {{
+                  t('adminPages.jenkinsJobs.bulkSelectableCount', {
+                    count: bulkSelectableFilteredJobs.length
+                  })
+                }}
+              </span>
+            </div>
+            <div class="admin-job-bulk-actions">
+              <BaseButton
+                size="sm"
+                :loading="bulkApplying"
+                :disabled="!bulkSelectedJobNames.length || bulkApplying"
+                @click="applyBulkAddLabel"
+              >
+                {{ t('adminPages.jenkinsJobs.bulkApply') }}
+              </BaseButton>
+              <BaseButton
+                size="sm"
+                variant="outline"
+                :disabled="bulkApplying"
+                @click="cancelBulkAddMode"
+              >
+                {{ t('common.cancel') }}
+              </BaseButton>
+            </div>
+          </div>
+
           <div class="max-h-[44rem] overflow-y-auto p-3">
             <button
               v-for="job in filteredJobs"
@@ -217,11 +353,13 @@
               type="button"
               class="group mb-2 flex w-full items-stretch rounded-[1.35rem] border px-4 py-4 text-left transition-all duration-200"
               :class="
-                selectedJob?.full_name === job.full_name
-                  ? 'border-sky-300 bg-sky-50/80 shadow-[0_16px_30px_rgba(56,189,248,0.12)]'
-                  : job.enabled === false
-                    ? 'border-slate-200/70 bg-slate-50/80 opacity-80 hover:border-slate-300 hover:bg-slate-100/80'
-                    : 'border-slate-200/80 bg-white/85 hover:border-sky-200 hover:bg-white'
+                isBulkJobSelected(job)
+                  ? 'border-sky-400 bg-sky-50/90 shadow-[0_16px_30px_rgba(56,189,248,0.16)]'
+                  : selectedJob?.full_name === job.full_name
+                    ? 'border-sky-300 bg-sky-50/80 shadow-[0_16px_30px_rgba(56,189,248,0.12)]'
+                    : job.enabled === false
+                      ? 'border-slate-200/70 bg-slate-50/80 opacity-80 hover:border-slate-300 hover:bg-slate-100/80'
+                      : 'border-slate-200/80 bg-white/85 hover:border-sky-200 hover:bg-white'
               "
               @click="selectJob(job)"
             >
@@ -229,6 +367,19 @@
                 class="flex w-full min-w-0 items-start gap-4"
                 :style="{ paddingLeft: `${job.depth * 1.1}rem` }"
               >
+                <label
+                  v-if="bulkAddMode && !job.has_children"
+                  class="admin-job-bulk-checkbox"
+                  :class="{ 'is-disabled': isBulkJobAlreadyTagged(job) }"
+                  @click.stop
+                >
+                  <input
+                    type="checkbox"
+                    :checked="isBulkJobSelected(job)"
+                    :disabled="isBulkJobAlreadyTagged(job)"
+                    @change="toggleBulkJobSelection(job)"
+                  />
+                </label>
                 <div
                   class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[0.95rem] border shadow-sm"
                   :class="
@@ -272,6 +423,28 @@
                     <h3 class="truncate text-lg font-semibold text-slate-900">
                       {{ job.display_name }}
                     </h3>
+                    <button
+                      v-if="!job.has_children"
+                      type="button"
+                      class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700"
+                      :title="t('adminPages.jenkinsJobs.editLabel')"
+                      :aria-label="t('adminPages.jenkinsJobs.editLabel')"
+                      @click.stop="openEditJobLabelsModal(job)"
+                    >
+                      <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M7 7h.01M3 11l8.586-8.586a2 2 0 012.828 0L20 8l-9 9H3v-6z"
+                        />
+                      </svg>
+                    </button>
                     <span
                       class="rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]"
                       :class="
@@ -302,11 +475,23 @@
                       }}
                     </span>
                   </div>
-                  <p class="mt-1 truncate font-mono text-xs text-slate-500">
-                    {{ job.full_name }}
-                  </p>
-                  <p class="mt-2 truncate text-xs text-slate-500">
-                    {{ job.url }}
+                  <div
+                    v-if="job.labels?.length"
+                    class="admin-project-tag-list mt-2"
+                  >
+                    <span
+                      v-for="label in job.labels"
+                      :key="label.id"
+                      class="admin-project-tag-chip"
+                    >
+                      {{ label.name }}
+                    </span>
+                  </div>
+                  <p
+                    v-else-if="!job.has_children"
+                    class="admin-project-tag-empty mt-2"
+                  >
+                    {{ t('adminPages.jenkinsJobs.jobLabelsEmpty') }}
                   </p>
                   <div class="mt-3 flex flex-wrap gap-2">
                     <span
@@ -339,9 +524,6 @@
                 <h2 class="mt-2 truncate text-2xl font-semibold text-slate-900">
                   {{ selectedJob.display_name }}
                 </h2>
-                <p class="mt-2 break-all font-mono text-sm text-slate-500">
-                  {{ selectedJob.full_name }}
-                </p>
               </div>
               <div class="flex flex-wrap justify-end gap-2">
                 <span class="admin-status-badge admin-status-badge--success">{{
@@ -534,6 +716,132 @@
         {{ toast.message }}
       </div>
     </PageFrame>
+
+    <BaseModal
+      :show="showLabelLibraryModal"
+      :title="t('adminPages.jenkinsJobs.labelLibraryTitle')"
+      size="md"
+      @close="closeLabelLibraryModal"
+    >
+      <div class="admin-modal-stack">
+        <section class="admin-modal-card">
+          <label class="admin-bulk-input-label">
+            {{ t('adminPages.jenkinsJobs.labelName') }}
+          </label>
+          <div class="flex gap-3">
+            <input
+              v-model="labelDraft.name"
+              type="text"
+              class="input flex-1"
+              :placeholder="t('adminPages.jenkinsJobs.labelNamePlaceholder')"
+            />
+            <BaseButton @click="saveResourceLabel">
+              {{
+                editingLabel
+                  ? t('adminPages.jenkinsJobs.editLabel')
+                  : t('adminPages.jenkinsJobs.createLabel')
+              }}
+            </BaseButton>
+          </div>
+          <p class="admin-bulk-input-hint">
+            {{ t('adminPages.jenkinsJobs.labelLibraryHint') }}
+          </p>
+        </section>
+
+        <section class="admin-modal-card">
+          <div class="section-heading settings-section-heading-compact">
+            <div>
+              <h3 class="section-title">
+                {{ t('adminPages.jenkinsJobs.labelLibraryListTitle') }}
+              </h3>
+              <p class="section-copy">
+                {{ t('adminPages.jenkinsJobs.labelLibraryListHint') }}
+              </p>
+            </div>
+          </div>
+          <div v-if="resourceLabels.length" class="space-y-3">
+            <div
+              v-for="label in resourceLabels"
+              :key="label.id"
+              class="admin-label-library-item"
+            >
+              <div class="min-w-0">
+                <div class="admin-project-tag-list">
+                  <span class="admin-project-tag-chip">{{ label.name }}</span>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">
+                  {{
+                    t('adminPages.jenkinsJobs.labelUsageCount', {
+                      count: label.job_count ?? 0
+                    })
+                  }}
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-3 text-sm font-semibold">
+                <button
+                  class="text-sky-700 hover:text-sky-900"
+                  @click="startEditLabel(label)"
+                >
+                  {{ t('common.edit') }}
+                </button>
+                <button
+                  class="text-rose-700 hover:text-rose-900"
+                  @click="deleteResourceLabel(label)"
+                >
+                  {{ t('common.delete') }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <p v-else class="admin-project-tag-empty">
+            {{ t('adminPages.jenkinsJobs.noLabelLibraryData') }}
+          </p>
+        </section>
+      </div>
+    </BaseModal>
+
+    <BaseModal
+      :show="showEditJobLabelsModal"
+      :title="t('adminPages.jenkinsJobs.editJobLabelsTitle')"
+      size="sm"
+      @close="closeEditJobLabelsModal"
+    >
+      <div class="admin-modal-stack">
+        <p v-if="jobLabelsTarget" class="text-sm text-slate-600">
+          <span class="font-mono">{{ jobLabelsTarget.full_name }}</span>
+        </p>
+        <p class="admin-bulk-input-hint">
+          {{ t('adminPages.jenkinsJobs.editJobLabelsHint') }}
+        </p>
+        <div v-if="resourceLabels.length" class="admin-tag-filter-list">
+          <button
+            v-for="label in resourceLabels"
+            :key="label.id"
+            type="button"
+            class="admin-tag-filter-chip"
+            :class="{
+              'is-active': jobLabelsDraft.includes(label.id)
+            }"
+            @click="toggleJobLabelDraft(label.id)"
+          >
+            {{ label.name }}
+          </button>
+        </div>
+        <p v-else class="admin-project-tag-empty">
+          {{ t('adminPages.jenkinsJobs.noResourceLabels') }}
+        </p>
+      </div>
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-3">
+          <BaseButton variant="outline" @click="closeEditJobLabelsModal">
+            {{ t('common.cancel') }}
+          </BaseButton>
+          <BaseButton @click="saveJobLabels">
+            {{ t('common.save') }}
+          </BaseButton>
+        </div>
+      </template>
+    </BaseModal>
   </AdminLayout>
 </template>
 
@@ -543,8 +851,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import MetricTile from '@/components/ui/MetricTile.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import jenkinsApi from '@/api/jenkins'
 
@@ -560,10 +868,19 @@ const loadingInstances = ref(false)
 const loadingJobs = ref(false)
 const selectedJobFullName = ref('')
 const toast = ref({ show: false, message: '', type: 'success' })
-const jobsFetchedAt = ref('')
-const jobsCached = ref(false)
-const jobsStale = ref(false)
 const showEnabledOnly = ref(true)
+const resourceLabels = ref([])
+const selectedLabelIds = ref([])
+const showLabelLibraryModal = ref(false)
+const labelDraft = ref({ name: '' })
+const editingLabel = ref(null)
+const showEditJobLabelsModal = ref(false)
+const jobLabelsTarget = ref(null)
+const jobLabelsDraft = ref([])
+const bulkAddMode = ref(false)
+const bulkTargetLabelId = ref(null)
+const bulkSelectedJobNames = ref([])
+const bulkApplying = ref(false)
 
 const selectedInstance = computed(
   () =>
@@ -591,14 +908,22 @@ function flattenJobs(nodes, depth = 0, acc = []) {
 
 const allJobsFlat = computed(() => flattenJobs(jobsTree.value))
 
-const folderCount = computed(
-  () => allJobsFlat.value.filter((job) => job.has_children).length
-)
-
 const visibleJobs = computed(() => {
-  if (!showEnabledOnly.value) return allJobsFlat.value
+  const labelSet = new Set(selectedLabelIds.value)
+  let jobs = allJobsFlat.value
 
-  return allJobsFlat.value.filter((job) => {
+  if (labelSet.size) {
+    jobs = jobs.filter(
+      (job) =>
+        !job.has_children &&
+        Array.isArray(job.labels) &&
+        job.labels.some((label) => labelSet.has(label.id))
+    )
+  }
+
+  if (!showEnabledOnly.value) return jobs
+
+  return jobs.filter((job) => {
     if (job.has_children) return false
     if (job.enabled === null || job.enabled === undefined) return true
     return job.enabled === true
@@ -625,21 +950,32 @@ const selectedJob = computed(() => {
   )
 })
 
-const jobSourceLabel = computed(() => {
-  if (!selectedInstanceId.value || !jobsFetchedAt.value) return ''
-  if (jobsStale.value) return t('adminPages.jenkinsJobs.status.staleCache')
-  return jobsCached.value
-    ? t('adminPages.jenkinsJobs.status.cached')
-    : t('adminPages.jenkinsJobs.status.live')
+const selectedBulkTargetLabel = computed(() => {
+  return (
+    resourceLabels.value.find(
+      (label) => label.id === bulkTargetLabelId.value
+    ) || null
+  )
 })
 
-const lastFetchedLabel = computed(() => {
-  if (!jobsFetchedAt.value) return ''
-  const formatted = new Date(jobsFetchedAt.value)
-  if (Number.isNaN(formatted.getTime())) return ''
-  return t('adminPages.jenkinsJobs.status.fetchedAt', {
-    time: formatted.toLocaleString()
+const bulkSelectableFilteredJobs = computed(() =>
+  filteredJobs.value.filter((job) => {
+    if (job.has_children) return false
+    if (!bulkTargetLabelId.value) return true
+    return !(job.labels || []).some(
+      (label) => label.id === bulkTargetLabelId.value
+    )
   })
+)
+
+const allFilteredBulkJobsSelected = computed(() => {
+  const selectableNames = bulkSelectableFilteredJobs.value.map(
+    (job) => job.full_name
+  )
+  if (!selectableNames.length) return false
+  return selectableNames.every((fullName) =>
+    bulkSelectedJobNames.value.includes(fullName)
+  )
 })
 
 async function loadInstances() {
@@ -678,9 +1014,6 @@ async function loadJobs(options = {}) {
   if (!selectedInstanceId.value) {
     jobsTree.value = []
     selectedJobFullName.value = ''
-    jobsFetchedAt.value = ''
-    jobsCached.value = false
-    jobsStale.value = false
     return
   }
 
@@ -688,9 +1021,6 @@ async function loadJobs(options = {}) {
   try {
     const data = await jenkinsApi.listJobs(selectedInstanceId.value, options)
     jobsTree.value = data.jobs || []
-    jobsFetchedAt.value = data.fetched_at || ''
-    jobsCached.value = Boolean(data.cached)
-    jobsStale.value = Boolean(data.stale)
     const flatJobs = flattenJobs(jobsTree.value)
     const firstEnabledJob = flatJobs.find(
       (job) => !job.has_children && job.enabled === true
@@ -711,9 +1041,6 @@ async function loadJobs(options = {}) {
   } catch (e) {
     jobsTree.value = []
     selectedJobFullName.value = ''
-    jobsFetchedAt.value = ''
-    jobsCached.value = false
-    jobsStale.value = false
     showToast(
       t('adminPages.jenkinsJobs.toast.loadJobsFailed', { message: e.message }),
       'error'
@@ -725,6 +1052,152 @@ async function loadJobs(options = {}) {
 
 function selectJob(job) {
   selectedJobFullName.value = job.full_name
+}
+
+function updateJobLabelsInTree(fullNames, labels) {
+  const targetNames = new Set(fullNames)
+  const walk = (nodes) => {
+    for (const node of nodes || []) {
+      if (targetNames.has(node.full_name)) {
+        node.labels = labels
+      }
+      if (node.children?.length) {
+        walk(node.children)
+      }
+    }
+  }
+  walk(jobsTree.value)
+}
+
+function startBulkAddMode() {
+  if (!resourceLabels.value.length) {
+    showToast(t('adminPages.jenkinsJobs.toast.selectOneLabelForBulk'), 'error')
+    return
+  }
+  bulkTargetLabelId.value =
+    selectedLabelIds.value.length === 1
+      ? selectedLabelIds.value[0]
+      : resourceLabels.value[0]?.id || null
+  bulkSelectedJobNames.value = []
+  bulkAddMode.value = true
+  removeBulkTargetFromFilters()
+}
+
+function cancelBulkAddMode() {
+  bulkAddMode.value = false
+  bulkTargetLabelId.value = null
+  bulkSelectedJobNames.value = []
+  bulkApplying.value = false
+}
+
+function isBulkJobSelected(job) {
+  return bulkSelectedJobNames.value.includes(job.full_name)
+}
+
+function isBulkJobAlreadyTagged(job) {
+  if (!bulkTargetLabelId.value) return false
+  return (job.labels || []).some(
+    (label) => label.id === bulkTargetLabelId.value
+  )
+}
+
+function toggleBulkJobSelection(job) {
+  if (job.has_children) return
+  if (isBulkJobAlreadyTagged(job)) return
+  if (bulkSelectedJobNames.value.includes(job.full_name)) {
+    bulkSelectedJobNames.value = bulkSelectedJobNames.value.filter(
+      (fullName) => fullName !== job.full_name
+    )
+    return
+  }
+  bulkSelectedJobNames.value = [...bulkSelectedJobNames.value, job.full_name]
+}
+
+function toggleSelectAllFilteredJobs() {
+  const selectableNames = bulkSelectableFilteredJobs.value.map(
+    (job) => job.full_name
+  )
+  if (allFilteredBulkJobsSelected.value) {
+    const visibleSet = new Set(selectableNames)
+    bulkSelectedJobNames.value = bulkSelectedJobNames.value.filter(
+      (fullName) => !visibleSet.has(fullName)
+    )
+    return
+  }
+  bulkSelectedJobNames.value = Array.from(
+    new Set([...bulkSelectedJobNames.value, ...selectableNames])
+  )
+}
+
+function pruneBulkSelectedJobs() {
+  const selectableNames = new Set(
+    bulkSelectableFilteredJobs.value.map((job) => job.full_name)
+  )
+  bulkSelectedJobNames.value = bulkSelectedJobNames.value.filter((fullName) =>
+    selectableNames.has(fullName)
+  )
+}
+
+function removeBulkTargetFromFilters() {
+  if (!bulkTargetLabelId.value) return
+  selectedLabelIds.value = selectedLabelIds.value.filter(
+    (labelId) => labelId !== bulkTargetLabelId.value
+  )
+}
+
+async function applyBulkAddLabel() {
+  if (!selectedInstanceId.value || !bulkTargetLabelId.value) return
+  if (!bulkSelectedJobNames.value.length) {
+    showToast(t('adminPages.jenkinsJobs.toast.selectJobsForBulk'), 'error')
+    return
+  }
+
+  const targetLabel = resourceLabels.value.find(
+    (label) => label.id === bulkTargetLabelId.value
+  )
+  if (!targetLabel) {
+    showToast(t('adminPages.jenkinsJobs.toast.selectOneLabelForBulk'), 'error')
+    return
+  }
+
+  bulkApplying.value = true
+  try {
+    await jenkinsApi.bulkAddJobLabel(
+      selectedInstanceId.value,
+      bulkTargetLabelId.value,
+      bulkSelectedJobNames.value
+    )
+    const selectedNames = [...bulkSelectedJobNames.value]
+    const updatedLabelSets = new Map()
+    for (const job of allJobsFlat.value) {
+      if (!selectedNames.includes(job.full_name)) continue
+      const labels = Array.isArray(job.labels) ? [...job.labels] : []
+      if (!labels.some((label) => label.id === targetLabel.id)) {
+        labels.push(targetLabel)
+      }
+      updatedLabelSets.set(job.full_name, labels)
+    }
+    for (const [fullName, labels] of updatedLabelSets.entries()) {
+      updateJobLabelsInTree([fullName], labels)
+    }
+    showToast(
+      t('adminPages.jenkinsJobs.toast.bulkLabelsUpdated', {
+        count: selectedNames.length,
+        name: targetLabel.name
+      })
+    )
+    await loadResourceLabels()
+    cancelBulkAddMode()
+  } catch (e) {
+    showToast(
+      t('adminPages.jenkinsJobs.toast.bulkLabelsUpdateFailed', {
+        message: e.message
+      }),
+      'error'
+    )
+  } finally {
+    bulkApplying.value = false
+  }
 }
 
 function useForEntry(job) {
@@ -810,7 +1283,155 @@ watch(
   { flush: 'post' }
 )
 
+watch(
+  [filteredJobs, bulkTargetLabelId],
+  () => {
+    if (bulkAddMode.value) {
+      removeBulkTargetFromFilters()
+      pruneBulkSelectedJobs()
+    }
+  },
+  { flush: 'post' }
+)
+
+function toggleLabelFilter(labelId) {
+  if (selectedLabelIds.value.includes(labelId)) {
+    selectedLabelIds.value = selectedLabelIds.value.filter(
+      (id) => id !== labelId
+    )
+  } else {
+    selectedLabelIds.value = [...selectedLabelIds.value, labelId]
+  }
+  if (bulkAddMode.value) {
+    removeBulkTargetFromFilters()
+  }
+}
+
+async function loadResourceLabels() {
+  try {
+    resourceLabels.value = await jenkinsApi.listResourceLabels()
+  } catch (e) {
+    resourceLabels.value = []
+    showToast(
+      t('adminPages.jenkinsJobs.toast.loadLabelsFailed', {
+        message: e.message
+      }),
+      'error'
+    )
+  }
+}
+
+function openLabelLibraryModal() {
+  editingLabel.value = null
+  labelDraft.value = { name: '' }
+  showLabelLibraryModal.value = true
+}
+
+function closeLabelLibraryModal() {
+  showLabelLibraryModal.value = false
+  editingLabel.value = null
+  labelDraft.value = { name: '' }
+}
+
+function startEditLabel(label) {
+  editingLabel.value = label
+  labelDraft.value = { name: label.name }
+}
+
+async function saveResourceLabel() {
+  const name = labelDraft.value.name.trim()
+  if (!name) {
+    showToast(t('adminPages.jenkinsJobs.toast.inputLabelNameError'), 'error')
+    return
+  }
+  try {
+    if (editingLabel.value) {
+      await jenkinsApi.updateResourceLabel(editingLabel.value.id, { name })
+      showToast(t('adminPages.jenkinsJobs.toast.labelUpdated'))
+    } else {
+      await jenkinsApi.createResourceLabel({ name })
+      showToast(t('adminPages.jenkinsJobs.toast.labelCreated'))
+    }
+    await loadResourceLabels()
+    editingLabel.value = null
+    labelDraft.value = { name: '' }
+  } catch (e) {
+    showToast(
+      t('adminPages.jenkinsJobs.toast.saveLabelFailed', { message: e.message }),
+      'error'
+    )
+  }
+}
+
+async function deleteResourceLabel(label) {
+  if (
+    !window.confirm(
+      t('adminPages.jenkinsJobs.toast.deleteLabelConfirm', { name: label.name })
+    )
+  ) {
+    return
+  }
+  try {
+    await jenkinsApi.deleteResourceLabel(label.id)
+    selectedLabelIds.value = selectedLabelIds.value.filter(
+      (id) => id !== label.id
+    )
+    showToast(t('adminPages.jenkinsJobs.toast.labelDeleted'))
+    await loadResourceLabels()
+  } catch (e) {
+    showToast(
+      t('adminPages.jenkinsJobs.toast.saveLabelFailed', { message: e.message }),
+      'error'
+    )
+  }
+}
+
+function openEditJobLabelsModal(job) {
+  jobLabelsTarget.value = job
+  jobLabelsDraft.value = (job.labels || []).map((label) => label.id)
+  showEditJobLabelsModal.value = true
+}
+
+function closeEditJobLabelsModal() {
+  showEditJobLabelsModal.value = false
+  jobLabelsTarget.value = null
+  jobLabelsDraft.value = []
+}
+
+function toggleJobLabelDraft(labelId) {
+  if (jobLabelsDraft.value.includes(labelId)) {
+    jobLabelsDraft.value = jobLabelsDraft.value.filter((id) => id !== labelId)
+  } else {
+    jobLabelsDraft.value = [...jobLabelsDraft.value, labelId]
+  }
+}
+
+async function saveJobLabels() {
+  if (!jobLabelsTarget.value || !selectedInstanceId.value) return
+  try {
+    await jenkinsApi.assignJobLabels(
+      selectedInstanceId.value,
+      jobLabelsTarget.value.full_name,
+      jobLabelsDraft.value
+    )
+    const labels = resourceLabels.value.filter((label) =>
+      jobLabelsDraft.value.includes(label.id)
+    )
+    updateJobLabelsInTree([jobLabelsTarget.value.full_name], labels)
+    showToast(t('adminPages.jenkinsJobs.toast.labelsUpdated'))
+    closeEditJobLabelsModal()
+  } catch (e) {
+    showToast(
+      t('adminPages.jenkinsJobs.toast.labelsUpdateFailed', {
+        message: e.message
+      }),
+      'error'
+    )
+  }
+}
+
 onMounted(async () => {
   await loadInstances()
+  await loadResourceLabels()
 })
 </script>

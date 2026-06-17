@@ -7,64 +7,138 @@
       :subtitle="t('adminPages.gitlabInstances.subtitle')"
     >
       <template #actions>
-        <BaseButton @click="showInstanceModal = true">{{
+        <BaseButton @click="openCreateInstanceModal">{{
           t('adminPages.gitlabInstances.add')
         }}</BaseButton>
       </template>
 
       <AdminListSection>
-        <AdminTable v-if="instances.length">
-          <thead>
-            <tr>
-              <th class="admin-table-head">{{ t('common.name') }}</th>
-              <th class="admin-table-head">{{ t('common.url') }}</th>
-              <th class="admin-table-head">{{ t('common.status') }}</th>
-              <th class="admin-table-head">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="inst in instances"
-              :key="inst.id"
-              class="admin-table-row"
-            >
-              <td class="admin-table-cell">
-                <div class="font-semibold text-slate-900">{{ inst.name }}</div>
-              </td>
-              <td class="admin-table-cell text-sm text-slate-500">
-                {{ inst.url }}
-              </td>
-              <td class="admin-table-cell">
-                <span
-                  :class="
+        <section v-if="instances.length" class="grid gap-5 xl:grid-cols-2">
+          <article
+            v-for="inst in instances"
+            :key="inst.id"
+            class="admin-card admin-card-body transition-transform duration-200 hover:-translate-y-0.5"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex min-w-0 items-center gap-4">
+                <div
+                  :class="[
+                    'flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.1rem] shadow-sm',
                     inst.is_active
-                      ? 'admin-status-badge admin-status-badge--success'
-                      : 'admin-status-badge admin-status-badge--muted'
-                  "
-                  >{{
-                    inst.is_active ? t('common.enabled') : t('common.disabled')
-                  }}</span
+                      ? 'bg-orange-100 text-orange-600'
+                      : 'bg-slate-100 text-slate-400'
+                  ]"
                 >
-              </td>
-              <td class="admin-table-cell">
-                <div class="flex gap-3">
-                  <button
-                    @click="testGitLabConnection(inst)"
-                    class="text-sm font-semibold text-sky-700 hover:text-sky-900"
+                  <svg
+                    class="h-6 w-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    {{ t('adminPages.gitlabInstances.test') }}
-                  </button>
-                  <button
-                    @click="deleteInstance(inst)"
-                    class="text-sm font-semibold text-rose-700 hover:text-rose-900"
-                  >
-                    {{ t('common.delete') }}
-                  </button>
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                    />
+                  </svg>
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </AdminTable>
+                <div class="min-w-0">
+                  <h3 class="truncate text-lg font-semibold text-slate-900">
+                    {{ inst.name }}
+                  </h3>
+                </div>
+              </div>
+              <span
+                :class="
+                  inst.is_active
+                    ? 'admin-status-badge admin-status-badge--success'
+                    : 'admin-status-badge admin-status-badge--muted'
+                "
+              >
+                {{
+                  inst.is_active ? t('common.enabled') : t('common.disabled')
+                }}
+              </span>
+            </div>
+
+            <div
+              class="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
+            >
+              <div
+                class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400"
+              >
+                {{ t('common.url') }}
+              </div>
+              <div class="mt-2 break-all font-mono text-sm text-slate-600">
+                {{ inst.url }}
+              </div>
+            </div>
+
+            <div class="admin-jenkins-instance-actions">
+              <button
+                type="button"
+                class="admin-jenkins-instance-action admin-jenkins-instance-action-primary"
+                @click="testGitLabConnection(inst)"
+              >
+                <svg
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.9"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+                <span>{{ t('adminPages.gitlabInstances.test') }}</span>
+              </button>
+              <button
+                type="button"
+                class="admin-jenkins-instance-action admin-jenkins-instance-action-secondary"
+                @click="editInstance(inst)"
+              >
+                <svg
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.9"
+                    d="M4 20h4l10-10a2.121 2.121 0 0 0-4-4L4 16v4z"
+                  />
+                </svg>
+                <span>{{ t('common.edit') }}</span>
+              </button>
+              <button
+                type="button"
+                class="admin-jenkins-instance-action admin-jenkins-instance-action-danger"
+                @click="deleteInstance(inst)"
+              >
+                <svg
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.9"
+                    d="M6 7h12M10 7V5a1 1 0 011-1h2a1 1 0 011 1v2M9 10v7M15 10v7M8 7l1 13h6l1-13"
+                  />
+                </svg>
+                <span>{{ t('common.delete') }}</span>
+              </button>
+            </div>
+          </article>
+        </section>
         <PaginationBar
           v-if="instances.length"
           variant="admin"
@@ -98,7 +172,7 @@
             </svg>
           </template>
           <template #actions>
-            <BaseButton @click="showInstanceModal = true">{{
+            <BaseButton @click="openCreateInstanceModal">{{
               t('adminPages.gitlabInstances.add')
             }}</BaseButton>
           </template>
@@ -107,8 +181,12 @@
 
       <BaseModal
         :show="showInstanceModal"
-        :title="t('adminPages.gitlabInstances.createTitle')"
-        @close="showInstanceModal = false"
+        :title="
+          editingInstance
+            ? t('adminPages.gitlabInstances.editTitle')
+            : t('adminPages.gitlabInstances.createTitle')
+        "
+        @close="closeInstanceModal"
       >
         <form @submit.prevent="saveInstance">
           <div class="admin-modal-stack">
@@ -142,19 +220,30 @@
               <input
                 v-model="instanceForm.private_token"
                 type="password"
-                required
+                :required="!editingInstance"
                 class="input"
               />
+              <p v-if="editingInstance" class="mt-2 text-xs text-slate-500">
+                {{ t('adminPages.gitlabInstances.tokenEditHint') }}
+              </p>
             </div>
+            <label class="admin-modal-toggle">
+              <input
+                v-model="instanceForm.is_active"
+                type="checkbox"
+                class="admin-modal-checkbox"
+              />
+              <span class="text-sm font-medium text-slate-700">
+                {{ t('adminPages.gitlabInstances.activeLabel') }}
+              </span>
+            </label>
           </div>
         </form>
         <template #footer>
           <div class="flex w-full justify-end gap-3">
-            <BaseButton
-              variant="secondary"
-              @click="showInstanceModal = false"
-              >{{ t('common.cancel') }}</BaseButton
-            >
+            <BaseButton variant="secondary" @click="closeInstanceModal">{{
+              t('common.cancel')
+            }}</BaseButton>
             <BaseButton @click="saveInstance">{{
               t('common.save')
             }}</BaseButton>
@@ -191,7 +280,6 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
-import AdminTable from '@/admin/components/AdminTable.vue'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -212,6 +300,7 @@ const {
 
 const instances = ref([])
 const showInstanceModal = ref(false)
+const editingInstance = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalCount = ref(0)
@@ -282,17 +371,60 @@ async function testGitLabConnection(inst) {
   }
 }
 
+function resetInstanceForm() {
+  instanceForm.value = {
+    name: '',
+    url: '',
+    private_token: '',
+    is_active: true
+  }
+}
+
+function openCreateInstanceModal() {
+  editingInstance.value = null
+  resetInstanceForm()
+  showInstanceModal.value = true
+}
+
+function editInstance(inst) {
+  editingInstance.value = inst
+  instanceForm.value = {
+    name: inst.name,
+    url: inst.url,
+    private_token: '',
+    is_active: inst.is_active
+  }
+  showInstanceModal.value = true
+}
+
+function closeInstanceModal() {
+  showInstanceModal.value = false
+  editingInstance.value = null
+  resetInstanceForm()
+}
+
 async function saveInstance() {
   try {
-    await gitlabApi.createInstance(instanceForm.value)
-    showToast(t('adminPages.gitlabInstances.toast.created'))
-    showInstanceModal.value = false
-    instanceForm.value = {
-      name: '',
-      url: '',
-      private_token: '',
-      is_active: true
+    const payload = {
+      name: instanceForm.value.name,
+      url: instanceForm.value.url,
+      is_active: instanceForm.value.is_active
     }
+    if (instanceForm.value.private_token) {
+      payload.private_token = instanceForm.value.private_token
+    }
+
+    if (editingInstance.value) {
+      await gitlabApi.updateInstance(editingInstance.value.id, payload)
+      showToast(t('adminPages.gitlabInstances.toast.updated'))
+    } else {
+      await gitlabApi.createInstance({
+        ...payload,
+        private_token: instanceForm.value.private_token
+      })
+      showToast(t('adminPages.gitlabInstances.toast.created'))
+    }
+    closeInstanceModal()
     loadInstances()
   } catch (e) {
     showToast(

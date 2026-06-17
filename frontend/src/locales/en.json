@@ -1731,6 +1731,11 @@
       "loadEntriesFailed": "Failed to load trigger entries: {message}",
       "refreshUnavailable": "This record is missing Jenkins tracking info and cannot be refreshed.",
       "refreshFailed": "Failed to refresh status: {message}"
+    },
+    "notificationSummary": {
+      "columnHeader": "Notifications",
+      "pendingFallback": "Waiting for the build to complete",
+      "channelSummary": "Email: {emailCount} · Webhook: {webhookCount}"
     }
   },
   "oauthCallback": {
@@ -1739,5 +1744,145 @@
     "processing": "Processing sign-in...",
     "errorPrefix": "Login failed: ",
     "unknownError": "Unknown error"
+  },
+  "actions": {
+    "runs": {
+      "eyebrow": "Action orchestration",
+      "title": "Run history",
+      "subtitle": "Inspect run status, per-step results, and handle manual approvals.",
+      "backToWorkspace": "Back to workspace",
+      "refresh": "Refresh",
+      "refreshDetail": "Refresh details",
+      "close": "Close",
+      "allRecords": "All runs",
+      "allRecordsHint": "Sorted by most recent start. Click any run to inspect every step.",
+      "loading": "Loading runs...",
+      "table": {
+        "template": "Template",
+        "status": "Status",
+        "currentStep": "Current step",
+        "createdAt": "Started at",
+        "actions": "Actions",
+        "viewDetail": "View details"
+      },
+      "empty": {
+        "title": "No runs yet",
+        "description": "Execute a template from the action workspace to see its run here."
+      },
+      "detail": {
+        "title": "Run details",
+        "titleWithId": "Run #{id}",
+        "triggeredBy": "Triggered by {name}",
+        "waitingApproval": "Awaiting manual approval",
+        "commentPlaceholder": "Optional: add an approval note",
+        "approve": "Approve & continue",
+        "reject": "Reject",
+        "jenkinsRecordLink": "Jenkins build #{id}"
+      },
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "waiting_approval": "Awaiting approval",
+        "success": "Succeeded",
+        "failed": "Failed",
+        "rejected": "Rejected",
+        "skipped": "Skipped",
+        "pending": "Pending"
+      },
+      "actionTypes": {
+        "jenkins_trigger": "Trigger Jenkins job",
+        "gitlab_branch_create": "Create GitLab branch",
+        "gitlab_branch_operation": "Manage GitLab branch",
+        "gitlab_tag_operation": "Manage GitLab tag",
+        "gitlab_webhook_operation": "Manage GitLab webhook",
+        "manual_approval": "Manual approval"
+      },
+      "toast": {
+        "loadFailed": "Failed to load runs: {message}",
+        "loadDetailFailed": "Failed to load run details: {message}",
+        "approved": "Run approved and continued",
+        "approveFailed": "Approval failed: {message}",
+        "rejected": "Run rejected",
+        "rejectFailed": "Rejection failed: {message}",
+        "startFailed": "Failed to start run: {message}"
+      }
+    },
+    "workspace": {
+      "eyebrow": "Action orchestration",
+      "title": "Action workspace",
+      "subtitle": "Run authorised action templates. Fill in the parameters and the Jenkins, GitLab, and approval steps will run in order.",
+      "refresh": "Refresh",
+      "availableTitle": "Available templates",
+      "availableHint": "Preview the flow first, then run it.",
+      "loading": "Loading templates...",
+      "empty": {
+        "title": "No templates available",
+        "description": "Ask an administrator to authorise a template for you, or create your own."
+      },
+      "table": {
+        "template": "Template",
+        "config": "Steps & parameters",
+        "actions": "Actions",
+        "preview": "Preview",
+        "run": "Run",
+        "noDescription": "No description provided"
+      },
+      "templateMeta": {
+        "steps": "{count} step | {count} steps",
+        "parameters": "{count} parameter | {count} parameters"
+      },
+      "runModal": {
+        "titleWithTemplate": "Run: {name}",
+        "titleFallback": "Run action template",
+        "paramsTitle": "Run parameters",
+        "paramsHint": "Parameters are substituted via ${param_name} in every step configuration.",
+        "noParams": "This template has no global parameters.",
+        "runtimeProjectsLabel": "Extra project IDs at runtime",
+        "runtimeProjectsPlaceholder": "Comma-separated project IDs, e.g. 1, 2, 3",
+        "previewTitle": "Run preview",
+        "startRun": "Start run",
+        "cancel": "Cancel",
+        "errorParamRequired": "Please provide a value for: {field}",
+        "toast": {
+          "loadFailed": "Failed to load action templates: {message}",
+          "started": "Action run started",
+          "startFailed": "Failed to start run: {message}"
+        }
+      },
+      "previewModal": {
+        "titleWithTemplate": "Preview: {name}",
+        "titleFallback": "Preview flow",
+        "summarySteps": "Steps",
+        "summaryParams": "Parameters",
+        "noStepsTitle": "No steps defined",
+        "noStepsDescription": "This template does not have any action steps yet.",
+        "close": "Close",
+        "run": "Run"
+      },
+      "stepSummary": {
+        "jenkinsWait": "Trigger Jenkins and wait for the build to finish",
+        "jenkinsNoWait": "Trigger Jenkins and continue without waiting",
+        "branch": "Create branch {branch} from {ref}",
+        "branchMissing": "branch name not set",
+        "refDefault": "main",
+        "branchOperation": "{operation} branch {branch}{ref}",
+        "tagCreate": "Create tag {tag} from {ref}",
+        "tagMissing": "tag name not set",
+        "webhookCreate": "Create webhook at {url}",
+        "urlMissing": "URL not set",
+        "approverSummary": "{userCount} user approver(s) and {groupCount} group approver(s)",
+        "unknown": "Unknown action",
+        "policyContinue": "Continue on failure",
+        "policyStop": "Stop on failure"
+      },
+      "operations": {
+        "create": "Create",
+        "protect": "Protect",
+        "unprotect": "Unprotect",
+        "delete": "Delete",
+        "tagCreate": "Create tag",
+        "webhookCreate": "Create webhook"
+      }
+    }
   }
 }

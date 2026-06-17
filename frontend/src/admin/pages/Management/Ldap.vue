@@ -16,7 +16,9 @@
           v-if="notice.message"
           :class="[
             'ldap-notice',
-            notice.tone === 'success' ? 'ldap-notice--success' : 'ldap-notice--error'
+            notice.tone === 'success'
+              ? 'ldap-notice--success'
+              : 'ldap-notice--error'
           ]"
         >
           {{ notice.message }}
@@ -31,7 +33,11 @@
                   <p>{{ t('adminPages.ldap.instancesDescription') }}</p>
                 </div>
                 <span class="ldap-count-pill">
-                  {{ t('adminPages.ldap.instanceCount', { count: ldapInstances.length }) }}
+                  {{
+                    t('adminPages.ldap.instanceCount', {
+                      count: ldapInstances.length
+                    })
+                  }}
                 </span>
               </div>
 
@@ -42,7 +48,9 @@
                   type="button"
                   :class="[
                     'ldap-instance-row',
-                    selectedInstanceId === instance.id ? 'ldap-instance-row--active' : ''
+                    selectedInstanceId === instance.id
+                      ? 'ldap-instance-row--active'
+                      : ''
                   ]"
                   @click="selectInstance(instance.id)"
                 >
@@ -76,7 +84,11 @@
                         : 'admin-status-badge admin-status-badge--muted'
                     "
                   >
-                    {{ instance.enabled ? t('common.enabled') : t('common.disabled') }}
+                    {{
+                      instance.enabled
+                        ? t('common.enabled')
+                        : t('common.disabled')
+                    }}
                   </span>
                 </button>
               </div>
@@ -124,7 +136,10 @@
                     <BaseButton
                       variant="outline"
                       size="sm"
-                      :loading="testingConnection && testingInstanceId === selectedInstance.id"
+                      :loading="
+                        testingConnection &&
+                        testingInstanceId === selectedInstance.id
+                      "
                       @click="runConnectionTest(selectedInstance)"
                     >
                       {{ t('adminPages.ldap.testConnection') }}
@@ -151,7 +166,11 @@
                   <div>
                     <span>{{ t('common.status') }}</span>
                     <strong>
-                      {{ selectedInstance.enabled ? t('common.enabled') : t('common.disabled') }}
+                      {{
+                        selectedInstance.enabled
+                          ? t('common.enabled')
+                          : t('common.disabled')
+                      }}
                     </strong>
                   </div>
                   <div>
@@ -174,7 +193,8 @@
                   v-if="connectionPreview || testFeedback.type === 'connection'"
                   :class="[
                     'ldap-inline-result',
-                    testFeedback.type === 'connection' && testFeedback.tone === 'error'
+                    testFeedback.type === 'connection' &&
+                    testFeedback.tone === 'error'
                       ? 'ldap-inline-result--error'
                       : 'ldap-inline-result--success'
                   ]"
@@ -189,11 +209,19 @@
                   <template v-if="connectionPreview">
                     <strong>
                       {{ t('adminPages.ldap.reachable') }}:
-                      {{ connectionPreview.reachable ? t('common.yes') : t('common.no') }}
+                      {{
+                        connectionPreview.reachable
+                          ? t('common.yes')
+                          : t('common.no')
+                      }}
                     </strong>
                     <strong>
                       {{ t('adminPages.ldap.bindSucceeded') }}:
-                      {{ connectionPreview.bind_succeeded ? t('common.yes') : t('common.no') }}
+                      {{
+                        connectionPreview.bind_succeeded
+                          ? t('common.yes')
+                          : t('common.no')
+                      }}
                     </strong>
                   </template>
                 </div>
@@ -218,7 +246,9 @@
                   :loading="mappingsLoading"
                   :empty="!mappings.length"
                   :empty-title="t('adminPages.ldap.emptyMappings')"
-                  :empty-description="t('adminPages.ldap.emptyMappingsDescription')"
+                  :empty-description="
+                    t('adminPages.ldap.emptyMappingsDescription')
+                  "
                 >
                   <AdminTable>
                     <thead>
@@ -235,7 +265,9 @@
                         <th class="admin-table-head">
                           {{ t('adminPages.ldap.updatedAt') }}
                         </th>
-                        <th class="admin-table-head">{{ t('common.actions') }}</th>
+                        <th class="admin-table-head">
+                          {{ t('common.actions') }}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -258,7 +290,11 @@
                                 : 'admin-status-badge admin-status-badge--muted'
                             "
                           >
-                            {{ mapping.is_active ? t('common.yes') : t('common.no') }}
+                            {{
+                              mapping.is_active
+                                ? t('common.yes')
+                                : t('common.no')
+                            }}
                           </span>
                         </td>
                         <td class="admin-table-cell text-slate-500">
@@ -312,7 +348,12 @@
       >
         <form @submit.prevent="saveInstance">
           <div class="admin-modal-stack">
-            <label class="admin-jenkins-instance-switch-row">
+            <label class="admin-modal-toggle">
+              <input
+                v-model="instanceForm.enabled"
+                type="checkbox"
+                class="admin-modal-checkbox"
+              />
               <div>
                 <p class="text-sm font-medium text-slate-700">
                   {{ t('adminPages.ldap.enabledLabel') }}
@@ -325,16 +366,6 @@
                   }}
                 </p>
               </div>
-
-              <span class="admin-jenkins-instance-switch">
-                <input
-                  v-model="instanceForm.enabled"
-                  type="checkbox"
-                  class="sr-only peer"
-                />
-                <span class="admin-jenkins-instance-switch-track"></span>
-                <span class="admin-jenkins-instance-switch-thumb"></span>
-              </span>
             </label>
 
             <div class="ldap-modal-section">
@@ -590,7 +621,9 @@
                 </div>
                 <BaseButton
                   variant="secondary"
-                  :loading="testingConnection && testingInstanceId === editingInstanceId"
+                  :loading="
+                    testingConnection && testingInstanceId === editingInstanceId
+                  "
                   @click="runDraftConnectionTest"
                 >
                   {{ t('adminPages.ldap.testConnection') }}
@@ -618,7 +651,9 @@
                 class="ldap-test-results"
               >
                 <article
-                  v-if="testFeedback.message && !connectionPreview && !userPreview"
+                  v-if="
+                    testFeedback.message && !connectionPreview && !userPreview
+                  "
                   class="ldap-result-card"
                 >
                   <div class="ldap-result-card__title">
@@ -627,7 +662,8 @@
                   <p
                     :class="[
                       'ldap-result-card__message',
-                      testFeedback.type === 'connection' && testFeedback.tone === 'error'
+                      testFeedback.type === 'connection' &&
+                      testFeedback.tone === 'error'
                         ? 'ldap-result-card__message--error'
                         : 'ldap-result-card__message--success'
                     ]"
@@ -641,7 +677,9 @@
                     {{ t('adminPages.ldap.connectionResult') }}
                   </div>
                   <p
-                    v-if="testFeedback.type === 'connection' && testFeedback.message"
+                    v-if="
+                      testFeedback.type === 'connection' && testFeedback.message
+                    "
                     :class="[
                       'ldap-result-card__message',
                       testFeedback.tone === 'error'
@@ -655,13 +693,21 @@
                     <div>
                       <span>{{ t('adminPages.ldap.reachable') }}</span>
                       <strong>
-                        {{ connectionPreview.reachable ? t('common.yes') : t('common.no') }}
+                        {{
+                          connectionPreview.reachable
+                            ? t('common.yes')
+                            : t('common.no')
+                        }}
                       </strong>
                     </div>
                     <div>
                       <span>{{ t('adminPages.ldap.bindSucceeded') }}</span>
                       <strong>
-                        {{ connectionPreview.bind_succeeded ? t('common.yes') : t('common.no') }}
+                        {{
+                          connectionPreview.bind_succeeded
+                            ? t('common.yes')
+                            : t('common.no')
+                        }}
                       </strong>
                     </div>
                   </div>
@@ -754,7 +800,10 @@
             </select>
           </label>
 
-          <label v-if="mappingForm.mapping_scope === 'group'" class="admin-filter-field">
+          <label
+            v-if="mappingForm.mapping_scope === 'group'"
+            class="admin-filter-field"
+          >
             <span class="admin-filter-label">
               {{ t('adminPages.ldap.ldapGroupDn') }}
             </span>
@@ -998,7 +1047,9 @@ function buildConfigPayload(extra = {}) {
   const payload = {
     enabled: !!instanceForm.enabled,
     name: (instanceForm.name || '').trim(),
-    slug: slugifyValue(instanceForm.slug || instanceForm.name || instanceForm.host),
+    slug: slugifyValue(
+      instanceForm.slug || instanceForm.name || instanceForm.host
+    ),
     is_default: !!instanceForm.is_default,
     host: (instanceForm.host || '').trim(),
     port: Number(instanceForm.port || 389),
@@ -1072,7 +1123,9 @@ async function loadInstances() {
     return
   }
 
-  const stillSelected = instances.some((item) => item.id === selectedInstanceId.value)
+  const stillSelected = instances.some(
+    (item) => item.id === selectedInstanceId.value
+  )
   if (!stillSelected) {
     selectedInstanceId.value = instances[0].id
   }
@@ -1213,7 +1266,11 @@ async function runConnectionTest(instance) {
     })
     connectionPreview.value = result
     if (result?.reachable && result?.bind_succeeded) {
-      setTestFeedback(t('adminPages.ldap.connectionSucceeded'), 'success', 'connection')
+      setTestFeedback(
+        t('adminPages.ldap.connectionSucceeded'),
+        'success',
+        'connection'
+      )
     } else {
       setTestFeedback(
         result?.detail || t('adminPages.ldap.testFailed'),
@@ -1245,7 +1302,11 @@ async function runDraftConnectionTest() {
     const result = await managementApi.testLdapConnection(buildConfigPayload())
     connectionPreview.value = result
     if (result?.reachable && result?.bind_succeeded) {
-      setTestFeedback(t('adminPages.ldap.connectionSucceeded'), 'success', 'connection')
+      setTestFeedback(
+        t('adminPages.ldap.connectionSucceeded'),
+        'success',
+        'connection'
+      )
     } else {
       setTestFeedback(
         result?.detail || t('adminPages.ldap.testFailed'),
@@ -1271,7 +1332,11 @@ async function runDraftConnectionTest() {
 async function runUserPreview() {
   const username = (previewUsername.value || '').trim()
   if (!username) {
-    setTestFeedback(t('adminPages.ldap.previewUsernameRequired'), 'error', 'user')
+    setTestFeedback(
+      t('adminPages.ldap.previewUsernameRequired'),
+      'error',
+      'user'
+    )
     return
   }
 

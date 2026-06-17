@@ -7,6 +7,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     JenkinsInstanceViewSet,
+    JenkinsResourceLabelViewSet,
     TriggerEntryViewSet,
     TriggerRecordViewSet,
     UserNotificationPreferencesView,
@@ -15,6 +16,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register(r"instances", JenkinsInstanceViewSet, basename="jenkins-instance")
+router.register(r"resource-labels", JenkinsResourceLabelViewSet, basename="jenkins-resource-label")
 router.register(r"entries", TriggerEntryViewSet, basename="jenkins-entry")
 router.register(r"records", TriggerRecordViewSet, basename="jenkins-record")
 

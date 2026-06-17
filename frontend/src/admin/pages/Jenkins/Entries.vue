@@ -74,12 +74,6 @@
                     {{ t('common.edit') }}
                   </button>
                   <button
-                    @click="fetchAndEditParams(entry)"
-                    class="text-violet-700 hover:text-violet-900"
-                  >
-                    {{ t('adminPages.jenkinsEntries.paramConfigAction') }}
-                  </button>
-                  <button
                     @click="deleteEntry(entry)"
                     class="text-rose-700 hover:text-rose-900"
                   >
@@ -699,33 +693,6 @@ async function saveEntry() {
   } catch (e) {
     showToast(
       t('adminPages.jenkinsEntries.toast.saveFailed', { message: e.message }),
-      'error'
-    )
-  }
-}
-
-async function fetchAndEditParams(entry) {
-  try {
-    const data = await jenkinsApi.getEntryAdminParams(entry.id)
-    editingEntry.value = entry
-    entryForm.value = {
-      instance: entry.instance,
-      name: entry.name,
-      job_name: entry.job_name,
-      description: entry.description,
-      params_config: data.config || {},
-      is_active: entry.is_active
-    }
-    paramRows.value = (data.params || []).length
-      ? buildParamRowsFromDefinitions(data.params || [], data.config || {})
-      : buildParamRowsFromConfig(data.config || {})
-    syncParamsConfigJsonFromRows()
-    showEntryModal.value = true
-  } catch (e) {
-    showToast(
-      t('adminPages.jenkinsEntries.toast.loadParamsFailed', {
-        message: e.message
-      }),
       'error'
     )
   }

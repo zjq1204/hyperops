@@ -210,3 +210,86 @@ class JobParamsResponseSerializer(serializers.Serializer):
 
     params = ParamDefinitionSerializer(many=True)
     config = serializers.DictField(required=False)
+
+
+from .models import JenkinsJobIdentity, JenkinsResourceLabel
+
+
+class JenkinsResourceLabelSerializer(serializers.ModelSerializer):
+    """Serializer for JenkinsResourceLabel (resource tag)."""
+
+    job_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JenkinsResourceLabel
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "job_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "slug",
+            "job_count",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+        normalized_name = (value or "").strip()
+        if not normalized_name:
+            raise serializers.ValidationError("Label name cannot be empty.")
+
+        from django.utils.text import slugify as _slugify
+
+        normalized_slug = _slugify(normalized_name, allow_unicode=True)
+        if not normalized_slug:
+            raise serializers.ValidationError("Label name is invalid.")
+
+        queryset = JenkinsResourceLabel.objects.filter(slug=normalized_slug)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError("Label name already exists.")
+        return normalized_name
+
+    def get_job_count(self, obj):
+        annotated_count = getattr(obj, "job_count", None)
+        if annotated_count is not None:
+            return annotated_count
+        return obj.jobs.count()
+
+
+class JenkinsJobIdentitySerializer(serializers.ModelSerializer):
+    """Serializer for a Jenkins job's admin-side annotation row."""
+
+    labels = JenkinsResourceLabelSerializer(many=True, read_only=True)
+    label_ids = serializers.PrimaryKeyRelatedField(
+        queryset=JenkinsResourceLabel.objects.all(),
+        many=True,
+        write_only=True,
+        source="labels",
+        required=False,
+    )
+
+    class Meta:
+        model = JenkinsJobIdentity
+        fields = [
+            "id",
+            "instance",
+            "full_name",
+            "labels",
+            "label_ids",
+            "last_seen_at",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "instance",
+            "labels",
+            "last_seen_at",
+            "created_at",
+        ]

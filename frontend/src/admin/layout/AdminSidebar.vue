@@ -42,26 +42,12 @@
       </router-link>
     </div>
 
-    <div class="mx-4 h-px bg-slate-200/85"></div>
+    <div class="mx-5 h-px bg-slate-200/55"></div>
 
     <div class="admin-sidebar-shell mt-3">
-      <div
-        class="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
-      >
-        <div
-          class="absolute -left-20 top-8 h-48 w-48 rounded-full bg-sky-200/35 blur-3xl"
-        ></div>
-        <div
-          class="absolute right-0 top-1/2 h-44 w-44 rounded-full bg-indigo-200/24 blur-3xl"
-        ></div>
-        <div
-          class="absolute bottom-6 left-1/4 h-36 w-36 rounded-full bg-orange-200/22 blur-3xl"
-        ></div>
-      </div>
-
       <div class="relative z-10 flex h-full w-full flex-col">
-        <nav class="glass-scrollbar flex-1 overflow-y-auto px-4 pb-4 pt-3">
-          <div class="space-y-3">
+        <nav class="glass-scrollbar flex-1 overflow-y-auto px-3 pb-4 pt-3">
+          <div class="space-y-2">
             <section
               v-for="section in navSections"
               :key="section.key"

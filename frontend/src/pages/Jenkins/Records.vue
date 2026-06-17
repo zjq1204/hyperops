@@ -40,7 +40,7 @@
                 <th>{{ t('jenkinsRecords.buildNumber') }}</th>
                 <th>{{ t('jenkinsRecords.statusLabel') }}</th>
                 <th>{{ t('jenkinsRecords.progress') }}</th>
-                <th>通知摘要</th>
+                <th>{{ t('jenkinsRecords.notificationSummary.columnHeader') }}</th>
                 <th>{{ t('jenkinsRecords.triggeredBy') }}</th>
                 <th>{{ t('jenkinsRecords.triggeredAt') }}</th>
                 <th>{{ t('jenkinsRecords.duration') }}</th>
@@ -88,10 +88,10 @@
                 <td>
                   <div class="max-w-[18rem]">
                     <div class="font-medium text-slate-800">
-                      {{ record.notification_result?.summary || '等待构建完成后发送' }}
+                      {{ record.notification_result?.summary || t('jenkinsRecords.notificationSummary.pendingFallback') }}
                     </div>
                     <div class="mt-1 text-xs text-slate-500">
-                      邮箱 {{ record.notification_result?.emails?.length || 0 }} / Webhook {{ record.notification_result?.webhooks?.length || 0 }}
+                      {{ t('jenkinsRecords.notificationSummary.channelSummary', { emailCount: record.notification_result?.emails?.length || 0, webhookCount: record.notification_result?.webhooks?.length || 0 }) }}
                     </div>
                   </div>
                 </td>

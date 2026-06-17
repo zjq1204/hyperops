@@ -7,7 +7,7 @@ async function getHeaders(options = {}) {
   const accessToken = await getValidAccessToken(options)
   return {
     'Content-Type': 'application/json',
-    'Authorization': accessToken ? `Bearer ${accessToken}` : '',
+    Authorization: accessToken ? `Bearer ${accessToken}` : ''
   }
 }
 
@@ -44,8 +44,8 @@ async function request(url, options = {}) {
     ...fetchOptions,
     headers: {
       ...(await getHeaders()),
-      ...fetchOptions.headers,
-    },
+      ...fetchOptions.headers
+    }
   })
 
   if (response.status === 401 && !_retry) {
@@ -84,29 +84,29 @@ export const jenkinsApi = {
   createInstance: (data) =>
     request(`${JENKINS_API_BASE}/instances/`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     }),
 
   updateInstance: (id, data) =>
     request(`${JENKINS_API_BASE}/instances/${id}/`, {
       method: 'PATCH',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     }),
 
   deleteInstance: (id) =>
     request(`${JENKINS_API_BASE}/instances/${id}/`, {
-      method: 'DELETE',
+      method: 'DELETE'
     }),
 
   testConnection: (id) =>
     request(`${JENKINS_API_BASE}/instances/${id}/test_connection/`, {
-      method: 'POST',
+      method: 'POST'
     }),
 
   validateConnection: (data) =>
     request(`${JENKINS_API_BASE}/instances/validate_connection/`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     }),
 
   listJobs: async (id, options = {}) => {
@@ -121,7 +121,7 @@ export const jenkinsApi = {
   fetchParams: (id, jobName) =>
     request(`${JENKINS_API_BASE}/instances/${id}/fetch_params/`, {
       method: 'POST',
-      body: JSON.stringify({ job_name: jobName }),
+      body: JSON.stringify({ job_name: jobName })
     }),
 
   // Trigger Entries
@@ -131,22 +131,21 @@ export const jenkinsApi = {
   createEntry: (data) =>
     request(`${JENKINS_API_BASE}/entries/`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     }),
 
   updateEntry: (id, data) =>
     request(`${JENKINS_API_BASE}/entries/${id}/`, {
       method: 'PATCH',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     }),
 
   deleteEntry: (id) =>
     request(`${JENKINS_API_BASE}/entries/${id}/`, {
-      method: 'DELETE',
+      method: 'DELETE'
     }),
 
-  getEntryParams: (id) =>
-    request(`${JENKINS_API_BASE}/entries/${id}/params/`),
+  getEntryParams: (id) => request(`${JENKINS_API_BASE}/entries/${id}/params/`),
 
   getEntryAdminParams: (id) =>
     request(`${JENKINS_API_BASE}/entries/${id}/admin_params/`),
@@ -160,12 +159,12 @@ export const jenkinsApi = {
   triggerBuild: (entryId, params = {}) =>
     request(`${JENKINS_API_BASE}/records/trigger/`, {
       method: 'POST',
-      body: JSON.stringify({ entry_id: entryId, params }),
+      body: JSON.stringify({ entry_id: entryId, params })
     }),
 
   refreshStatus: (recordId) =>
     request(`${JENKINS_API_BASE}/records/${recordId}/refresh_status/`, {
-      method: 'POST',
+      method: 'POST'
     }),
 
   // User entries
@@ -180,8 +179,53 @@ export const jenkinsApi = {
   saveUserNotificationPreferences: (preferences) =>
     request(`${JENKINS_API_BASE}/user/notification-preferences/`, {
       method: 'PUT',
-      body: JSON.stringify({ preferences }),
+      body: JSON.stringify({ preferences })
     }),
+
+  // Resource labels (CRUD)
+  listResourceLabels: async () =>
+    normalizeCollection(await request(`${JENKINS_API_BASE}/resource-labels/`)),
+
+  createResourceLabel: (data) =>
+    request(`${JENKINS_API_BASE}/resource-labels/`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+
+  updateResourceLabel: (id, data) =>
+    request(`${JENKINS_API_BASE}/resource-labels/${id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    }),
+
+  deleteResourceLabel: (id) =>
+    request(`${JENKINS_API_BASE}/resource-labels/${id}/`, {
+      method: 'DELETE'
+    }),
+
+  // Per-job label assignment
+  assignJobLabels: (instanceId, fullName, labelIds) => {
+    const encoded = encodeURIComponent(fullName)
+    return request(
+      `${JENKINS_API_BASE}/instances/${instanceId}/jobs/${encoded}/labels/`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ label_ids: labelIds })
+      }
+    )
+  },
+
+  bulkAddJobLabel: (instanceId, labelId, fullNames) =>
+    request(
+      `${JENKINS_API_BASE}/instances/${instanceId}/jobs/bulk-add-label/`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          label_id: labelId,
+          full_names: fullNames
+        })
+      }
+    )
 }
 
 export default jenkinsApi

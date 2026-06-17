@@ -1,31 +1,31 @@
 <template>
   <AppLayout>
     <PageFrame
-      eyebrow="动作编排"
-      title="动作编排工作台"
-      subtitle="选择已授权的动作模板，填写参数后按顺序执行 Jenkins、GitLab 和人工确认步骤。"
+      :eyebrow="t('actions.workspace.eyebrow')"
+      :title="t('actions.workspace.title')"
+      :subtitle="t('actions.workspace.subtitle')"
     >
       <template #actions>
-        <BaseButton variant="secondary" @click="refreshAll">刷新</BaseButton>
+        <BaseButton variant="secondary" @click="refreshAll">{{ t('actions.workspace.refresh') }}</BaseButton>
       </template>
 
       <section class="space-y-5">
         <section class="surface-panel-strong p-6">
           <div class="section-heading">
             <div>
-              <h2 class="section-title">可执行模板</h2>
-              <p class="section-copy">选择模板后可先预览流程，再发起执行。</p>
+              <h2 class="section-title">{{ t('actions.workspace.availableTitle') }}</h2>
+              <p class="section-copy">{{ t('actions.workspace.availableHint') }}</p>
             </div>
           </div>
 
           <div v-if="loadingTemplates" class="py-12 text-center text-sm text-slate-500">
-            正在加载模板...
+            {{ t('actions.workspace.loading') }}
           </div>
           <div v-else-if="templates.length" class="action-template-list">
             <div class="action-template-list__head">
-              <span>模板</span>
-              <span>配置</span>
-              <span>操作</span>
+              <span>{{ t('actions.workspace.table.template') }}</span>
+              <span>{{ t('actions.workspace.table.config') }}</span>
+              <span>{{ t('actions.workspace.table.actions') }}</span>
             </div>
             <article
               v-for="template in templates"
@@ -34,26 +34,24 @@
             >
               <div class="action-template-row__main">
                 <h3>{{ template.name }}</h3>
-                <p>{{ template.description || '无描述' }}</p>
+                <p>{{ template.description || t('actions.workspace.table.noDescription') }}</p>
               </div>
 
               <div class="action-template-row__meta">
-                <span>{{ stepCount(template) }} 步</span>
-                <span>{{ parameterCount(template) }} 个参数</span>
+                <span>{{ t('actions.workspace.templateMeta.steps', { count: stepCount(template) }) }}</span>
+                <span>{{ t('actions.workspace.templateMeta.parameters', { count: parameterCount(template) }) }}</span>
               </div>
 
               <div class="action-template-row__actions">
-                <BaseButton variant="secondary" size="sm" @click="openPreviewModal(template)">
-                  预览
-                </BaseButton>
-                <BaseButton size="sm" @click="openRunModal(template)">执行</BaseButton>
+                <BaseButton variant="secondary" size="sm" @click="openPreviewModal(template)">{{ t('actions.workspace.table.preview') }}</BaseButton>
+                <BaseButton size="sm" @click="openRunModal(template)">{{ t('actions.workspace.table.run') }}</BaseButton>
               </div>
             </article>
           </div>
           <EmptyState
             v-else
-            title="暂无可执行模板"
-            description="如果需要执行动作编排，请联系管理员授权模板，或创建个人模板。"
+            :title="t('actions.workspace.empty.title')"
+            :description="t('actions.workspace.empty.description')"
           />
         </section>
       </section>
@@ -61,14 +59,14 @@
       <BaseModal
         :show="showRunModal"
         size="lg"
-        :title="selectedTemplate ? `执行：${selectedTemplate.name}` : '执行动作模板'"
+        :title="selectedTemplate ? t('actions.workspace.runModal.titleWithTemplate', { name: selectedTemplate.name }) : t('actions.workspace.runModal.titleFallback')"
         @close="closeRunModal"
       >
         <div v-if="selectedTemplate" class="space-y-6">
           <section class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <h3 class="text-sm font-semibold text-slate-900">执行参数</h3>
+            <h3 class="text-sm font-semibold text-slate-900">{{ t('actions.workspace.runModal.paramsTitle') }}</h3>
             <p class="mt-1 text-sm text-slate-500">
-              参数会按 ${param_name} 语法替换到每个步骤配置中。
+              {{ t('actions.workspace.runModal.paramsHint') }}
             </p>
 
             <div v-if="parameterFields.length" class="mt-4 grid gap-4 md:grid-cols-2">
@@ -89,21 +87,21 @@
               </label>
             </div>
             <p v-else class="mt-4 text-sm text-slate-500">
-              这个模板没有定义全局参数。
+              {{ t('actions.workspace.runModal.noParams') }}
             </p>
 
             <label v-if="needsRuntimeProjects" class="mt-4 block space-y-2">
-              <span class="admin-filter-label">运行时追加项目 ID</span>
+              <span class="admin-filter-label">{{ t('actions.workspace.runModal.runtimeProjectsLabel') }}</span>
               <input
                 v-model="runtimeProjectIdsText"
                 class="admin-filter-control"
-                placeholder="多个项目 ID 用逗号分隔，例如 1,2,3"
+                :placeholder="t('actions.workspace.runModal.runtimeProjectsPlaceholder')"
               />
             </label>
           </section>
 
           <section class="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 class="text-sm font-semibold text-slate-900">执行预览</h3>
+            <h3 class="text-sm font-semibold text-slate-900">{{ t('actions.workspace.runModal.previewTitle') }}</h3>
             <ol class="mt-4 space-y-3">
               <li
                 v-for="step in selectedTemplate.steps"
@@ -117,7 +115,7 @@
                   <div class="font-semibold text-slate-900">{{ step.name }}</div>
                   <div class="mt-1 text-sm text-slate-500">
                     {{ actionTypeText(step.action_type) }} ·
-                    {{ step.failure_policy === 'continue' ? '失败继续' : '失败停止' }}
+                    {{ t(step.failure_policy === 'continue' ? 'actions.workspace.stepSummary.policyContinue' : 'actions.workspace.stepSummary.policyStop') }}
                   </div>
                 </div>
               </li>
@@ -134,8 +132,8 @@
 
         <template #footer>
           <div class="flex w-full justify-end gap-3">
-            <BaseButton variant="secondary" @click="closeRunModal">取消</BaseButton>
-            <BaseButton :loading="startingRun" @click="startRun">开始执行</BaseButton>
+            <BaseButton variant="secondary" @click="closeRunModal">{{ t('actions.workspace.runModal.cancel') }}</BaseButton>
+            <BaseButton :loading="startingRun" @click="startRun">{{ t('actions.workspace.runModal.startRun') }}</BaseButton>
           </div>
         </template>
       </BaseModal>
@@ -143,17 +141,17 @@
       <BaseModal
         :show="showPreviewModal"
         size="lg"
-        :title="previewTemplate ? `流程预览：${previewTemplate.name}` : '流程预览'"
+        :title="previewTemplate ? t('actions.workspace.previewModal.titleWithTemplate', { name: previewTemplate.name }) : t('actions.workspace.previewModal.titleFallback')"
         @close="closePreviewModal"
       >
         <div v-if="previewTemplate" class="action-workspace-preview">
           <section class="action-workspace-preview__summary">
             <div>
-              <span>步骤</span>
+              <span>{{ t('actions.workspace.previewModal.summarySteps') }}</span>
               <strong>{{ previewSteps.length }}</strong>
             </div>
             <div>
-              <span>执行参数</span>
+              <span>{{ t('actions.workspace.previewModal.summaryParams') }}</span>
               <strong>{{ parameterCount(previewTemplate) }}</strong>
             </div>
           </section>
@@ -174,7 +172,7 @@
                 </div>
                 <p>{{ previewStepSummary(step) }}</p>
                 <small>
-                  {{ step.failure_policy === 'continue' ? '失败后继续下一步' : '失败后停止流程' }}
+                  {{ t(step.failure_policy === 'continue' ? 'actions.workspace.stepSummary.policyContinue' : 'actions.workspace.stepSummary.policyStop') }}
                 </small>
               </div>
             </li>
@@ -182,17 +180,15 @@
 
           <EmptyState
             v-else
-            title="暂无执行步骤"
-            description="这个模板还没有配置动作步骤。"
+            :title="t('actions.workspace.previewModal.noStepsTitle')"
+            :description="t('actions.workspace.previewModal.noStepsDescription')"
           />
         </div>
 
         <template #footer>
           <div class="flex w-full justify-end gap-3">
-            <BaseButton variant="secondary" @click="closePreviewModal">关闭</BaseButton>
-            <BaseButton v-if="previewTemplate" @click="openRunFromPreview">
-              执行
-            </BaseButton>
+            <BaseButton variant="secondary" @click="closePreviewModal">{{ t('actions.workspace.previewModal.close') }}</BaseButton>
+            <BaseButton v-if="previewTemplate" @click="openRunFromPreview">{{ t('actions.workspace.previewModal.run') }}</BaseButton>
           </div>
         </template>
       </BaseModal>
@@ -212,6 +208,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -221,6 +218,7 @@ import PageFrame from '@/components/ui/PageFrame.vue'
 import actionsApi from '@/api/actions'
 
 const router = useRouter()
+const { t } = useI18n()
 const templates = ref([])
 const loadingTemplates = ref(false)
 const showRunModal = ref(false)
@@ -265,7 +263,7 @@ async function loadTemplates() {
   try {
     templates.value = await actionsApi.listWorkspaceTemplates()
   } catch (error) {
-    showToast(error.message || '加载动作模板失败', 'error')
+    showToast(t('actions.workspace.runModal.toast.loadFailed', { message: error.message || '' }), 'error')
   } finally {
     loadingTemplates.value = false
   }
@@ -335,7 +333,7 @@ async function startRun() {
   runError.value = ''
   for (const field of parameterFields.value) {
     if (field.required && !String(runParams.value[field.name] || '').trim()) {
-      runError.value = `请填写参数：${field.label || field.name}`
+      runError.value = t('actions.workspace.runModal.errorParamRequired', { field: field.label || field.name })
       return
     }
   }
@@ -352,10 +350,10 @@ async function startRun() {
       input_params: inputParams
     })
     closeRunModal()
-    showToast('动作编排已开始执行')
+    showToast(t('actions.workspace.runModal.toast.started'))
     router.push({ path: '/actions/runs', query: { run: run.id } })
   } catch (error) {
-    runError.value = error.message || '启动失败'
+    runError.value = error.message || t('actions.workspace.runModal.toast.startFailed')
   } finally {
     startingRun.value = false
   }
@@ -363,12 +361,12 @@ async function startRun() {
 
 function actionTypeText(type) {
   const map = {
-    jenkins_trigger: '触发 Jenkins',
-    gitlab_branch_create: '新增 GitLab 分支',
-    gitlab_branch_operation: 'GitLab 分支操作',
-    gitlab_tag_operation: 'GitLab 标签操作',
-    gitlab_webhook_operation: 'GitLab Webhook 操作',
-    manual_approval: '人工确认'
+    jenkins_trigger: t('actions.runs.actionTypes.jenkins_trigger'),
+    gitlab_branch_create: t('actions.runs.actionTypes.gitlab_branch_create'),
+    gitlab_branch_operation: t('actions.runs.actionTypes.gitlab_branch_operation'),
+    gitlab_tag_operation: t('actions.runs.actionTypes.gitlab_tag_operation'),
+    gitlab_webhook_operation: t('actions.runs.actionTypes.gitlab_webhook_operation'),
+    manual_approval: t('actions.runs.actionTypes.manual_approval')
   }
   return map[type] || type
 }
@@ -377,43 +375,44 @@ function gitlabOperationText(step) {
   const operation = step.config?.operation || 'create'
   if (step.action_type === 'gitlab_branch_operation') {
     return {
-      create: '新增分支',
-      protect: '保护分支',
-      unprotect: '取消保护分支'
+      create: t('actions.workspace.operations.create'),
+      protect: t('actions.workspace.operations.protect'),
+      unprotect: t('actions.workspace.operations.unprotect')
     }[operation] || operation
   }
-  if (step.action_type === 'gitlab_tag_operation') return '新增标签'
-  if (step.action_type === 'gitlab_webhook_operation') return '新增 Webhook'
+  if (step.action_type === 'gitlab_tag_operation') return t('actions.workspace.operations.tagCreate')
+  if (step.action_type === 'gitlab_webhook_operation') return t('actions.workspace.operations.webhookCreate')
   return operation
 }
 
 function previewStepSummary(step) {
   const config = step.config || {}
   if (step.action_type === 'jenkins_trigger') {
-    return config.wait_for_completion ? '触发 Jenkins 并等待构建完成' : '触发 Jenkins 后继续下一步'
+    return config.wait_for_completion ? t('actions.workspace.stepSummary.jenkinsWait') : t('actions.workspace.stepSummary.jenkinsNoWait')
   }
   if (step.action_type === 'gitlab_branch_create') {
-    const branch = config.branch_name || '未设置分支名'
-    const ref = config.ref || 'main'
-    return `${branch}，基于 ${ref}`
+    const branch = config.branch_name || t('actions.workspace.stepSummary.branchMissing')
+    const ref = config.ref || t('actions.workspace.stepSummary.refDefault')
+    return t('actions.workspace.stepSummary.branch', { branch, ref })
   }
   if (step.action_type === 'gitlab_branch_operation') {
-    const branch = config.branch_name || '未设置分支名'
-    const ref = (config.operation || 'create') === 'create' ? `，基于 ${config.ref || 'main'}` : ''
-    return `${gitlabOperationText(step)}：${branch}${ref}`
+    const branch = config.branch_name || t('actions.workspace.stepSummary.branchMissing')
+    const isCreate = (config.operation || 'create') === 'create'
+    const refPart = isCreate ? t('actions.workspace.stepSummary.branch', { branch: '', ref: config.ref || t('actions.workspace.stepSummary.refDefault') }) : ''
+    return t('actions.workspace.stepSummary.branchOperation', { operation: gitlabOperationText(step), branch, ref: refPart })
   }
   if (step.action_type === 'gitlab_tag_operation') {
-    return `新增标签：${config.tag_name || '未设置标签名'}，基于 ${config.ref || 'main'}`
+    return t('actions.workspace.stepSummary.tagCreate', { tag: config.tag_name || t('actions.workspace.stepSummary.tagMissing'), ref: config.ref || t('actions.workspace.stepSummary.refDefault') })
   }
   if (step.action_type === 'gitlab_webhook_operation') {
-    return `新增 Webhook：${config.url || '未设置 URL'}`
+    return t('actions.workspace.stepSummary.webhookCreate', { url: config.url || t('actions.workspace.stepSummary.urlMissing') })
   }
   if (step.action_type === 'manual_approval') {
     const userCount = (config.approver_user_ids || []).length
     const groupCount = (config.approver_group_ids || []).length
-    return `确认用户 ${userCount} 个，确认群组 ${groupCount} 个`
+    return t('actions.workspace.stepSummary.approverSummary', { userCount, groupCount })
   }
-  return '未识别动作'
+  return t('actions.workspace.stepSummary.unknown')
 }
 
 onMounted(() => {

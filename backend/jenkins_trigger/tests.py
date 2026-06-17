@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 from unittest.mock import Mock, patch
 
+import json
 import pytest
 import requests
 from django.contrib.auth.models import Group
@@ -725,13 +726,64 @@ def test_jobs_force_refresh_bypasses_existing_cache(
     ):
         response = authenticated_client.get(
             f"/api/v1/jenkins/instances/{jenkins_instance.id}/jobs/?force_refresh=true"
-        )
+    )
 
     assert response.status_code == 200
-    payload = response.json()["data"]
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
     assert payload["cached"] is False
     assert payload["stale"] is False
     mock_client.list_jobs.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_jobs_cached_response_hydrates_latest_labels(
+    authenticated_client, jenkins_instance
+):
+    from jenkins_trigger.models import (
+        JenkinsJobIdentity,
+        JenkinsResourceLabel,
+    )
+
+    label = JenkinsResourceLabel.objects.create(name="hyperbdr")
+    identity = JenkinsJobIdentity.objects.create(
+        instance=jenkins_instance, full_name="Agentless_venv"
+    )
+    identity.labels.add(label)
+    cache.set(
+        build_job_catalog_cache_key(jenkins_instance.id),
+        {
+            "instance": {
+                "id": jenkins_instance.id,
+                "name": jenkins_instance.name,
+                "url": jenkins_instance.url,
+            },
+            "jobs": [
+                {
+                    "full_name": "Agentless_venv",
+                    "display_name": "Agentless_venv",
+                    "type": "job",
+                    "has_children": False,
+                    "enabled": True,
+                    "labels": [],
+                    "children": [],
+                }
+            ],
+            "fetched_at": "2026-05-21T00:00:00+00:00",
+        },
+    )
+
+    response = authenticated_client.get(
+        f"/api/v1/jenkins/instances/{jenkins_instance.id}/jobs/"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    assert payload["cached"] is True
+    assert payload["jobs"][0]["labels"] == [
+        {"id": label.id, "name": "hyperbdr", "slug": "hyperbdr"}
+    ]
 
 
 @pytest.mark.django_db
@@ -758,10 +810,11 @@ def test_jobs_force_refresh_returns_stale_cache_on_failure(
     ):
         response = authenticated_client.get(
             f"/api/v1/jenkins/instances/{jenkins_instance.id}/jobs/?force_refresh=true"
-        )
+    )
 
     assert response.status_code == 200
-    payload = response.json()["data"]
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
     assert payload["cached"] is True
     assert payload["stale"] is True
     assert "warning" in payload
@@ -2006,3 +2059,241 @@ def test_refresh_status_passes_request_context(
     body = response.json()
     payload = body["data"] if isinstance(body, dict) and "data" in body else body
     assert payload["params"]["SECRET"] == "******"
+
+
+# ---------------------------------------------------------------------------
+# Resource labels & job tag management
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_list_resource_labels_returns_labels_with_job_count(
+    authenticated_client, jenkins_instance
+):
+    from jenkins_trigger.models import JenkinsResourceLabel
+
+    label_a = JenkinsResourceLabel.objects.create(name="production")
+    label_b = JenkinsResourceLabel.objects.create(name="staging")
+    # job_count is annotated; without annotation it falls back to related count (0)
+    response = authenticated_client.get("/api/v1/jenkins/resource-labels/")
+    assert response.status_code == 200
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    names = [item["name"] for item in payload]
+    assert "production" in names
+    assert "staging" in names
+    assert label_a.id in [item["id"] for item in payload]
+
+
+@pytest.mark.django_db
+def test_create_resource_label_normalizes_name_and_slug(
+    authenticated_client,
+):
+    response = authenticated_client.post(
+        "/api/v1/jenkins/resource-labels/",
+        data=json.dumps({"name": "  Frontend  "}),
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    assert payload["name"] == "Frontend"
+    assert payload["slug"] == "frontend"
+
+
+@pytest.mark.django_db
+def test_create_resource_label_rejects_duplicate_slug(
+    authenticated_client,
+):
+    from jenkins_trigger.models import JenkinsResourceLabel
+
+    JenkinsResourceLabel.objects.create(name="Frontend")
+    response = authenticated_client.post(
+        "/api/v1/jenkins/resource-labels/",
+        data=json.dumps({"name": "frontend"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_update_resource_label(authenticated_client):
+    from jenkins_trigger.models import JenkinsResourceLabel
+
+    label = JenkinsResourceLabel.objects.create(name="old")
+    response = authenticated_client.patch(
+        f"/api/v1/jenkins/resource-labels/{label.id}/",
+        data=json.dumps({"name": "new"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    label.refresh_from_db()
+    assert label.name == "new"
+    assert label.slug == "new"
+
+
+@pytest.mark.django_db
+def test_delete_resource_label_cascades_job_assignments(
+    authenticated_client, jenkins_instance
+):
+    from jenkins_trigger.models import (
+        JenkinsJobIdentity,
+        JenkinsResourceLabel,
+    )
+
+    label = JenkinsResourceLabel.objects.create(name="ephemeral")
+    job = JenkinsJobIdentity.objects.create(
+        instance=jenkins_instance, full_name="team/build"
+    )
+    job.labels.add(label)
+    response = authenticated_client.delete(
+        f"/api/v1/jenkins/resource-labels/{label.id}/"
+    )
+    assert response.status_code == 204
+    assert not JenkinsResourceLabel.objects.filter(id=label.id).exists()
+    job.refresh_from_db()
+    assert job.labels.count() == 0
+
+
+@pytest.mark.django_db
+def test_jobs_endpoint_returns_labels_for_known_jobs(
+    authenticated_client, jenkins_instance
+):
+    from jenkins_trigger.models import (
+        JenkinsJobIdentity,
+        JenkinsResourceLabel,
+    )
+
+    label = JenkinsResourceLabel.objects.create(name="core")
+    identity = JenkinsJobIdentity.objects.create(
+        instance=jenkins_instance, full_name="core/build"
+    )
+    identity.labels.add(label)
+
+    mock_client = Mock()
+    mock_client.list_jobs.return_value = [
+        JenkinsJobNode(
+            full_name="core/build",
+            display_name="Build",
+            url="http://jenkins.example.com/job/core/job/build/",
+            type="job",
+            has_children=False,
+            buildable=True,
+            color="blue",
+        ),
+        JenkinsJobNode(
+            full_name="misc/other",
+            display_name="Other",
+            url="http://jenkins.example.com/job/misc/job/other/",
+            type="job",
+            has_children=False,
+            buildable=True,
+            color="blue",
+        ),
+    ]
+
+    with patch(
+        "jenkins_trigger.views.get_jenkins_client", return_value=mock_client
+    ):
+        response = authenticated_client.get(
+            f"/api/v1/jenkins/instances/{jenkins_instance.id}/jobs/"
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    jobs = {job["full_name"]: job for job in payload["jobs"]}
+    assert jobs["core/build"]["labels"] == [
+        {"id": label.id, "name": "core", "slug": "core"}
+    ]
+    assert jobs["misc/other"]["labels"] == []
+
+
+@pytest.mark.django_db
+def test_assign_labels_to_job(authenticated_client, jenkins_instance):
+    from jenkins_trigger.models import JenkinsResourceLabel
+
+    label = JenkinsResourceLabel.objects.create(name="infra")
+    url = (
+        f"/api/v1/jenkins/instances/{jenkins_instance.id}/"
+        "jobs/team%2Fbuild/labels/"
+    )
+    response = authenticated_client.put(
+        url,
+        data=json.dumps({"label_ids": [label.id]}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    assert payload["full_name"] == "team/build"
+    assert [label["id"] for label in payload["labels"]] == [label.id]
+
+    # Re-apply with empty list clears the assignment.
+    response = authenticated_client.put(
+        url,
+        data=json.dumps({"label_ids": []}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    assert payload["labels"] == []
+
+
+@pytest.mark.django_db
+def test_bulk_add_label_to_jobs_appends_without_overwriting(
+    authenticated_client, jenkins_instance
+):
+    from jenkins_trigger.models import JenkinsJobIdentity, JenkinsResourceLabel
+
+    target_label = JenkinsResourceLabel.objects.create(name="hyperbdr")
+    existing_label = JenkinsResourceLabel.objects.create(name="stable")
+    first_job = JenkinsJobIdentity.objects.create(
+        instance=jenkins_instance,
+        full_name="team/build",
+    )
+    first_job.labels.add(existing_label)
+
+    response = authenticated_client.post(
+        f"/api/v1/jenkins/instances/{jenkins_instance.id}/jobs/bulk-add-label/",
+        data=json.dumps(
+            {
+                "label_id": target_label.id,
+                "full_names": ["team/build", "team/deploy"],
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    payload = body["data"] if isinstance(body, dict) and "data" in body else body
+    assert payload["updated_count"] == 2
+
+    first_job.refresh_from_db()
+    second_job = JenkinsJobIdentity.objects.get(
+        instance=jenkins_instance,
+        full_name="team/deploy",
+    )
+    assert set(first_job.labels.values_list("id", flat=True)) == {
+        existing_label.id,
+        target_label.id,
+    }
+    assert list(second_job.labels.values_list("id", flat=True)) == [target_label.id]
+
+
+@pytest.mark.django_db
+def test_assign_labels_to_job_rejects_unknown_label(
+    authenticated_client, jenkins_instance
+):
+    url = (
+        f"/api/v1/jenkins/instances/{jenkins_instance.id}/"
+        "jobs/team%2Fbuild/labels/"
+    )
+    response = authenticated_client.put(
+        url,
+        data=json.dumps({"label_ids": [9999]}),
+        content_type="application/json",
+    )
+    assert response.status_code == 400

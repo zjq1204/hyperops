@@ -29,6 +29,7 @@ export const normalizeUiLanguage = (language) =>
 
 // Get language from localStorage or default to 'en'.
 const getStoredLanguage = () => {
+  if (typeof localStorage === 'undefined') return 'en'
   const stored = localStorage.getItem('userLanguage')
   const normalized = normalizeUiLanguage(stored)
 
@@ -39,15 +40,39 @@ const getStoredLanguage = () => {
   return normalized
 }
 
+const buildMessages = () => ({
+  en: deepMergeMessages(en, adminEn),
+  'zh-CN': deepMergeMessages(zhCN, adminZhCN)
+})
+
 // Create Vue i18n instance
 const i18n = createI18n({
   legacy: false,
   locale: getStoredLanguage(),
   fallbackLocale: 'en',
-  messages: {
-    en: deepMergeMessages(en, adminEn),
-    'zh-CN': deepMergeMessages(zhCN, adminZhCN)
-  }
+  messages: buildMessages()
 })
+
+// HMR: when any of the locale JSON files change, rebuild messages
+// and hot-replace them so the running app picks up the new strings
+// without a full page reload.
+if (import.meta.hot) {
+  const reloadMessages = () => {
+    const messages = buildMessages()
+    Object.entries(messages).forEach(([locale, value]) => {
+      i18n.global.setLocaleMessage(locale, value)
+    })
+  }
+
+  import.meta.hot.accept(
+    [
+      '../locales/en.json',
+      '../locales/zh-CN.json',
+      '../admin/locales/en.json',
+      '../admin/locales/zh-CN.json'
+    ],
+    reloadMessages
+  )
+}
 
 export default i18n
