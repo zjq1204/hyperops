@@ -1,15 +1,15 @@
 <template>
   <article :class="tileClasses">
-    <div class="metric-card__content">
-      <p class="metric-label">{{ label }}</p>
+    <div class="admin-metric-card__content">
+      <p class="admin-metric-label">{{ label }}</p>
       <div :class="bodyClasses">
-        <p class="metric-value">{{ value }}</p>
-        <p v-if="hint" class="metric-hint">{{ hint }}</p>
+        <p class="admin-metric-value">{{ value }}</p>
+        <p v-if="hint" class="admin-metric-hint">{{ hint }}</p>
       </div>
     </div>
     <div
       v-if="$slots.icon && variant === 'spotlight'"
-      class="metric-card__icon"
+      class="admin-metric-card__icon"
     >
       <slot name="icon" />
     </div>
@@ -41,13 +41,13 @@ const props = defineProps({
 
 const tileClasses = computed(() =>
   props.variant === 'spotlight'
-    ? 'metric-card metric-card--spotlight'
-    : 'metric-card metric-card--compact'
+    ? 'admin-metric-card admin-metric-card--spotlight'
+    : 'admin-metric-card admin-metric-card--compact'
 )
 
 const bodyClasses = computed(() =>
   props.variant === 'spotlight'
-    ? 'metric-card__body metric-card__body--spotlight'
-    : 'metric-card__body metric-card__body--compact'
+    ? 'admin-metric-card__body admin-metric-card__body--spotlight'
+    : 'admin-metric-card__body admin-metric-card__body--compact'
 )
 </script>

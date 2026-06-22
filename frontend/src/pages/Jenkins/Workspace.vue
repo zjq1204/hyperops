@@ -5,13 +5,25 @@
       :title="t('jenkinsWorkspace.title')"
       :subtitle="t('jenkinsWorkspace.subtitle')"
     >
-      <section class="metrics-strip">
-        <MetricTile :label="t('jenkinsWorkspace.availableEntries')" :value="entries.length" :hint="t('jenkinsWorkspace.availableEntriesHint')" />
-        <MetricTile :label="t('jenkinsWorkspace.searchStatus')" :value="searchQuery ? t('jenkinsWorkspace.searching') : t('common.all')" :hint="searchQuery || t('jenkinsWorkspace.searchHint')" />
-        <MetricTile :label="t('jenkinsWorkspace.interactionMode')" value="Manual" :hint="t('jenkinsWorkspace.interactionModeHint')" />
+      <section class="workspace-inline-summary">
+        <div class="workspace-inline-stat">
+          <span>{{ t('jenkinsWorkspace.availableEntries') }}</span>
+          <strong>{{ entries.length }}</strong>
+          <small>{{ t('jenkinsWorkspace.availableEntriesHint') }}</small>
+        </div>
+        <div class="workspace-inline-stat">
+          <span>{{ t('jenkinsWorkspace.searchStatus') }}</span>
+          <strong>{{ searchQuery ? t('jenkinsWorkspace.searching') : t('common.all') }}</strong>
+          <small>{{ searchQuery || t('jenkinsWorkspace.searchHint') }}</small>
+        </div>
+        <div class="workspace-inline-stat">
+          <span>{{ t('jenkinsWorkspace.interactionMode') }}</span>
+          <strong>Manual</strong>
+          <small>{{ t('jenkinsWorkspace.interactionModeHint') }}</small>
+        </div>
       </section>
 
-      <section class="surface-panel-strong p-6">
+      <section class="workspace-panel workspace-panel--padded">
         <div class="section-heading">
           <div>
             <h2 class="section-title">{{ t('jenkinsWorkspace.catalogTitle') }}</h2>
@@ -35,15 +47,15 @@
         <article
           v-for="entry in filteredEntries"
           :key="entry.id"
-          class="surface-panel-strong p-5 transition-all duration-200 hover:border-sky-200 hover:shadow-[0_16px_38px_rgba(14,165,233,0.08)]"
+          class="workspace-entry-row workspace-entry-row--card"
         >
           <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-3">
-                <span class="inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-700">
+                <span class="workspace-chip workspace-chip--sky">
                   {{ entry.instance_name }}
                 </span>
-                <span class="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                <span class="workspace-chip">
                   {{ t('jenkinsWorkspace.jobName') }}
                 </span>
                 <span class="font-mono text-sm text-slate-500">
@@ -61,7 +73,7 @@
                   </p>
                 </div>
 
-                <div class="rounded-[1rem] border border-slate-200/80 bg-slate-50/80 px-4 py-3 lg:min-w-[18rem]">
+                <div class="workspace-meta-box lg:min-w-[18rem]">
                   <div class="flex items-center justify-between gap-3">
                     <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                       {{ t('jenkinsWorkspace.notificationSectionTag') }}
@@ -120,7 +132,7 @@
           <div
             v-for="param in params"
             :key="param.name"
-            class="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-4"
+            class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4"
           >
             <label class="block text-sm font-semibold text-slate-800">
               {{ param.name }}
@@ -206,7 +218,7 @@
         @close="closeNotificationModal"
       >
         <div v-if="selectedNotificationEntry" class="space-y-5">
-          <section class="rounded-[1.25rem] border border-slate-200/80 bg-white/95 px-4 py-4 shadow-[0_14px_32px_rgba(15,23,42,0.05)] sm:px-5">
+          <section class="rounded-lg border border-slate-200/80 bg-white/95 px-4 py-4 sm:px-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
@@ -242,7 +254,7 @@
                 v-for="targetGroup in notificationTargetGroups"
                 :key="targetGroup.key"
                 :class="[
-                  'flex cursor-pointer items-start gap-3 rounded-[1rem] border px-4 py-3 transition-all duration-150',
+                  'flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition-all duration-150',
                   !hasNotificationTargets(targetGroup.key)
                     ? 'cursor-not-allowed opacity-70'
                     : '',
@@ -309,19 +321,19 @@
 
       <BaseModal :show="showResultModal" :title="t('jenkinsWorkspace.buildTriggered')" @close="closeResultModal">
         <div class="space-y-4">
-	          <div class="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-4">
+	          <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
 	            <p class="metric-label">{{ t('jenkinsWorkspace.buildNumber') }}</p>
 	            <p class="mt-2 text-2xl font-semibold text-slate-900">
 	              {{ triggerResult.build_number ? `#${triggerResult.build_number}` : t('jenkinsWorkspace.queuedBuild') }}
 	            </p>
 	          </div>
-          <div class="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-4">
+          <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
             <p class="metric-label">{{ t('jenkinsWorkspace.resultStatus') }}</p>
             <span :class="resultStatusClass(triggerResult.status)" class="mt-3 inline-flex">
               {{ statusLabel(triggerResult.status || 'pending') }}
             </span>
           </div>
-          <div v-if="hasBuildProgress(triggerResult)" class="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-4">
+          <div v-if="hasBuildProgress(triggerResult)" class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
             <div class="flex items-center justify-between gap-3">
               <p class="metric-label">{{ t('jenkinsWorkspace.progress') }}</p>
               <span class="text-sm font-semibold text-slate-800">
@@ -341,7 +353,7 @@
               </span>
             </div>
           </div>
-          <div class="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-4">
+          <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
             <p class="metric-label">{{ t('jenkinsWorkspace.notificationSectionTitle') }}</p>
             <p class="mt-2 text-lg font-semibold text-slate-900">
               {{ resultNotificationSummary }}
@@ -364,7 +376,7 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-5 right-5 z-[60] rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl',
+          'fixed bottom-5 right-5 z-[60] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
           toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
         ]"
       >
@@ -382,7 +394,6 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseLoading from '@/components/ui/BaseLoading.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import MetricTile from '@/components/ui/MetricTile.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import jenkinsApi from '@/api/jenkins'
 import { useUserStore } from '@/store/user'

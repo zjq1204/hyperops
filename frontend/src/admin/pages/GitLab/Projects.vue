@@ -136,7 +136,7 @@
                 </span>
               </td>
               <td class="admin-table-cell text-sm text-slate-500">
-                {{ project.collected_at || '-' }}
+                {{ project.collected_at || t('common.emptyValue') }}
               </td>
             </tr>
           </tbody>
@@ -183,14 +183,14 @@
       >
         <div class="admin-modal-stack">
           <section class="admin-modal-card">
-            <label class="admin-bulk-input-label">
+            <label class="admin-modal-field-label">
               {{ t('adminPages.gitlabProjects.labelName') }}
             </label>
-            <div class="flex gap-3">
+            <div class="admin-modal-inline-field">
               <input
                 v-model="labelDraft.name"
                 type="text"
-                class="input flex-1"
+                class="admin-modal-control"
                 :placeholder="
                   t('adminPages.gitlabProjects.labelNamePlaceholder')
                 "
@@ -238,15 +238,15 @@
                     }}
                   </p>
                 </div>
-                <div class="flex flex-wrap gap-3 text-sm font-semibold">
+                <div class="admin-row-actions">
                   <button
-                    class="text-sky-700 hover:text-sky-900"
+                    class="admin-row-action admin-row-action--primary"
                     @click="startEditProjectLabel(label)"
                   >
                     {{ t('common.edit') }}
                   </button>
                   <button
-                    class="text-rose-700 hover:text-rose-900"
+                    class="admin-row-action admin-row-action--danger"
                     @click="deleteProjectLabel(label)"
                   >
                     {{ t('common.delete') }}
@@ -333,7 +333,9 @@
                 <span>{{
                   t('adminPages.gitlabProjects.bulkAssignTargetLabel')
                 }}</span>
-                <strong>{{ selectedBulkLabel?.name || '—' }}</strong>
+                <strong>{{
+                  selectedBulkLabel?.name || t('common.emptyValue')
+                }}</strong>
               </div>
               <div class="admin-bulk-summary-metric">
                 <span>{{
@@ -394,7 +396,7 @@
             <input
               v-model="bulkAssignSearch"
               type="text"
-              class="input mt-4"
+              class="admin-modal-control mt-4"
               :placeholder="
                 t('adminPages.gitlabProjects.bulkAssignSearchPlaceholder')
               "
@@ -514,7 +516,7 @@
             <input
               v-model="bulkCollectSearch"
               type="text"
-              class="input mt-4"
+              class="admin-modal-control mt-4"
               :placeholder="
                 t('adminPages.gitlabProjects.bulkAssignSearchPlaceholder')
               "
@@ -582,8 +584,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}
@@ -681,7 +685,7 @@ const bulkCollectScopeLabel = computed(() => {
   if (selectedLabelNames.value.length) {
     scopeParts.push(selectedLabelNames.value.join(' / '))
   }
-  return scopeParts.join(' · ')
+  return scopeParts.join(t('common.metaSeparator'))
 })
 
 const bulkAlreadyTaggedCount = computed(() => {

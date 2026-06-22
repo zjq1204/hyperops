@@ -1,0 +1,77 @@
+/* Vue DatePicker custom theme */
+.dp__theme_light {
+  --dp-font-family: 'Inter', system-ui, sans-serif;
+  --dp-font-size: 0.85rem;
+  --dp-border-radius: 0.625rem;
+  --dp-border-color: #e5e7eb;
+  --dp-text-color: #1f2937;
+  --dp-primary-color: #2563eb;
+  --dp-primary-text-color: #ffffff;
+  --dp-hover-color: #eff6ff;
+  --dp-hover-text-color: #1d4ed8;
+  --dp-primary-disabled-color: #bfdbfe;
+  --dp-secondary-color: #f3f4f6;
+  --dp-menu-border-color: #e5e7eb;
+  --dp-success-color: #16a34a;
+  --dp-icon-color: #6b7280;
+}
+
+.dp__menu {
+  @apply rounded-lg border border-slate-200 shadow-[0_14px_34px_rgba(15,23,42,0.12)];
+}
+
+.dp__input {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.875rem;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.bdtp-compact {
+  @apply flex items-center rounded-lg border border-slate-200/80 bg-white pr-0;
+  min-height: 1.25rem;
+}
+
+.bdtp-compact .dp__main {
+  width: 100%;
+}
+
+.bdtp-compact .dp__input_wrap {
+  @apply flex items-center w-full min-h-[1.25rem] px-1.5;
+}
+
+.bdtp-compact .dp__input {
+  @apply font-medium text-xs leading-4 p-0 bg-transparent border-none shadow-none focus:ring-0 focus:outline-none;
+  height: 1.25rem;
+  line-height: 1.25rem;
+}
+
+.bdtp-compact .dp__input_icon {
+  display: none !important;
+}
+
+.bdtp-compact .dp__action_row {
+  @apply px-3 py-2;
+}
+
+.dp__range_between {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.glass-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.glass-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+}
+
+.glass-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dp__today {
+  border-color: rgba(37, 99, 235, 0.7);
+}

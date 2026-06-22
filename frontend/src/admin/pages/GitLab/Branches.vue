@@ -160,7 +160,7 @@
               >
             </td>
             <td class="admin-table-cell font-mono text-sm text-slate-500">
-              {{ branch.last_commit_date || '-' }}
+              {{ branch.last_commit_date || t('common.emptyValue') }}
             </td>
           </tr>
         </tbody>
@@ -210,10 +210,8 @@
             <button
               type="button"
               :class="[
-                'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                bulkBranchStep === 1
-                  ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-600'
+                'admin-scope-step-card',
+                bulkBranchStep === 1 ? 'is-active' : ''
               ]"
               @click="bulkBranchStep = 1"
             >
@@ -231,11 +229,9 @@
               type="button"
               :disabled="!canGoToBulkProjectsStep"
               :class="[
-                'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                bulkBranchStep === 2
-                  ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-600',
-                !canGoToBulkProjectsStep ? 'cursor-not-allowed opacity-60' : ''
+                'admin-scope-step-card',
+                bulkBranchStep === 2 ? 'is-active' : '',
+                !canGoToBulkProjectsStep ? 'is-disabled' : ''
               ]"
               @click="goToBulkBranchProjectsStep"
             >
@@ -253,11 +249,9 @@
               type="button"
               :disabled="!canGoToBulkComposeStep"
               :class="[
-                'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                bulkBranchStep === 3
-                  ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-600',
-                !canGoToBulkComposeStep ? 'cursor-not-allowed opacity-60' : ''
+                'admin-scope-step-card',
+                bulkBranchStep === 3 ? 'is-active' : '',
+                !canGoToBulkComposeStep ? 'is-disabled' : ''
               ]"
               @click="goToBulkBranchComposeStep"
             >
@@ -340,7 +334,9 @@
                   :key="label.id"
                   type="button"
                   class="admin-tag-filter-chip"
-                  :class="{ 'is-active': bulkSelectedLabelIds.includes(label.id) }"
+                  :class="{
+                    'is-active': bulkSelectedLabelIds.includes(label.id)
+                  }"
                   @click="toggleBulkLabelFilter(label.id)"
                 >
                   {{ label.name }}
@@ -387,7 +383,10 @@
                 </button>
               </div>
             </header>
-            <div v-if="bulkProjectOptions.length" class="admin-bulk-project-grid">
+            <div
+              v-if="bulkProjectOptions.length"
+              class="admin-bulk-project-grid"
+            >
               <label
                 v-for="project in bulkProjectOptions"
                 :key="project.id"
@@ -416,14 +415,13 @@
             </p>
           </section>
 
-          <section
-            v-else
-            class="flex flex-col gap-5 xl:h-[26rem] xl:flex-row"
-          >
+          <section v-else class="flex flex-col gap-5 xl:h-[26rem] xl:flex-row">
             <section
               class="admin-modal-card flex min-h-0 h-full flex-col overflow-hidden xl:w-[37%] xl:max-w-[25rem]"
             >
-              <div class="admin-bulk-selected-shell admin-bulk-selected-shell--fill">
+              <div
+                class="admin-bulk-selected-shell admin-bulk-selected-shell--fill"
+              >
                 <div class="admin-bulk-selected-head">
                   <h3 class="admin-bulk-title">
                     {{
@@ -481,9 +479,7 @@
                     {{ t('adminPages.gitlabBranches.stepComposeDesc') }}
                   </p>
                 </div>
-                <div
-                  class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 lg:max-w-xs lg:text-right"
-                >
+                <div class="admin-scope-preview-card">
                   {{
                     t('adminPages.gitlabBranches.bulkPreview', {
                       operation: bulkOperationLabel,
@@ -512,8 +508,10 @@
                   <input
                     v-model="bulkBranchForm.ref"
                     type="text"
-                    placeholder="main"
-                    class="input"
+                    :placeholder="
+                      t('adminPages.gitlabBranches.sourceRefPlaceholder')
+                    "
+                    class="admin-modal-control"
                   />
                   <p class="text-xs leading-5 text-slate-500">
                     {{ t('adminPages.gitlabBranches.sourceRefHint') }}
@@ -527,8 +525,10 @@
                   <textarea
                     v-model="bulkBranchForm.branch_names"
                     rows="8"
-                    placeholder="feature-branch-1&#10;feature-branch-2"
-                    class="input admin-bulk-textarea min-h-[220px] font-mono"
+                    :placeholder="
+                      t('adminPages.gitlabBranches.branchNamesPlaceholder')
+                    "
+                    class="admin-modal-control admin-bulk-textarea min-h-[220px] font-mono"
                   ></textarea>
                 </div>
               </section>
@@ -580,8 +580,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

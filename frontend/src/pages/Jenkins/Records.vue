@@ -5,7 +5,7 @@
       :title="t('jenkinsRecords.title')"
       :subtitle="t('jenkinsRecords.subtitle')"
     >
-      <section class="surface-panel-strong p-6">
+      <section class="workspace-panel workspace-panel--padded">
         <div class="section-heading">
           <div>
             <h2 class="section-title">{{ t('jenkinsRecords.filtersTitle') }}</h2>
@@ -31,9 +31,9 @@
         </div>
       </section>
 
-      <section v-if="records.length" class="table-shell">
+      <section v-if="records.length" class="workspace-table-shell">
         <div class="overflow-x-auto">
-          <table class="panel-table">
+          <table class="workspace-table">
             <thead>
               <tr>
                 <th>{{ t('jenkinsRecords.entry') }}</th>
@@ -161,7 +161,7 @@
           <div
             v-for="artifact in selectedRecord?.artifacts"
             :key="artifact.path"
-            class="rounded-[1.25rem] border border-slate-200/80 bg-slate-50/80 p-4"
+            class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4"
           >
             <div class="font-semibold text-slate-900">{{ artifact.name }}</div>
             <div class="mt-1 break-words font-mono text-xs text-slate-500">{{ artifact.path }}</div>
@@ -177,7 +177,7 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-5 right-5 z-[60] rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl',
+          'fixed bottom-5 right-5 z-[60] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
           toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
         ]"
       >

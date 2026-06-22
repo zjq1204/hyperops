@@ -1,0 +1,252 @@
+/* Jenkins jobs filter toolbar: dense controls with a clear operations flow. */
+.admin-job-filter--toolbar {
+  @apply flex flex-col gap-3 rounded-lg border border-slate-200/80 px-5 py-4;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.admin-job-filter__topbar {
+  @apply grid items-end gap-4;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin-job-filter__primary {
+  @apply grid min-w-0 items-end gap-3;
+  grid-template-columns: minmax(12rem, 15rem) minmax(17rem, 1fr) minmax(
+      20rem,
+      22rem
+    );
+}
+
+.admin-job-filter__field,
+.admin-job-filter__mode {
+  @apply flex min-w-0 flex-col gap-1.5;
+}
+
+.admin-job-filter__field-label {
+  @apply ml-1 text-[10px] font-semibold uppercase text-slate-400;
+  letter-spacing: 0.18em;
+}
+
+.admin-job-filter--toolbar .admin-filter-control {
+  @apply h-10 rounded-xl border-slate-200 bg-white text-sm;
+}
+
+.admin-job-filter--toolbar .admin-filter-control-icon {
+  @apply left-3.5 h-4 w-4;
+}
+
+.admin-job-filter--toolbar .admin-filter-control--with-icon {
+  @apply pl-10;
+}
+
+.admin-job-filter__mode-control {
+  @apply grid h-10 grid-cols-2 rounded-xl border border-slate-200 bg-slate-100/70 p-1;
+}
+
+.admin-job-filter__mode-option {
+  @apply min-w-0 rounded-lg px-3 text-center text-[12px] font-semibold text-slate-500 transition;
+}
+
+.admin-job-filter__mode-option.is-active {
+  @apply bg-white text-slate-900 shadow-sm;
+}
+
+.admin-job-filter__labelbar {
+  @apply grid items-center gap-3 border-t border-slate-200/70 pt-3;
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+
+.admin-job-filter__label-head {
+  @apply flex items-center gap-2;
+}
+
+.admin-job-filter--toolbar .admin-filter-manage-link {
+  @apply h-8 rounded-xl px-2.5 text-[11.5px];
+}
+
+.admin-bulk-label-start {
+  @apply inline-flex h-8 items-center gap-1.5 rounded-xl border border-sky-200 bg-white px-2.5 text-[11.5px] font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900;
+}
+
+.admin-job-filter--toolbar .admin-tag-filter-list {
+  @apply flex min-h-9 min-w-0 flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white/70 px-2 py-1;
+}
+
+.admin-job-filter--toolbar .admin-tag-filter-chip {
+  @apply h-7 rounded-lg px-2.5 text-[12px];
+}
+
+.admin-job-filter--toolbar .admin-labels-empty-inline {
+  @apply min-h-9 rounded-xl px-3;
+}
+
+.admin-job-bulk-bar {
+  @apply mx-3 mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-sky-200 bg-sky-50/90 px-4 py-3 shadow-[0_8px_18px_rgba(14,165,233,0.10)];
+}
+
+.admin-job-bulk-select-all {
+  @apply inline-flex cursor-pointer items-center gap-2 rounded-full border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-sky-800;
+}
+
+.admin-job-bulk-target {
+  @apply inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-800;
+}
+
+.admin-job-bulk-target select {
+  @apply h-7 rounded-full border border-sky-100 bg-sky-50 px-2 text-xs font-semibold text-sky-900 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100;
+}
+
+.admin-job-bulk-select-all input,
+.admin-job-bulk-checkbox input {
+  @apply h-4 w-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500;
+}
+
+.admin-job-bulk-summary {
+  @apply flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-sm;
+}
+
+.admin-job-bulk-summary strong {
+  @apply text-slate-950;
+}
+
+.admin-job-bulk-summary span {
+  @apply text-slate-600;
+}
+
+.admin-job-bulk-actions {
+  @apply ml-auto flex flex-wrap items-center justify-end gap-2;
+}
+
+.admin-job-bulk-checkbox {
+  @apply mt-3 inline-flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-xl border border-sky-200 bg-white shadow-sm transition hover:border-sky-300 hover:bg-sky-50;
+}
+
+.admin-job-bulk-checkbox.is-disabled {
+  @apply cursor-not-allowed border-slate-200 bg-slate-100 opacity-60 hover:border-slate-200 hover:bg-slate-100;
+}
+
+.admin-job-loading-panel {
+  @apply rounded-lg border px-6 py-14;
+  border-color: rgba(226, 232, 240, 0.66);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+}
+
+.admin-job-workbench-grid {
+  @apply grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(24rem,0.95fr)];
+}
+
+.admin-job-workbench-panel {
+  @apply overflow-hidden rounded-lg border backdrop-blur;
+  border-color: rgba(226, 232, 240, 0.66);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04);
+}
+
+.admin-job-workbench-panel--detail {
+  @apply p-5;
+}
+
+.admin-job-panel-head {
+  @apply flex items-center justify-between gap-4 border-b px-5 py-4;
+  border-color: rgba(226, 232, 240, 0.62);
+}
+
+.admin-job-list-scroll {
+  @apply max-h-[44rem] overflow-y-auto p-3;
+}
+
+.admin-job-list-item {
+  @apply mb-2 flex w-full items-stretch rounded-lg border px-4 py-4 text-left transition-all duration-200;
+}
+
+.admin-job-list-item--selected {
+  @apply border-sky-300 bg-sky-50/75;
+  box-shadow: 0 8px 16px rgba(56, 189, 248, 0.06);
+}
+
+.admin-job-list-item--bulk-selected {
+  @apply border-sky-400 bg-sky-50/80;
+  box-shadow: 0 8px 16px rgba(56, 189, 248, 0.08);
+}
+
+.admin-job-list-item--disabled {
+  @apply border-slate-200/70 bg-slate-50/75 opacity-80 hover:border-slate-300 hover:bg-slate-100/70;
+}
+
+.admin-job-list-item--default {
+  @apply border-slate-200/80 bg-white/75 hover:border-sky-200 hover:bg-white/90;
+}
+
+.admin-job-type-icon {
+  @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border;
+}
+
+.admin-job-type-icon--folder {
+  @apply border-sky-200 bg-sky-50 text-sky-700;
+}
+
+.admin-job-type-icon--job {
+  @apply border-slate-200 bg-slate-50 text-slate-600;
+}
+
+.admin-job-quick-icon {
+  @apply inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700;
+}
+
+.admin-job-detail-grid {
+  @apply mt-6 grid gap-3 sm:grid-cols-2;
+}
+
+.admin-job-detail-card {
+  @apply rounded-lg border px-4 py-3;
+  border-color: rgba(226, 232, 240, 0.66);
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.admin-job-detail-label {
+  @apply text-[11px] font-semibold uppercase text-slate-400;
+  letter-spacing: 0.16em;
+}
+
+.admin-job-detail-note {
+  @apply mt-6 rounded-lg border px-4 py-4;
+  border-color: rgba(186, 230, 253, 0.72);
+  background: rgba(240, 249, 255, 0.62);
+}
+
+@media (max-width: 1280px) {
+  .admin-job-filter__topbar,
+  .admin-job-filter__labelbar {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-job-filter__primary {
+    grid-template-columns: minmax(12rem, 15rem) minmax(17rem, 1fr);
+  }
+
+  .admin-job-filter__mode {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-job-filter__primary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-job-filter__mode {
+    grid-column: auto;
+  }
+
+  .admin-job-filter__label-head {
+    @apply justify-between;
+  }
+
+  .admin-job-bulk-actions {
+    @apply ml-0 w-full justify-start;
+  }
+}

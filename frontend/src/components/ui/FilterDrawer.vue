@@ -30,7 +30,7 @@
     >
       <!-- Header -->
       <div
-        class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 flex-shrink-0"
+        class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-slate-200 bg-slate-50/80 flex-shrink-0"
       >
         <h2 class="text-base md:text-lg font-semibold text-gray-900">
           {{ title || t('common.filter') }}

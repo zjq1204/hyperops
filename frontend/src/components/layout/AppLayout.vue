@@ -1,8 +1,6 @@
 <template>
-  <div class="relative flex h-screen w-full overflow-hidden">
-    <div
-      class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.14),_transparent_24%),radial-gradient(circle_at_82%_0%,_rgba(249,115,22,0.14),_transparent_18%),linear-gradient(180deg,_rgba(248,251,255,0.96),_rgba(241,245,249,0.88))]"
-    ></div>
+  <div class="workspace-layout">
+    <div class="workspace-layout__backdrop"></div>
     <!-- Sidebar -->
     <AppSidebar
       v-if="resolvedShowSidebar"
@@ -11,7 +9,7 @@
     />
 
     <!-- Main content area -->
-    <div class="relative z-10 flex min-w-0 w-0 flex-1 flex-col h-full overflow-hidden">
+    <div class="workspace-layout__content">
       <!-- Header -->
       <AppHeader
         :show-menu-button="resolvedShowSidebar"
@@ -20,9 +18,11 @@
 
       <!-- Main content - scrollable -->
       <main
-        class="glass-scrollbar flex-1 min-w-0 overflow-y-auto"
+        class="workspace-layout__main glass-scrollbar"
         :class="
-          resolvedShowSidebar ? 'px-4 py-4 sm:px-5 lg:px-6' : 'px-6 py-6 sm:px-8 lg:px-10'
+          resolvedShowSidebar
+            ? 'workspace-layout__main--with-sidebar'
+            : 'workspace-layout__main--plain'
         "
       >
         <div :key="route.path" class="pb-8">

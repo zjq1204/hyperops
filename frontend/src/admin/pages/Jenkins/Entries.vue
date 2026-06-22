@@ -23,7 +23,9 @@
               <th class="admin-table-head">
                 {{ t('adminPages.jenkinsEntries.jobName') }}
               </th>
-              <th class="admin-table-head">参数数</th>
+              <th class="admin-table-head">
+                {{ t('adminPages.jenkinsEntries.paramCount') }}
+              </th>
               <th class="admin-table-head">{{ t('common.status') }}</th>
               <th class="admin-table-head">{{ t('common.actions') }}</th>
             </tr>
@@ -66,16 +68,16 @@
                 </span>
               </td>
               <td class="admin-table-cell">
-                <div class="flex flex-wrap gap-3 text-sm font-semibold">
+                <div class="admin-row-actions">
                   <button
                     @click="editEntry(entry)"
-                    class="text-sky-700 hover:text-sky-900"
+                    class="admin-row-action admin-row-action--primary"
                   >
                     {{ t('common.edit') }}
                   </button>
                   <button
                     @click="deleteEntry(entry)"
-                    class="text-rose-700 hover:text-rose-900"
+                    class="admin-row-action admin-row-action--danger"
                   >
                     {{ t('common.delete') }}
                   </button>
@@ -126,10 +128,14 @@
         <form @submit.prevent="saveEntry">
           <div class="admin-modal-stack">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700"
+              <label class="admin-modal-field-label"
                 >Jenkins {{ t('common.instance') }}</label
               >
-              <select v-model="entryForm.instance" required class="input">
+              <select
+                v-model="entryForm.instance"
+                required
+                class="admin-modal-control"
+              >
                 <option value="">
                   {{ t('adminPages.jenkinsEntries.selectInstance') }}
                 </option>
@@ -143,19 +149,19 @@
               </select>
             </div>
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{
+              <label class="admin-modal-field-label">{{
                 t('adminPages.jenkinsEntries.displayName')
               }}</label>
               <input
                 v-model="entryForm.name"
                 type="text"
                 required
-                class="input"
+                class="admin-modal-control"
               />
             </div>
             <div>
               <div class="mb-2 flex items-center justify-between gap-3">
-                <label class="block text-sm font-medium text-slate-700">{{
+                <label class="admin-modal-field-label mb-0">{{
                   t('adminPages.jenkinsEntries.jobName')
                 }}</label>
                 <BaseButton
@@ -171,21 +177,21 @@
                 v-model="entryForm.job_name"
                 type="text"
                 required
-                class="input"
+                class="admin-modal-control"
                 :placeholder="t('adminPages.jenkinsEntries.jobNamePlaceholder')"
               />
-              <p class="mt-2 text-xs text-slate-500">
+              <p class="admin-modal-help">
                 {{ t('adminPages.jenkinsEntries.jobNameHint') }}
               </p>
             </div>
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{
+              <label class="admin-modal-field-label">{{
                 t('common.description')
               }}</label>
               <textarea
                 v-model="entryForm.description"
                 rows="2"
-                class="input min-h-[5.5rem]"
+                class="admin-modal-control min-h-[5.5rem]"
               ></textarea>
             </div>
             <div class="admin-modal-card-muted space-y-3">
@@ -283,12 +289,10 @@
                     class="mt-4 grid gap-3 md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
                   >
                     <div>
-                      <label
-                        class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
-                      >
+                      <label class="admin-modal-field-label--compact">
                         {{ t('adminPages.jenkinsEntries.paramMode') }}
                       </label>
-                      <select v-model="row.mode" class="input">
+                      <select v-model="row.mode" class="admin-modal-control">
                         <option value="editable">
                           {{ t('adminPages.jenkinsEntries.modeEditable') }}
                         </option>
@@ -301,15 +305,13 @@
                       </select>
                     </div>
                     <div>
-                      <label
-                        class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
-                      >
+                      <label class="admin-modal-field-label--compact">
                         {{ t('adminPages.jenkinsEntries.paramDefaultValue') }}
                       </label>
                       <input
                         v-model="row.default_value"
                         type="text"
-                        class="input"
+                        class="admin-modal-control"
                         :placeholder="
                           t('adminPages.jenkinsEntries.paramDefaultPlaceholder')
                         "
@@ -338,7 +340,7 @@
                   :value="paramsConfigJson"
                   rows="6"
                   readonly
-                  class="input mt-3 min-h-[10rem] font-mono text-sm text-slate-600"
+                  class="admin-modal-control mt-3 min-h-[10rem] font-mono text-sm text-slate-600"
                 ></textarea>
               </details>
             </div>
@@ -375,8 +377,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

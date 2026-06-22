@@ -1,13 +1,11 @@
 <template>
-  <header
-    class="layout-admin-header bg-white/72 backdrop-blur-2xl border-b border-slate-200/70 flex-shrink-0 z-30"
-  >
-    <div class="px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between items-center h-20">
+  <header class="layout-admin-header flex-shrink-0 z-30">
+    <div class="px-4 sm:px-6 lg:px-7">
+      <div class="flex h-16 items-center justify-between">
         <div class="flex items-center gap-3">
           <button
             @click="$emit('toggle-menu')"
-            class="lg:hidden p-2 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            class="rounded-xl p-2 text-slate-400 hover:bg-slate-100/80 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-300 lg:hidden"
           >
             <svg
               class="w-6 h-6"
@@ -34,11 +32,11 @@
           <div class="relative" ref="userMenuRef">
             <button
               @click="toggleUserMenu"
-              class="flex items-center space-x-2 text-sm text-slate-600 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-400 rounded-lg px-2 py-1"
+              class="flex items-center space-x-2 rounded-xl px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-100/70 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-300"
             >
               <div
                 :class="avatarBgColor"
-                class="w-8 h-8 rounded-full flex items-center justify-center"
+                class="flex h-8 w-8 items-center justify-center rounded-full shadow-sm"
               >
                 <span class="text-white font-medium text-sm">{{
                   userInitials
@@ -71,21 +69,21 @@
             >
               <div
                 v-if="showUserMenu"
-                class="absolute right-0 mt-3 w-80 rounded-2xl border border-white/50 bg-white/92 py-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)] backdrop-blur-xl z-50"
+                class="absolute right-0 z-50 mt-3 w-80 rounded-lg border border-slate-200/80 bg-white/95 py-2 shadow-[0_12px_32px_rgba(15,23,42,0.12)] backdrop-blur-xl"
               >
-                <div class="px-4 py-2 border-b border-gray-100">
-                  <div class="font-semibold text-gray-900 truncate">
+                <div class="border-b border-slate-200/70 px-4 py-2">
+                  <div class="truncate font-semibold text-slate-900">
                     {{ displayName }}
                   </div>
                 </div>
                 <div class="px-4 py-2">
                   <router-link
                     to="/settings"
-                    class="flex items-center gap-2 text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1.5 transition-colors"
+                    class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
                     @click="showUserMenu = false"
                   >
                     <svg
-                      class="w-4 h-4 text-gray-400"
+                      class="h-4 w-4 text-slate-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -106,10 +104,10 @@
                     <span>{{ t('common.settings') }}</span>
                   </router-link>
                 </div>
-                <div class="border-t border-gray-100 my-1"></div>
+                <div class="my-1 border-t border-slate-200/70"></div>
                 <button
                   @click="handleLogout"
-                  class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  class="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                 >
                   {{ t('common.logout') }}
                 </button>
@@ -142,7 +140,9 @@ const userMenuRef = ref(null)
 
 const pageTitle = computed(() => {
   const routeName = typeof route.name === 'string' ? route.name : ''
-  return routeName && te(`routeTitles.${routeName}`) ? t(`routeTitles.${routeName}`) : t('management.logoTitle')
+  return routeName && te(`routeTitles.${routeName}`)
+    ? t(`routeTitles.${routeName}`)
+    : t('management.logoTitle')
 })
 
 const displayName = computed(() => {

@@ -1,13 +1,13 @@
 <template>
   <div
-    class="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.16),_transparent_24%),radial-gradient(circle_at_bottom_right,_rgba(249,115,22,0.14),_transparent_22%),linear-gradient(180deg,_#f8fbff_0%,_#edf4ff_52%,_#f7f8fb_100%)] px-4 py-12"
+    class="relative min-h-screen overflow-hidden bg-[#f6f8fb] px-4 py-12"
   >
     <div class="pointer-events-none absolute inset-0">
       <div class="absolute left-[10%] top-[10%] h-52 w-52 rounded-full bg-sky-200/35 blur-3xl"></div>
       <div class="absolute right-[12%] bottom-[12%] h-64 w-64 rounded-full bg-orange-200/30 blur-3xl"></div>
     </div>
     <div
-      class="surface-panel-strong relative mx-auto w-full max-w-lg rounded-[2rem] p-8 shadow-[0_28px_80px_rgba(15,23,42,0.14)] sm:p-10"
+      class="surface-panel-strong relative mx-auto w-full max-w-lg rounded-lg p-8 sm:p-10"
     >
       <div class="mb-8 text-center">
         <span class="page-eyebrow bg-slate-900/85 text-slate-100">Account recovery</span>
@@ -21,7 +21,7 @@
 
       <div
         v-if="successMessage"
-        class="mb-5 rounded-[1.25rem] border border-emerald-200 bg-emerald-50/90 p-4 text-sm text-emerald-700"
+        class="mb-5 rounded-lg border border-emerald-200 bg-emerald-50/90 p-4 text-sm text-emerald-700"
       >
         <p class="font-medium text-green-800">
           {{ t('password.reset.successTitle') }}
@@ -33,7 +33,7 @@
 
       <div
         v-if="errorMessage"
-        class="mb-5 rounded-[1.25rem] border border-rose-200 bg-rose-50/90 p-4 text-sm text-rose-700"
+        class="mb-5 rounded-lg border border-rose-200 bg-rose-50/90 p-4 text-sm text-rose-700"
       >
         {{ errorMessage }}
       </div>

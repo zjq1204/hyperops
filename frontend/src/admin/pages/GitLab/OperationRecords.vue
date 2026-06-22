@@ -6,7 +6,6 @@
       :title="t('adminPages.gitlabOperationRecords.title')"
       :subtitle="t('adminPages.gitlabOperationRecords.subtitle')"
     >
-
       <AdminListSection>
         <template #filters>
           <div class="admin-filter-grid">
@@ -63,7 +62,11 @@
                 })
               }}
             </span>
-            <BaseButton variant="secondary" :loading="loading" @click="loadRecords">
+            <BaseButton
+              variant="secondary"
+              :loading="loading"
+              @click="loadRecords"
+            >
               {{ t('common.refresh') }}
             </BaseButton>
           </div>
@@ -93,17 +96,24 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="record in records" :key="record.id" class="admin-table-row">
+            <tr
+              v-for="record in records"
+              :key="record.id"
+              class="admin-table-row"
+            >
               <td class="admin-table-cell">
                 <div class="font-semibold text-slate-900">
                   {{ record.action_label || record.action }}
                 </div>
                 <div class="mt-1 font-mono text-xs text-slate-400">
-                  {{ record.action || '-' }}
+                  {{ record.action || t('common.emptyValue') }}
                 </div>
               </td>
               <td class="admin-table-cell">
-                <span class="admin-status-badge" :class="statusClass(record.status)">
+                <span
+                  class="admin-status-badge"
+                  :class="statusClass(record.status)"
+                >
                   {{ statusLabel(record.status) }}
                 </span>
                 <div class="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
@@ -143,10 +153,12 @@
                 </div>
               </td>
               <td class="admin-table-cell text-sm text-slate-600">
-                {{ record.actor_name || '-' }}
+                {{ record.actor_name || t('common.emptyValue') }}
               </td>
               <td class="admin-table-cell text-sm text-slate-500">
-                <div>{{ formatDateTime(record.finished_at || record.started_at) }}</div>
+                <div>
+                  {{ formatDateTime(record.finished_at || record.started_at) }}
+                </div>
                 <div
                   v-if="record.finished_at && record.started_at"
                   class="mt-1 text-xs text-slate-400"
@@ -156,7 +168,11 @@
                 </div>
               </td>
               <td class="admin-table-cell">
-                <BaseButton variant="secondary" size="sm" @click="openDetail(record)">
+                <BaseButton
+                  variant="secondary"
+                  size="sm"
+                  @click="openDetail(record)"
+                >
                   {{ t('adminPages.gitlabOperationRecords.detail') }}
                 </BaseButton>
               </td>
@@ -191,32 +207,40 @@
       >
         <div v-if="selectedRecord" class="space-y-5">
           <section class="grid gap-3 md:grid-cols-3">
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <div class="admin-modal-card-muted">
+              <p
+                class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+              >
                 {{ t('adminPages.gitlabOperationRecords.action') }}
               </p>
               <p class="mt-2 font-semibold text-slate-900">
                 {{ selectedRecord.action_label || selectedRecord.action }}
               </p>
             </div>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <div class="admin-modal-card-muted">
+              <p
+                class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+              >
                 {{ t('adminPages.gitlabOperationRecords.result') }}
               </p>
               <p class="mt-2 font-semibold text-slate-900">
                 {{ statusLabel(selectedRecord.status) }}
               </p>
             </div>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <div class="admin-modal-card-muted">
+              <p
+                class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+              >
                 {{ t('adminPages.gitlabOperationRecords.actor') }}
               </p>
               <p class="mt-2 font-semibold text-slate-900">
-                {{ selectedRecord.actor_name || '-' }}
+                {{ selectedRecord.actor_name || t('common.emptyValue') }}
               </p>
             </div>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <div class="admin-modal-card-muted">
+              <p
+                class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+              >
                 {{ t('adminPages.gitlabOperationRecords.target') }}
               </p>
               <p class="mt-2 font-semibold text-slate-900">
@@ -246,7 +270,9 @@
                 <summary>
                   {{ t('adminPages.gitlabOperationRecords.viewRawJson') }}
                 </summary>
-                <pre class="admin-operation-json">{{ prettyJson(selectedRecord.request_data) }}</pre>
+                <pre class="admin-operation-json">{{
+                  prettyJson(selectedRecord.request_data)
+                }}</pre>
               </details>
             </article>
             <article class="admin-modal-card">
@@ -269,7 +295,9 @@
                 <summary>
                   {{ t('adminPages.gitlabOperationRecords.viewRawJson') }}
                 </summary>
-                <pre class="admin-operation-json">{{ prettyJson(selectedRecord.result_data) }}</pre>
+                <pre class="admin-operation-json">{{
+                  prettyJson(selectedRecord.result_data)
+                }}</pre>
               </details>
             </article>
           </section>
@@ -285,8 +313,12 @@
 
       <div
         v-if="toast.show"
-        class="fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg"
-        :class="toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'"
+        :class="[
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
+        ]"
       >
         {{ toast.message }}
       </div>
@@ -368,8 +400,6 @@ const actionOptions = computed(() => [
   }
 ])
 
-
-
 function showToast(message, type = 'success') {
   toast.value = { show: true, message, type }
   setTimeout(() => {
@@ -436,7 +466,8 @@ function openDetail(record) {
 }
 
 function statusLabel(status) {
-  if (status === 'success') return t('adminPages.gitlabOperationRecords.success')
+  if (status === 'success')
+    return t('adminPages.gitlabOperationRecords.success')
   if (status === 'partial_success') {
     return t('adminPages.gitlabOperationRecords.partialSuccess')
   }
@@ -452,7 +483,12 @@ function statusClass(status) {
 }
 
 function targetTitle(record) {
-  return record.target_summary || record.project_path || record.instance_name || '-'
+  return (
+    record.target_summary ||
+    record.project_path ||
+    record.instance_name ||
+    t('common.emptyValue')
+  )
 }
 
 function formatDateTime(value) {
@@ -485,7 +521,13 @@ function formatSummaryValue(value) {
     if (!value.length) return t('adminPages.gitlabOperationRecords.emptyValue')
     const preview = value.slice(0, 3).map((item) => {
       if (item && typeof item === 'object') {
-        return item.name || item.path || item.full_path || item.id || JSON.stringify(item)
+        return (
+          item.name ||
+          item.path ||
+          item.full_path ||
+          item.id ||
+          JSON.stringify(item)
+        )
       }
       return String(item)
     })

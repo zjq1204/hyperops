@@ -45,7 +45,7 @@
           <AdminTable>
             <thead>
               <tr>
-                <th class="admin-table-head">ID</th>
+                <th class="admin-table-head">{{ t('common.id') }}</th>
                 <th class="admin-table-head">
                   {{ t('management.roleName') }}
                 </th>
@@ -69,20 +69,20 @@
             </thead>
             <tbody>
               <tr v-for="role in roles" :key="role.id" class="admin-table-row">
-                <td class="admin-table-cell text-gray-900">{{ role.id }}</td>
-                <td class="admin-table-cell font-medium text-gray-900">
+                <td class="admin-table-cell text-slate-900">{{ role.id }}</td>
+                <td class="admin-table-cell font-medium text-slate-900">
                   {{ role.name }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ formatFeatures(role.visible_features) }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ formatPlatform(role.preferred_platform) }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ role.user_count ?? 0 }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ role.group_count ?? 0 }}
                 </td>
                 <td class="admin-table-cell">
@@ -128,20 +128,24 @@
             {{ submitError }}
           </p>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.roleName')
             }}</label>
-            <input v-model="form.name" type="text" class="input" />
+            <input
+              v-model="form.name"
+              type="text"
+              class="admin-modal-control"
+            />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.visibleFeatures')
             }}</label>
             <div class="space-y-3">
               <section
                 v-for="group in permissionGroups"
                 :key="group.key"
-                class="rounded-2xl border border-slate-200 bg-slate-50/60 p-3"
+                class="admin-modal-card-muted"
               >
                 <label class="flex cursor-pointer items-center gap-3">
                   <input
@@ -155,20 +159,24 @@
                     {{ group.label }}
                   </span>
                   <span class="ml-auto text-xs text-slate-500">
-                    {{ selectedFeatureCount(group) }}/{{ group.children.length }}
+                    {{ selectedFeatureCount(group) }}/{{
+                      group.children.length
+                    }}
                   </span>
                 </label>
                 <div class="mt-3 grid gap-2 sm:grid-cols-2">
                   <label
                     v-for="feature in group.children"
                     :key="feature.key"
-                    class="flex cursor-pointer items-start gap-3 rounded-xl border border-white bg-white px-3 py-2.5 shadow-sm"
+                    class="admin-permission-option"
                   >
                     <input
                       type="checkbox"
                       class="admin-modal-checkbox mt-0.5"
                       :checked="isFeatureSelected(feature.key)"
-                      @change="toggleFeature(feature.key, $event.target.checked)"
+                      @change="
+                        toggleFeature(feature.key, $event.target.checked)
+                      "
                     />
                     <span class="min-w-0">
                       <span class="block text-sm font-medium text-slate-800">
@@ -181,10 +189,13 @@
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.defaultPlatform')
             }}</label>
-            <select v-model="form.preferred_platform" class="input bg-white">
+            <select
+              v-model="form.preferred_platform"
+              class="admin-modal-control"
+            >
               <option value="">{{ t('management.noDefaultPlatform') }}</option>
               <option
                 v-for="platform in selectedPlatformOptions"
@@ -204,7 +215,7 @@
             />
             <label
               for="role-is-active"
-              class="cursor-pointer text-sm font-medium text-gray-700"
+              class="cursor-pointer text-sm font-medium text-slate-700"
             >
               {{ t('management.isActive') }}
             </label>
@@ -298,14 +309,16 @@ const localPlatformOptions = computed(() =>
 )
 
 const normalizedFeatureOptions = computed(() =>
-  (featureOptions.value.length ? featureOptions.value : localFeatureOptions.value)
-    .map((item) => ({
-      key: item.key,
-      label: item.label || item.key,
-      platform: item.platform || item.parent_key || '',
-      parent_key: item.parent_key || item.platform || '',
-      default_path: item.default_path || item.defaultPath || ''
-    }))
+  (featureOptions.value.length
+    ? featureOptions.value
+    : localFeatureOptions.value
+  ).map((item) => ({
+    key: item.key,
+    label: item.label || item.key,
+    platform: item.platform || item.parent_key || '',
+    parent_key: item.parent_key || item.platform || '',
+    default_path: item.default_path || item.defaultPath || ''
+  }))
 )
 
 const platformOptions = computed(() =>
@@ -364,7 +377,8 @@ function isFeatureSelected(featureKey) {
 }
 
 function selectedFeatureCount(group) {
-  return group.children.filter((feature) => isFeatureSelected(feature.key)).length
+  return group.children.filter((feature) => isFeatureSelected(feature.key))
+    .length
 }
 
 function isGroupChecked(group) {
@@ -408,23 +422,27 @@ function toggleGroup(group, checked) {
 }
 
 function formatFeatures(items) {
-  if (!Array.isArray(items) || !items.length) return '—'
+  if (!Array.isArray(items) || !items.length) return t('common.emptyValue')
   const selected = new Set(items)
-  return permissionGroups.value
-    .map((group) => {
-      const labels = group.children
-        .filter((feature) => selected.has(feature.key))
-        .map((feature) => feature.label)
-      if (!labels.length) return ''
-      return `${group.label}: ${labels.join('、')}`
-    })
-    .filter(Boolean)
-    .join('；') || '—'
+  return (
+    permissionGroups.value
+      .map((group) => {
+        const labels = group.children
+          .filter((feature) => selected.has(feature.key))
+          .map((feature) => feature.label)
+        if (!labels.length) return ''
+        return `${group.label}: ${labels.join(t('common.listSeparator'))}`
+      })
+      .filter(Boolean)
+      .join(t('common.groupSeparator')) || t('common.emptyValue')
+  )
 }
 
 function normalizeSelectedFeatures(items) {
   if (!Array.isArray(items)) return []
-  const featureKeySet = new Set(normalizedFeatureOptions.value.map((item) => item.key))
+  const featureKeySet = new Set(
+    normalizedFeatureOptions.value.map((item) => item.key)
+  )
   return normalizedFeatureOptions.value
     .map((item) => item.key)
     .filter((key) => items.includes(key) && featureKeySet.has(key))
@@ -452,7 +470,7 @@ function syncRolesFromPayload(data) {
 
 function formatPlatform(value) {
   const match = platformOptions.value.find((item) => item.key === value)
-  return match?.label || '—'
+  return match?.label || t('common.emptyValue')
 }
 
 function closeModal() {

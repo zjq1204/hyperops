@@ -3,7 +3,7 @@
     <div
       class="not-found-wrapper min-h-[calc(100vh-5rem)] flex items-center justify-center -mx-4 sm:-mx-5 lg:-mx-6 px-4 sm:px-6 lg:px-8 py-12"
     >
-      <div class="surface-panel-strong max-w-3xl mx-auto px-8 py-12 text-center relative rounded-[2rem]">
+      <div class="surface-panel-strong max-w-3xl mx-auto px-8 py-12 text-center relative rounded-lg">
         <!-- Floating particles animation -->
         <div class="absolute inset-0 overflow-hidden pointer-events-none">
           <div
@@ -19,7 +19,7 @@
           <!-- 404 Number with style -->
           <div class="mb-8">
             <h1
-              class="text-8xl md:text-9xl font-light text-transparent bg-clip-text bg-gradient-to-r from-sky-500 via-blue-600 to-orange-500 tracking-tight"
+              class="text-8xl md:text-9xl font-light text-slate-900 tracking-tight"
             >
               {{ t('notFound.title') }}
             </h1>
@@ -42,13 +42,9 @@
 
           <!-- Decorative line -->
           <div class="flex items-center justify-center gap-4 mb-8">
-            <div
-              class="h-px w-16 bg-gradient-to-r from-transparent via-blue-400 to-transparent"
-            ></div>
+            <div class="h-px w-16 bg-slate-200"></div>
             <div class="w-2 h-2 rounded-full bg-blue-400"></div>
-            <div
-              class="h-px w-16 bg-gradient-to-r from-transparent via-purple-400 to-transparent"
-            ></div>
+            <div class="h-px w-16 bg-slate-200"></div>
           </div>
 
           <!-- Navigation buttons -->

@@ -45,7 +45,7 @@
           <AdminTable>
             <thead>
               <tr>
-                <th class="admin-table-head">ID</th>
+                <th class="admin-table-head">{{ t('common.id') }}</th>
                 <th class="admin-table-head">
                   {{ t('management.groupName') }}
                 </th>
@@ -53,7 +53,9 @@
                   {{ t('management.groupUserCount') }}
                 </th>
                 <th class="admin-table-head">{{ t('management.roles') }}</th>
-                <th class="admin-table-head">Jenkins 通知</th>
+                <th class="admin-table-head">
+                  {{ t('management.jenkinsNotifications') }}
+                </th>
                 <th class="admin-table-head">
                   {{ t('management.permissionCount') }}
                 </th>
@@ -66,23 +68,35 @@
                 :key="group.id"
                 class="admin-table-row"
               >
-                <td class="admin-table-cell text-gray-900">{{ group.id }}</td>
-                <td class="admin-table-cell font-medium text-gray-900">
+                <td class="admin-table-cell text-slate-900">{{ group.id }}</td>
+                <td class="admin-table-cell font-medium text-slate-900">
                   {{ group.name }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ group.user_count ?? 0 }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ joinNames(group.roles) }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   <div class="space-y-1">
-                    <div>{{ countNotifications(group).emails }} 邮箱</div>
-                    <div>{{ countNotifications(group).webhooks }} Webhook</div>
+                    <div>
+                      {{
+                        t('management.notificationEmailCount', {
+                          count: countNotifications(group).emails
+                        })
+                      }}
+                    </div>
+                    <div>
+                      {{
+                        t('management.notificationWebhookCount', {
+                          count: countNotifications(group).webhooks
+                        })
+                      }}
+                    </div>
                   </div>
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ group.permission_count ?? 0 }}
                 </td>
                 <td class="admin-table-cell">
@@ -117,13 +131,17 @@
             {{ submitError }}
           </p>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.groupName')
             }}</label>
-            <input v-model="form.name" type="text" class="input" />
+            <input
+              v-model="form.name"
+              type="text"
+              class="admin-modal-control"
+            />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.selectRoles')
             }}</label>
             <div class="admin-modal-checklist">
@@ -138,30 +156,30 @@
                   :value="role.id"
                   class="admin-modal-checkbox"
                 />
-                <span class="text-sm text-gray-700">{{ role.name }}</span>
+                <span class="text-sm text-slate-700">{{ role.name }}</span>
               </label>
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">
-              Jenkins 通知邮箱
+            <label class="admin-modal-field-label">
+              {{ t('management.notificationEmails') }}
             </label>
             <textarea
               v-model="form.notification_emails_text"
               rows="4"
-              class="input min-h-[7rem]"
-              placeholder="每行一个邮箱地址"
+              class="admin-modal-control min-h-[7rem]"
+              :placeholder="t('management.notificationEmailsPlaceholder')"
             ></textarea>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">
-              Jenkins Webhook
+            <label class="admin-modal-field-label">
+              {{ t('management.notificationWebhooks') }}
             </label>
             <textarea
               v-model="form.notification_webhooks_text"
               rows="4"
-              class="input min-h-[7rem]"
-              placeholder="每行一个 Webhook URL"
+              class="admin-modal-control min-h-[7rem]"
+              :placeholder="t('management.notificationWebhooksPlaceholder')"
             ></textarea>
           </div>
         </form>
@@ -233,7 +251,7 @@ const modalTitle = computed(() =>
 function joinNames(items) {
   return Array.isArray(items) && items.length
     ? items.map((item) => item.name).join(', ')
-    : '—'
+    : t('common.emptyValue')
 }
 
 function countNotifications(group) {

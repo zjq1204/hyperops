@@ -6,221 +6,211 @@
       :subtitle="t('notificationManagement.records.subtitle')"
     >
       <AdminListSection>
-        <section class="space-y-6">
-          <div class="admin-filter-panel">
-            <div class="admin-filter-grid">
-              <input
-                v-model="filters.source_app"
-                type="text"
-                :placeholder="t('notificationManagement.records.sourceApp')"
-                class="admin-filter-control w-40"
-                @input="onFiltersChanged"
-              />
-              <input
-                v-model="filters.source_type"
-                type="text"
-                :placeholder="t('notificationManagement.records.sourceType')"
-                class="admin-filter-control w-40"
-                @input="onFiltersChanged"
-              />
-              <select
-                v-model="filters.status"
-                class="admin-filter-control w-36"
-                @change="onFiltersChanged"
-              >
-                <option value="">
-                  {{ t('notificationManagement.records.statusAll') }}
-                </option>
-                <option value="success">
-                  {{ t('notificationManagement.records.statusSuccess') }}
-                </option>
-                <option value="failed">
-                  {{ t('notificationManagement.records.statusFailed') }}
-                </option>
-                <option value="merged">
-                  {{ t('notificationManagement.records.statusMerged') }}
-                </option>
-                <option value="silenced">
-                  {{ t('notificationManagement.records.statusSilenced') }}
-                </option>
-                <option value="pending">
-                  {{ t('notificationManagement.records.statusPending') }}
-                </option>
-              </select>
-              <input
-                v-model="filters.start_date"
-                type="date"
-                :max="filters.end_date || undefined"
-                class="admin-filter-control"
-                @change="onFiltersChanged"
-              />
-              <span class="text-gray-400">–</span>
-              <input
-                v-model="filters.end_date"
-                type="date"
-                :min="filters.start_date || undefined"
-                class="admin-filter-control"
-                @change="onFiltersChanged"
-              />
-            </div>
-            <div class="admin-toolbar-end">
-              <BaseButton
-                variant="outline"
-                size="sm"
-                :loading="loading"
-                :title="t('common.refresh')"
-                class="flex items-center gap-1 shadow-sm hover:shadow-md transition-shadow"
-                @click="fetchRecords"
-              >
-                <svg
-                  v-if="!loading"
-                  class="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                <span class="sr-only">{{ t('common.refresh') }}</span>
-              </BaseButton>
-              <BaseButton
-                variant="outline"
-                size="sm"
-                class="flex items-center gap-1"
-                @click="resetFilters"
-              >
-                <svg
-                  class="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                {{ t('notificationManagement.records.resetFilters') }}
-              </BaseButton>
-            </div>
+        <template #filters>
+          <div class="admin-filter-grid">
+            <input
+              v-model="filters.source_app"
+              type="text"
+              :placeholder="t('notificationManagement.records.sourceApp')"
+              class="admin-filter-control w-40"
+              @input="onFiltersChanged"
+            />
+            <input
+              v-model="filters.source_type"
+              type="text"
+              :placeholder="t('notificationManagement.records.sourceType')"
+              class="admin-filter-control w-40"
+              @input="onFiltersChanged"
+            />
+            <select
+              v-model="filters.status"
+              class="admin-filter-control w-36"
+              @change="onFiltersChanged"
+            >
+              <option value="">
+                {{ t('notificationManagement.records.statusAll') }}
+              </option>
+              <option value="success">
+                {{ t('notificationManagement.records.statusSuccess') }}
+              </option>
+              <option value="failed">
+                {{ t('notificationManagement.records.statusFailed') }}
+              </option>
+              <option value="merged">
+                {{ t('notificationManagement.records.statusMerged') }}
+              </option>
+              <option value="silenced">
+                {{ t('notificationManagement.records.statusSilenced') }}
+              </option>
+              <option value="pending">
+                {{ t('notificationManagement.records.statusPending') }}
+              </option>
+            </select>
+            <input
+              v-model="filters.start_date"
+              type="date"
+              :max="filters.end_date || undefined"
+              class="admin-filter-control"
+              @change="onFiltersChanged"
+            />
+            <span class="text-slate-400">-</span>
+            <input
+              v-model="filters.end_date"
+              type="date"
+              :min="filters.start_date || undefined"
+              class="admin-filter-control"
+              @change="onFiltersChanged"
+            />
           </div>
+          <div class="admin-toolbar-end">
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :loading="loading"
+              :title="t('common.refresh')"
+              class="flex items-center gap-1"
+              @click="fetchRecords"
+            >
+              <svg
+                v-if="!loading"
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              <span class="sr-only">{{ t('common.refresh') }}</span>
+            </BaseButton>
+            <BaseButton
+              variant="outline"
+              size="sm"
+              class="flex items-center gap-1"
+              @click="resetFilters"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              {{ t('notificationManagement.records.resetFilters') }}
+            </BaseButton>
+          </div>
+        </template>
 
+        <section class="space-y-6">
           <BaseLoading v-if="loading && records.length === 0" />
 
-          <div
+          <EmptyState
             v-else-if="!loading && records.length === 0"
-            class="admin-empty-state"
+            variant="admin"
+            :title="t('notificationManagement.records.noRecords')"
           >
-            <svg
-              class="mx-auto h-12 w-12 text-gray-400 mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-            <p class="text-sm font-medium text-gray-600">
-              {{ t('notificationManagement.records.noRecords') }}
-            </p>
-          </div>
+            <template #icon>
+              <svg
+                class="h-8 w-8"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+            </template>
+          </EmptyState>
 
           <template v-else>
-            <div class="admin-table-shell">
-              <table class="admin-table">
-                <thead>
-                  <tr>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.sourceApp') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.sourceType') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.sourceId') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.provider') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.status') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.createdAt') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.sentAt') }}
-                    </th>
-                    <th class="admin-table-head">
-                      {{ t('notificationManagement.records.user') }}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="r in records"
-                    :key="r.uuid"
-                    class="admin-table-row cursor-pointer"
-                    @click="openDetail(r.uuid)"
+            <AdminTable>
+              <thead>
+                <tr>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.sourceApp') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.sourceType') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.sourceId') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.provider') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.status') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.createdAt') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.sentAt') }}
+                  </th>
+                  <th class="admin-table-head">
+                    {{ t('notificationManagement.records.user') }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="r in records"
+                  :key="r.uuid"
+                  class="admin-table-row cursor-pointer"
+                  @click="openDetail(r.uuid)"
+                >
+                  <td class="admin-table-cell whitespace-nowrap text-slate-900">
+                    {{ r.source_app || t('common.emptyValue') }}
+                  </td>
+                  <td class="admin-table-cell whitespace-nowrap text-slate-600">
+                    {{ r.source_type || t('common.emptyValue') }}
+                  </td>
+                  <td
+                    class="admin-table-cell whitespace-nowrap font-mono text-slate-600"
                   >
-                    <td
-                      class="admin-table-cell whitespace-nowrap text-gray-900"
-                    >
-                      {{ r.source_app || '-' }}
-                    </td>
-                    <td
-                      class="admin-table-cell whitespace-nowrap text-gray-600"
-                    >
-                      {{ r.source_type || '-' }}
-                    </td>
-                    <td
-                      class="admin-table-cell whitespace-nowrap font-mono text-gray-600"
-                    >
-                      {{ r.source_id || '-' }}
-                    </td>
-                    <td
-                      class="admin-table-cell whitespace-nowrap text-gray-600"
-                    >
-                      {{ r.provider_display_name || r.provider_type || '-' }}
-                    </td>
-                    <td class="admin-table-cell whitespace-nowrap">
-                      <span :class="statusClass(r.status)">{{
-                        r.status || '-'
-                      }}</span>
-                    </td>
-                    <td
-                      class="admin-table-cell whitespace-nowrap text-gray-600"
-                    >
-                      {{ formatDate(r.created_at) }}
-                    </td>
-                    <td
-                      class="admin-table-cell whitespace-nowrap text-gray-600"
-                    >
-                      {{ formatDate(r.sent_at) }}
-                    </td>
-                    <td
-                      class="admin-table-cell whitespace-nowrap text-gray-600"
-                    >
-                      {{ r.user_display ?? r.user_id ?? '-' }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                    {{ r.source_id || t('common.emptyValue') }}
+                  </td>
+                  <td class="admin-table-cell whitespace-nowrap text-slate-600">
+                    {{
+                      r.provider_display_name ||
+                      r.provider_type ||
+                      t('common.emptyValue')
+                    }}
+                  </td>
+                  <td class="admin-table-cell whitespace-nowrap">
+                    <span :class="statusClass(r.status)">{{
+                      r.status || t('common.emptyValue')
+                    }}</span>
+                  </td>
+                  <td class="admin-table-cell whitespace-nowrap text-slate-600">
+                    {{ formatDate(r.created_at) }}
+                  </td>
+                  <td class="admin-table-cell whitespace-nowrap text-slate-600">
+                    {{ formatDate(r.sent_at) }}
+                  </td>
+                  <td class="admin-table-cell whitespace-nowrap text-slate-600">
+                    {{ r.user_display ?? r.user_id ?? '-' }}
+                  </td>
+                </tr>
+              </tbody>
+            </AdminTable>
 
             <div v-if="total > pageSize" class="admin-pagination">
-              <p class="text-sm text-gray-600">
+              <p class="text-sm text-slate-600">
                 {{
                   t('common.pagination.showing', {
                     from: (page - 1) * pageSize + 1,
@@ -232,7 +222,7 @@
               <div class="flex items-center gap-2">
                 <select
                   v-model.number="pageSize"
-                  class="rounded-md border border-gray-300 px-2 py-1 text-sm"
+                  class="admin-filter-control w-20 py-1.5"
                   @change="handlePageSizeChange"
                 >
                   <option :value="10">10</option>
@@ -240,7 +230,7 @@
                   <option :value="50">50</option>
                   <option :value="100">100</option>
                 </select>
-                <span class="text-sm text-gray-500">{{
+                <span class="text-sm text-slate-500">{{
                   t('notificationManagement.records.pageSize')
                 }}</span>
                 <BaseButton
@@ -307,7 +297,7 @@
         >
           <div
             v-if="detailVisible"
-            class="fixed inset-0 bg-gray-900 bg-opacity-50 z-40"
+            class="admin-drawer-overlay"
             aria-hidden="true"
             @click="closeDetail"
           />
@@ -322,20 +312,18 @@
         >
           <div
             v-if="detailVisible"
-            class="fixed inset-y-0 right-0 w-full max-w-2xl bg-white shadow-xl z-50 flex flex-col"
+            class="admin-drawer"
             role="dialog"
             aria-modal="true"
             :aria-label="t('notificationManagement.records.detailTitle')"
           >
-            <div
-              class="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 flex-shrink-0"
-            >
-              <h2 class="text-lg font-semibold text-gray-900">
+            <div class="admin-drawer-header">
+              <h2 class="admin-drawer-title">
                 {{ t('notificationManagement.records.detailTitle') }}
               </h2>
               <button
                 type="button"
-                class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                class="admin-drawer-close"
                 :aria-label="t('common.close')"
                 @click="closeDetail"
               >
@@ -354,69 +342,63 @@
                 </svg>
               </button>
             </div>
-            <div class="flex-1 overflow-y-auto p-6 space-y-6">
+            <div class="admin-drawer-body">
               <BaseLoading v-if="detailLoading" />
               <template v-else-if="detailRecord">
-                <div>
-                  <h3 class="text-sm font-semibold text-gray-900 mb-4">
+                <div class="admin-drawer-section">
+                  <h3 class="admin-drawer-section-title">
                     {{ t('notificationManagement.records.basicInfo') }}
                   </h3>
                   <dl class="grid grid-cols-1 gap-4">
                     <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
+                      <dt class="admin-drawer-field-label">
                         {{ t('notificationManagement.records.sourceApp') }}
                       </dt>
-                      <dd class="text-sm font-medium text-gray-900">
-                        {{ detailRecord.source_app || '-' }}
+                      <dd class="admin-drawer-field-value">
+                        {{ detailRecord.source_app || t('common.emptyValue') }}
                       </dd>
                     </div>
                     <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
+                      <dt class="admin-drawer-field-label">
                         {{ t('notificationManagement.records.sourceType') }}
                       </dt>
-                      <dd class="text-sm font-medium text-gray-900">
-                        {{ detailRecord.source_type || '-' }}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
-                        {{ t('notificationManagement.records.provider') }}
-                      </dt>
-                      <dd class="text-sm font-medium text-gray-900">
+                      <dd class="admin-drawer-field-value">
                         {{
-                          detailRecord.provider_display_name ||
-                          detailRecord.provider_type ||
-                          '-'
+                          detailRecord.source_type || t('common.emptyValue')
                         }}
                       </dd>
                     </div>
                     <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
+                      <dt class="admin-drawer-field-label">
+                        {{ t('notificationManagement.records.provider') }}
+                      </dt>
+                      <dd class="admin-drawer-field-value">
+                        {{
+                          detailRecord.provider_display_name ||
+                          detailRecord.provider_type ||
+                          t('common.emptyValue')
+                        }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt class="admin-drawer-field-label">
                         {{ t('notificationManagement.records.status') }}
                       </dt>
                       <dd>
                         <span
                           :class="statusClass(detailRecord.status)"
                           class="text-sm font-medium"
-                          >{{ detailRecord.status || '-' }}</span
+                          >{{
+                            detailRecord.status || t('common.emptyValue')
+                          }}</span
                         >
                       </dd>
                     </div>
                     <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
+                      <dt class="admin-drawer-field-label">
                         {{ t('notificationManagement.records.user') }}
                       </dt>
-                      <dd class="text-sm font-medium text-gray-900">
+                      <dd class="admin-drawer-field-value">
                         {{
                           detailRecord.user_display ??
                           detailRecord.user_id ??
@@ -425,22 +407,18 @@
                       </dd>
                     </div>
                     <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
+                      <dt class="admin-drawer-field-label">
                         {{ t('notificationManagement.records.createdAt') }}
                       </dt>
-                      <dd class="text-sm font-medium text-gray-900">
+                      <dd class="admin-drawer-field-value">
                         {{ formatDate(detailRecord.created_at) }}
                       </dd>
                     </div>
                     <div>
-                      <dt
-                        class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider"
-                      >
+                      <dt class="admin-drawer-field-label">
                         {{ t('notificationManagement.records.sentAt') }}
                       </dt>
-                      <dd class="text-sm font-medium text-gray-900">
+                      <dd class="admin-drawer-field-value">
                         {{ formatDate(detailRecord.sent_at) }}
                       </dd>
                     </div>
@@ -448,18 +426,17 @@
                 </div>
                 <div
                   v-if="detailRecord.error_message"
-                  class="border-t border-gray-200 pt-6"
+                  class="admin-drawer-section"
                 >
-                  <h3 class="text-sm font-semibold text-gray-900 mb-4">
+                  <h3 class="admin-drawer-section-title">
                     {{ t('notificationManagement.records.errorMessage') }}
                   </h3>
                   <div
-                    class="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm"
+                    class="admin-modal-code-panel admin-modal-code-panel--error"
                   >
-                    <pre
-                      class="text-xs font-mono text-red-800 whitespace-pre-wrap break-words"
-                      >{{ detailRecord.error_message }}</pre
-                    >
+                    <pre class="admin-modal-code admin-modal-code--error">{{
+                      detailRecord.error_message
+                    }}</pre>
                   </div>
                 </div>
                 <div
@@ -467,42 +444,34 @@
                     detailRecord.payload &&
                     Object.keys(detailRecord.payload).length
                   "
-                  class="border-t border-gray-200 pt-6"
+                  class="admin-drawer-section"
                 >
-                  <h3 class="text-sm font-semibold text-gray-900 mb-4">
+                  <h3 class="admin-drawer-section-title">
                     {{ t('notificationManagement.records.payload') }}
                   </h3>
-                  <div
-                    class="rounded-lg border border-gray-200 bg-gray-50 p-4 shadow-sm"
-                  >
-                    <pre
-                      class="text-xs font-mono text-gray-800 whitespace-pre-wrap break-words"
-                      >{{ JSON.stringify(detailRecord.payload, null, 2) }}</pre
-                    >
+                  <div class="admin-modal-code-panel">
+                    <pre class="admin-modal-code">{{
+                      JSON.stringify(detailRecord.payload, null, 2)
+                    }}</pre>
                   </div>
                 </div>
                 <div
                   v-if="detailRecord.response != null"
-                  class="border-t border-gray-200 pt-6"
+                  class="admin-drawer-section"
                 >
-                  <h3 class="text-sm font-semibold text-gray-900 mb-4">
+                  <h3 class="admin-drawer-section-title">
                     {{ t('notificationManagement.records.response') }}
                   </h3>
-                  <div
-                    class="rounded-lg border border-gray-200 bg-gray-50 p-4 shadow-sm"
-                  >
-                    <pre
-                      class="text-xs font-mono text-gray-800 whitespace-pre-wrap break-words"
-                      >{{
-                        typeof detailRecord.response === 'object'
-                          ? JSON.stringify(detailRecord.response, null, 2)
-                          : detailRecord.response
-                      }}</pre
-                    >
+                  <div class="admin-modal-code-panel">
+                    <pre class="admin-modal-code">{{
+                      typeof detailRecord.response === 'object'
+                        ? JSON.stringify(detailRecord.response, null, 2)
+                        : detailRecord.response
+                    }}</pre>
                   </div>
                 </div>
               </template>
-              <p v-else class="text-sm text-gray-500">
+              <p v-else class="text-sm text-slate-500">
                 {{ t('notificationManagement.records.detailNotFound') }}
               </p>
             </div>
@@ -522,9 +491,11 @@ import { useToast } from '@/composables/useToast'
 import { extractErrorMessage } from '@/utils/api'
 import { notificationsAdminApi } from '@/admin/api'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
+import AdminTable from '@/admin/components/AdminTable.vue'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseLoading from '@/components/ui/BaseLoading.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 
 const { t } = useI18n()
@@ -572,13 +543,13 @@ function formatDate(val) {
 
 function statusClass(status) {
   const s = (status || '').toLowerCase()
-  const base = 'text-xs font-medium px-2 py-0.5 rounded'
-  if (s === 'success') return `${base} bg-green-100 text-green-800`
-  if (s === 'failed') return `${base} bg-red-100 text-red-800`
-  if (s === 'pending') return `${base} bg-blue-100 text-blue-800`
+  const base = 'admin-status-badge'
+  if (s === 'success') return `${base} admin-status-badge--success`
+  if (s === 'failed') return `${base} admin-status-badge--danger`
+  if (s === 'pending') return `${base} admin-status-badge--info`
   if (s === 'merged' || s === 'silenced')
-    return `${base} bg-gray-100 text-gray-700`
-  return `${base} bg-gray-100 text-gray-600`
+    return `${base} admin-status-badge--muted`
+  return `${base} admin-status-badge--muted`
 }
 
 function onFiltersChanged() {

@@ -11,22 +11,20 @@
     <div
       v-if="showMobileMenu && isMobile"
       @click="$emit('close')"
-      class="fixed inset-0 bg-gray-900 bg-opacity-50 z-40 lg:hidden"
+      class="workspace-sidebar-overlay"
     />
   </Transition>
 
   <!-- Sidebar -->
   <aside
     :class="[
-      'workspace-sidebar border-r border-white/30 bg-white/72 backdrop-blur-2xl flex h-full w-72 flex-shrink-0 flex-col transition-transform duration-300 ease-in-out shadow-[0_20px_50px_rgba(15,23,42,0.08)]',
+      'workspace-sidebar',
       isMobile ? 'fixed inset-y-0 left-0 z-50' : 'static',
       isMobile && !showMobileMenu ? '-translate-x-full' : 'translate-x-0'
     ]"
   >
     <!-- Logo and close button -->
-    <div
-      class="workspace-sidebar-header flex h-20 items-center justify-between border-b border-slate-200/70 px-5"
-    >
+    <div class="workspace-sidebar-header">
       <router-link
         to="/dashboard"
         class="flex min-w-0 flex-1 items-center space-x-3"
@@ -35,9 +33,9 @@
         <img
           src="/logo-app.png"
           alt="HyperOps Logo"
-          class="h-9 w-auto max-w-[3.25rem] shrink-0 object-contain"
+          class="h-8 w-auto max-w-[3rem] shrink-0 object-contain"
         />
-        <span class="truncate text-xl font-semibold text-slate-900">{{
+        <span class="truncate text-lg font-semibold text-slate-900">{{
           t('common.appName')
         }}</span>
       </router-link>
@@ -64,7 +62,7 @@
 
     <!-- Navigation -->
     <nav
-      class="workspace-sidebar-nav glass-scrollbar flex flex-1 flex-col overflow-y-auto px-4 py-5"
+      class="workspace-sidebar-nav glass-scrollbar"
     >
       <!-- Dashboard -->
       <router-link

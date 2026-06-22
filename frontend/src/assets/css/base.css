@@ -1,0 +1,189 @@
+@layer base {
+  :root {
+    --app-bg: #f6f8fb;
+    --app-surface: rgba(255, 255, 255, 0.72);
+    --app-surface-strong: rgba(255, 255, 255, 0.88);
+    --app-line: rgba(203, 213, 225, 0.58);
+    --app-shadow: 0 14px 34px rgba(15, 23, 42, 0.07);
+    --app-shadow-soft: 0 8px 20px rgba(15, 23, 42, 0.045);
+    --button-primary-start: #3a4a5d;
+    --button-primary-mid: #304052;
+    --button-primary-end: #253547;
+    --button-primary-ring: rgba(93, 118, 148, 0.26);
+    --button-secondary-border: rgba(148, 163, 184, 0.28);
+    --button-secondary-bg-top: rgba(255, 255, 255, 0.96);
+    --button-secondary-bg-bottom: rgba(245, 248, 252, 0.9);
+    --button-secondary-text: #334155;
+    --button-outline-border: rgba(100, 116, 139, 0.34);
+    --button-outline-bg: rgba(255, 255, 255, 0.62);
+    --button-outline-text: #334155;
+    --button-ghost-hover: rgba(51, 65, 85, 0.08);
+    --button-danger-start: #a75b57;
+    --button-danger-end: #8d4b49;
+    --button-danger-ring: rgba(183, 108, 102, 0.28);
+    --app-gradient:
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.78),
+        rgba(244, 247, 251, 0.96)
+      ),
+      radial-gradient(
+        circle at 16% 0%,
+        rgba(14, 165, 233, 0.08),
+        transparent 28%
+      ),
+      radial-gradient(
+        circle at 92% 2%,
+        rgba(99, 102, 241, 0.055),
+        transparent 24%
+      );
+    --hero-gradient: linear-gradient(
+      135deg,
+      rgba(15, 23, 42, 0.96),
+      rgba(30, 41, 59, 0.84) 46%,
+      rgba(14, 165, 233, 0.78) 100%
+    );
+    --hero-accent: linear-gradient(135deg, #38bdf8, #fb923c);
+    --page-max-width: 1320px;
+  }
+
+  html {
+    font-family: 'IBM Plex Sans', 'Noto Sans SC', system-ui, sans-serif;
+    background: var(--app-bg);
+  }
+
+  body {
+    @apply text-slate-900 antialiased;
+    background: var(--app-bg);
+    min-height: 100vh;
+  }
+
+  #app {
+    min-height: 100vh;
+  }
+
+  /* Force light background for select, option, and input elements to prevent dark mode issues */
+  select,
+  select option,
+  input[type='text'],
+  input[type='email'],
+  input[type='password'],
+  input[type='number'],
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='time'],
+  input[type='search'],
+  input[type='tel'],
+  input[type='url'],
+  input[type='color'],
+  input[type='file'],
+  input[type='range'],
+  textarea {
+    background-color: #ffffff !important;
+    color: #1f2937 !important;
+  }
+
+  /* Checkbox and radio buttons - ensure they have proper background */
+  /* Reset all checkbox styles first */
+  input[type='checkbox'] {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    background-color: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    border-color: #d1d5db !important;
+    border-radius: 0.25rem !important;
+    accent-color: #2563eb !important;
+    width: 1rem !important;
+    height: 1rem !important;
+    min-width: 1rem !important;
+    flex-shrink: 0 !important;
+    position: relative;
+  }
+
+  input[type='radio'] {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    background-color: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    border-color: #d1d5db !important;
+    border-radius: 50% !important;
+    accent-color: #2563eb !important;
+    position: relative;
+  }
+
+  /* Checked state - use background color and white checkmark */
+  input[type='checkbox']:checked,
+  input[type='radio']:checked {
+    background-color: #2563eb !important;
+    background-image: none !important;
+    border-color: #2563eb !important;
+    accent-color: #2563eb !important;
+  }
+
+  /* Custom checkmark for checked checkbox */
+  input[type='checkbox']:checked::before {
+    content: '' !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 4px !important;
+    height: 8px !important;
+    border: solid #ffffff !important;
+    border-width: 0 2px 2px 0 !important;
+    transform: translate(-50%, -60%) rotate(45deg) !important;
+    display: block !important;
+  }
+
+  /* Radio button checked indicator */
+  input[type='radio']:checked::before {
+    content: '' !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 6px !important;
+    height: 6px !important;
+    background-color: #ffffff !important;
+    border-radius: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    display: block !important;
+  }
+
+  input[type='checkbox']:disabled,
+  input[type='radio']:disabled {
+    background-color: #f9fafb !important;
+    border-color: #e5e7eb !important;
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+  }
+
+  /* Disabled and checked checkbox - ensure it's visible */
+  input[type='checkbox']:disabled:checked {
+    background-color: #2563eb !important;
+    border-color: #2563eb !important;
+    opacity: 0.7 !important;
+  }
+
+  /* Disabled and checked radio - ensure it's visible */
+  input[type='radio']:disabled:checked {
+    background-color: #2563eb !important;
+    border-color: #2563eb !important;
+    opacity: 0.7 !important;
+  }
+
+  select:disabled,
+  select:disabled option,
+  input:disabled,
+  input[readonly],
+  textarea:disabled {
+    background-color: #f9fafb !important;
+    color: #6b7280 !important;
+  }
+
+  input[type='date']:readonly,
+  input[type='datetime-local']:readonly {
+    background-color: #f9fafb !important;
+    color: #1f2937 !important;
+  }
+}

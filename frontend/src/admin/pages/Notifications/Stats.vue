@@ -5,8 +5,8 @@
       :title="t('notificationManagement.stats.title')"
       :subtitle="t('notificationManagement.stats.subtitle')"
     >
-      <section class="space-y-6">
-        <section class="admin-filter-panel" aria-label="Filters">
+      <AdminListSection>
+        <template #filters>
           <div class="admin-filter-grid">
             <div class="admin-filter-field">
               <label class="admin-filter-label">
@@ -33,16 +33,14 @@
               <label class="admin-filter-label">
                 {{ t('notificationManagement.stats.granularity') }}
               </label>
-              <div class="flex rounded-lg bg-gray-100 p-1">
+              <div class="admin-segmented-control">
                 <button
                   v-for="opt in granularityOptions"
                   :key="opt.value"
                   type="button"
                   :class="[
-                    'px-4 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                    granularity === opt.value
-                      ? 'bg-white text-primary-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700'
+                    'admin-segmented-option',
+                    granularity === opt.value ? 'is-active' : ''
                   ]"
                   @click="selectGranularity(opt.value)"
                 >
@@ -104,7 +102,7 @@
               </div>
             </div>
           </div>
-          <div class="flex items-end shrink-0">
+          <div class="admin-toolbar-end">
             <BaseButton
               variant="outline"
               size="sm"
@@ -127,69 +125,67 @@
               {{ t('notificationManagement.stats.refreshData') }}
             </BaseButton>
           </div>
-        </section>
+        </template>
 
         <div class="w-full">
           <BaseLoading v-if="loading && !statsData" />
 
-          <div v-if="!loading && !statsData" class="admin-empty-state">
-            <svg
-              class="mx-auto h-12 w-12 text-gray-400 mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-              />
-            </svg>
-            <p class="text-sm font-medium text-gray-600">
-              {{ t('notificationManagement.stats.noData') }}
-            </p>
-          </div>
+          <EmptyState
+            v-if="!loading && !statsData"
+            variant="admin"
+            :title="t('notificationManagement.stats.noData')"
+          >
+            <template #icon>
+              <svg
+                class="h-8 w-8"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+            </template>
+          </EmptyState>
 
           <template v-else-if="statsData">
-            <section class="metrics-strip mb-6">
+            <section class="admin-summary-grid mb-6">
               <MetricTile
-                label="Total"
+                :label="t('notificationManagement.stats.total')"
                 :value="formatNum(statsData.summary?.total)"
                 :hint="t('notificationManagement.stats.totalDesc')"
               />
               <MetricTile
-                label="Success"
+                :label="t('notificationManagement.stats.success')"
                 :value="formatNum(statsData.summary?.total_sent)"
                 :hint="successMetricHint"
               />
               <MetricTile
-                label="Failure"
+                :label="t('notificationManagement.stats.failure')"
                 :value="formatNum(statsData.summary?.total_failed)"
                 :hint="failureMetricHint"
               />
             </section>
 
-            <div
-              class="rounded-2xl bg-white border border-gray-200 shadow-sm p-5 flex flex-col min-h-[360px] mb-6"
-            >
-              <h3 class="text-base font-semibold text-gray-900 mb-1">
+            <div class="admin-chart-panel admin-chart-panel--tall mb-6">
+              <h3 class="admin-chart-title">
                 {{ t('notificationManagement.stats.seriesTitle') }}
               </h3>
-              <p class="text-sm text-gray-500 mb-4">
+              <p class="admin-chart-copy">
                 {{ t('notificationManagement.stats.seriesSubtitle') }}
               </p>
-              <div class="flex-1 min-h-0 flex flex-col">
+              <div class="admin-chart-body">
                 <div
                   v-if="seriesChartData && seriesChartData.labels.length > 0"
-                  class="flex-1 min-h-[280px]"
+                  class="admin-chart-canvas admin-chart-canvas--tall"
                 >
                   <Line :data="seriesChartData" :options="seriesChartOptions" />
                 </div>
-                <div
-                  v-else
-                  class="flex-1 min-h-[280px] flex items-center justify-center text-gray-400 text-sm"
-                >
+                <div v-else class="admin-chart-empty admin-chart-canvas--tall">
                   {{ t('notificationManagement.stats.noData') }}
                 </div>
               </div>
@@ -198,13 +194,11 @@
             <div
               class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6 items-stretch"
             >
-              <div
-                class="rounded-2xl bg-white border border-gray-200 shadow-sm p-5 flex flex-col min-h-[320px]"
-              >
-                <h3 class="text-base font-semibold text-gray-900 mb-1">
+              <div class="admin-chart-panel">
+                <h3 class="admin-chart-title">
                   {{ t('notificationManagement.stats.channelTitle') }}
                 </h3>
-                <p class="text-sm text-gray-500 mb-3">
+                <p class="admin-chart-copy">
                   {{ t('notificationManagement.stats.channelSubtitle') }}
                 </p>
                 <div class="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
@@ -215,19 +209,19 @@
                   >
                     <div class="flex items-center justify-between gap-3">
                       <span
-                        class="text-sm font-medium text-gray-700 shrink-0"
+                        class="shrink-0 text-sm font-medium text-slate-700"
                         >{{ row.label }}</span
                       >
                       <span class="flex items-center gap-2 shrink-0">
-                        <span class="text-xs font-medium text-gray-500"
+                        <span class="text-xs font-medium text-slate-500"
                           >{{ row.percent }}%</span
                         >
-                        <span class="text-xs font-medium text-gray-900">{{
+                        <span class="text-xs font-medium text-slate-900">{{
                           formatNum(row.count)
                         }}</span>
                       </span>
                     </div>
-                    <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="admin-progress-track">
                       <div
                         :style="{
                           width: row.percent + '%',
@@ -247,29 +241,24 @@
                   {{ t('notificationManagement.stats.viewReport') }}
                 </BaseButton>
               </div>
-              <div
-                class="rounded-2xl bg-white border border-gray-200 shadow-sm p-5 flex flex-col min-h-[320px]"
-              >
-                <h3 class="text-base font-semibold text-gray-900 mb-3">
+              <div class="admin-chart-panel">
+                <h3 class="admin-chart-title mb-3">
                   {{ t('notificationManagement.stats.bySource') }}
                 </h3>
                 <div
                   v-if="sourcePieData?.datasets?.[0]?.data?.some((v) => v > 0)"
-                  class="flex-1 min-h-[260px]"
+                  class="admin-chart-canvas"
                 >
                   <Doughnut :data="sourcePieData" :options="sourcePieOptions" />
                 </div>
-                <div
-                  v-else
-                  class="flex-1 min-h-[260px] flex items-center justify-center text-gray-500 text-sm rounded-lg border border-gray-200 bg-gray-50"
-                >
+                <div v-else class="admin-chart-empty">
                   {{ t('notificationManagement.stats.noData') }}
                 </div>
               </div>
             </div>
           </template>
         </div>
-      </section>
+      </AdminListSection>
     </PageFrame>
   </AdminLayout>
 </template>
@@ -292,9 +281,11 @@ import {
   Legend
 } from 'chart.js'
 import { notificationsAdminApi } from '@/admin/api'
+import AdminListSection from '@/admin/components/AdminListSection.vue'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import BaseLoading from '@/components/ui/BaseLoading.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 
@@ -365,13 +356,13 @@ const failedRatePct = computed(() => {
 
 const successMetricHint = computed(() =>
   successRatePct.value !== null
-    ? `${t('notificationManagement.stats.sentDesc')} · ${successRatePct.value}% ${t('notificationManagement.stats.successRate')}`
+    ? `${t('notificationManagement.stats.sentDesc')}${t('common.metaSeparator')}${successRatePct.value}% ${t('notificationManagement.stats.successRate')}`
     : t('notificationManagement.stats.sentDesc')
 )
 
 const failureMetricHint = computed(() =>
   failedRatePct.value !== null
-    ? `${t('notificationManagement.stats.failedDesc')} · ${failedRatePct.value}% ${t('notificationManagement.stats.failureRate')}`
+    ? `${t('notificationManagement.stats.failedDesc')}${t('common.metaSeparator')}${failedRatePct.value}% ${t('notificationManagement.stats.failureRate')}`
     : t('notificationManagement.stats.failedDesc')
 )
 
@@ -390,7 +381,7 @@ const seriesChartData = computed(() => {
   if (list.length === 0) return null
   if (hasSuccessFailedSeries.value) {
     return {
-      labels: list.map((r) => r.bucket || '-'),
+      labels: list.map((r) => r.bucket || t('common.emptyValue')),
       datasets: [
         {
           label: t('notificationManagement.stats.totalSent'),
@@ -412,7 +403,7 @@ const seriesChartData = computed(() => {
     }
   }
   return {
-    labels: list.map((r) => r.bucket || '-'),
+    labels: list.map((r) => r.bucket || t('common.emptyValue')),
     datasets: [
       {
         label: t('notificationManagement.stats.count'),
@@ -467,10 +458,22 @@ const totalForChannel = computed(() => {
 const CHANNEL_COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7']
 
 const ALL_CHANNELS = [
-  { provider_type: 'feishu', label: '飞书' },
-  { provider_type: 'wecom', label: 'WeCom' },
-  { provider_type: 'wechat', label: '企业微信' },
-  { provider_type: 'email', label: 'Email' }
+  {
+    provider_type: 'feishu',
+    labelKey: 'notificationManagement.channels.providerFeishu'
+  },
+  {
+    provider_type: 'wecom',
+    labelKey: 'notificationManagement.channels.providerWecom'
+  },
+  {
+    provider_type: 'wechat',
+    labelKey: 'notificationManagement.channels.providerWechat'
+  },
+  {
+    provider_type: 'email',
+    labelKey: 'notificationManagement.channels.typeEmail'
+  }
 ]
 
 const channelBarData = computed(() => {
@@ -490,7 +493,7 @@ const channelBarData = computed(() => {
   return ALL_CHANNELS.map((ch, i) => {
     const data = byType[ch.provider_type]
     const count = data ? data.count : 0
-    const label = data?.label || ch.label
+    const label = ch.labelKey ? t(ch.labelKey) : data?.label || ch.provider_type
     return {
       provider_type: ch.provider_type,
       label,
@@ -519,8 +522,8 @@ const sourcePieData = computed(() => {
   if (!list.length) return null
   return {
     labels: list.map((r) => {
-      const app = r.source_app || '-'
-      const type = r.source_type || '-'
+      const app = r.source_app || t('common.emptyValue')
+      const type = r.source_type || t('common.emptyValue')
       return `${app} / ${type}`
     }),
     datasets: [

@@ -44,33 +44,31 @@
           </div>
         </template>
 
-        <section v-if="loading" class="admin-card">
-          <div class="admin-card-body px-6 py-16">
-            <div class="flex justify-center">
-              <div
-                class="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500"
-              ></div>
-            </div>
+        <section v-if="loading" class="admin-workbench-panel">
+          <div class="flex min-h-[12rem] items-center justify-center">
+            <div
+              class="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500"
+            ></div>
           </div>
         </section>
 
         <section
           v-else-if="filteredInstances.length"
-          class="grid gap-5 xl:grid-cols-2"
+          class="admin-instance-grid"
         >
           <article
             v-for="instance in filteredInstances"
             :key="instance.id"
-            class="admin-card admin-card-body transition-transform duration-200 hover:-translate-y-0.5"
+            class="admin-instance-card"
           >
-            <div class="flex items-start justify-between gap-4">
-              <div class="flex items-center gap-4">
+            <div class="admin-instance-card-head">
+              <div class="admin-instance-identity">
                 <div
                   :class="[
-                    'flex h-12 w-12 items-center justify-center rounded-[1.1rem] shadow-sm',
+                    'admin-instance-icon',
                     instance.is_active
-                      ? 'bg-sky-100 text-sky-600'
-                      : 'bg-slate-100 text-slate-400'
+                      ? 'admin-instance-icon--active'
+                      : 'admin-instance-icon--inactive'
                   ]"
                 >
                   <svg
@@ -87,11 +85,11 @@
                     />
                   </svg>
                 </div>
-                <div>
-                  <h3 class="text-lg font-semibold text-slate-900">
+                <div class="min-w-0">
+                  <h3 class="admin-instance-title">
                     {{ instance.name }}
                   </h3>
-                  <p class="mt-1 text-sm text-slate-500">
+                  <p class="admin-instance-subtitle">
                     {{ instance.username }}
                   </p>
                 </div>
@@ -111,35 +109,31 @@
               </span>
             </div>
 
-            <div
-              class="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
-            >
+            <div class="admin-instance-detail-card">
               <div
                 class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"
               >
                 <div class="min-w-0 flex-1">
-                  <div
-                    class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400"
-                  >
-                    Endpoint
+                  <div class="admin-instance-detail-label">
+                    {{ t('adminPages.jenkinsInstances.endpointLabel') }}
                   </div>
-                  <div class="mt-2 break-all font-mono text-sm text-slate-600">
+                  <div class="admin-instance-detail-value">
                     {{ instance.url }}
                   </div>
                 </div>
 
-                <div class="admin-jenkins-instance-cache-card">
-                  <div class="admin-jenkins-instance-cache-card-top">
-                    <span class="admin-jenkins-instance-cache-card-label">{{
+                <div class="admin-instance-cache-card">
+                  <div class="admin-instance-cache-card-top">
+                    <span class="admin-instance-cache-card-label">{{
                       t('adminPages.jenkinsInstances.cacheBadge')
                     }}</span>
-                    <span class="admin-jenkins-instance-cache-card-value">{{
+                    <span class="admin-instance-cache-card-value">{{
                       t('adminPages.jenkinsInstances.cacheDaysValue', {
                         days: instance.job_catalog_cache_ttl_days || 1
                       })
                     }}</span>
                   </div>
-                  <div class="admin-jenkins-instance-cache-card-time">
+                  <div class="admin-instance-cache-card-time">
                     <span>{{
                       t('adminPages.jenkinsInstances.cacheLastFetched')
                     }}</span>
@@ -161,10 +155,10 @@
               </div>
             </div>
 
-            <div class="admin-jenkins-instance-actions">
+            <div class="admin-instance-actions">
               <button
                 type="button"
-                class="admin-jenkins-instance-action admin-jenkins-instance-action-primary"
+                class="admin-instance-action admin-instance-action-primary"
                 :disabled="refreshingInstanceId === instance.id"
                 @click="refreshJobCache(instance)"
               >
@@ -214,7 +208,7 @@
 
               <button
                 type="button"
-                class="admin-jenkins-instance-action admin-jenkins-instance-action-secondary"
+                class="admin-instance-action admin-instance-action-secondary"
                 @click="editInstance(instance)"
               >
                 <svg
@@ -235,7 +229,7 @@
 
               <button
                 type="button"
-                class="admin-jenkins-instance-action admin-jenkins-instance-action-danger"
+                class="admin-instance-action admin-instance-action-danger"
                 @click="deleteInstance(instance)"
               >
                 <svg
@@ -298,7 +292,7 @@
         <form @submit.prevent="saveInstance">
           <div class="admin-modal-stack">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label class="admin-modal-field-label">
                 {{ t('adminPages.jenkinsInstances.nameLabel') }}
                 <span class="text-rose-500">*</span>
               </label>
@@ -307,26 +301,28 @@
                 type="text"
                 required
                 :placeholder="t('adminPages.jenkinsInstances.namePlaceholder')"
-                class="input"
+                class="admin-modal-control"
               />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
-                Jenkins URL
+              <label class="admin-modal-field-label">
+                {{ t('adminPages.jenkinsInstances.urlLabel') }}
                 <span class="text-rose-500">*</span>
               </label>
               <input
                 v-model="instanceForm.url"
                 type="url"
                 required
-                placeholder="https://jenkins.example.com"
-                class="input"
+                :placeholder="
+                  t('adminPages.jenkinsInstances.urlPlaceholder')
+                "
+                class="admin-modal-control"
               />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label class="admin-modal-field-label">
                 {{ t('adminPages.jenkinsInstances.usernameLabel') }}
                 <span class="text-rose-500">*</span>
               </label>
@@ -337,12 +333,12 @@
                 :placeholder="
                   t('adminPages.jenkinsInstances.usernamePlaceholder')
                 "
-                class="input"
+                class="admin-modal-control"
               />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label class="admin-modal-field-label">
                 {{ t('adminPages.jenkinsInstances.cacheTtlDaysLabel') }}
                 <span class="text-rose-500">*</span>
               </label>
@@ -352,26 +348,28 @@
                 min="1"
                 step="1"
                 required
-                class="input"
+                class="admin-modal-control"
               />
-              <p class="mt-2 text-xs text-slate-500">
+              <p class="admin-modal-help">
                 {{ t('adminPages.jenkinsInstances.cacheTtlDaysHint') }}
               </p>
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
-                API Token
+              <label class="admin-modal-field-label">
+                {{ t('adminPages.jenkinsInstances.tokenLabel') }}
                 <span class="text-rose-500">*</span>
               </label>
               <input
                 v-model="instanceForm.token"
                 type="password"
                 :required="!editingInstance"
-                placeholder="Jenkins API Token"
-                class="input"
+                :placeholder="
+                  t('adminPages.jenkinsInstances.tokenPlaceholder')
+                "
+                class="admin-modal-control"
               />
-              <p class="mt-2 text-xs text-slate-500">
+              <p class="admin-modal-help">
                 {{ t('adminPages.jenkinsInstances.tokenHint') }}
               </p>
             </div>
@@ -464,8 +462,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 rounded-md px-4 py-2 text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

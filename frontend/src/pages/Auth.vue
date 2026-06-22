@@ -49,7 +49,30 @@
         </header>
 
         <form class="auth-form" novalidate @submit.prevent="handleLogin">
-          <div v-if="ldapProviders.length" class="auth-form__field">
+          <div v-if="ldapProviders.length" class="auth-source-panel">
+            <div class="auth-source-panel__copy">
+              <span class="auth-source-panel__title">
+                {{ t('auth.loginAutoMode') }}
+              </span>
+              <span class="auth-source-panel__hint">
+                {{ t('auth.loginAutoHint') }}
+              </span>
+            </div>
+            <button
+              class="auth-source-panel__toggle"
+              type="button"
+              :disabled="loading"
+              @click="manualLoginSource = !manualLoginSource"
+            >
+              {{
+                manualLoginSource
+                  ? t('auth.hideManualLoginSource')
+                  : t('auth.manualLoginSource')
+              }}
+            </button>
+          </div>
+
+          <div v-if="ldapProviders.length && manualLoginSource" class="auth-form__field">
             <label class="auth-form__label" for="login-source">
               {{ t('auth.loginSource') }}
             </label>
@@ -68,6 +91,7 @@
                 {{ provider.name }}
               </option>
             </select>
+            <p class="auth-form__subhint">{{ t('auth.loginManualHint') }}</p>
           </div>
 
           <div class="auth-form__field">
@@ -162,6 +186,10 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api/auth'
 import { useUserStore } from '@/store/user'
+import {
+  buildLoginAttempts,
+  shouldContinueLoginFallback
+} from '@/utils/loginSources'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
@@ -187,6 +215,7 @@ const rememberMe = ref(false)
 const passwordFocused = ref(false)
 const ldapProviders = ref([])
 const selectedLoginSource = ref('local')
+const manualLoginSource = ref(false)
 
 const extractResponseData = (response) => response?.data?.data || response?.data || []
 
@@ -230,6 +259,58 @@ const resolveLoginErrorMessage = (error) => {
   return t('auth.loginError')
 }
 
+const getLoginErrorCode = (error) => error?.response?.data?.code
+
+const buildManualLoginAttempt = () => {
+  const selectedProviderId =
+    selectedLoginSource.value === 'local'
+      ? null
+      : Number(selectedLoginSource.value)
+
+  return {
+    label: selectedProviderId ? `ldap:${selectedProviderId}` : 'local',
+    credentials: {
+      username: formData.username,
+      password: formData.password,
+      auth_source: selectedProviderId ? 'ldap' : 'local',
+      ldap_instance_id: selectedProviderId
+    }
+  }
+}
+
+const loginWithFallback = async () => {
+  const attempts = manualLoginSource.value
+    ? [buildManualLoginAttempt()]
+    : buildLoginAttempts({
+        credentials: {
+          username: formData.username,
+          password: formData.password
+        },
+        ldapProviders: ldapProviders.value
+      })
+
+  let lastError = null
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]
+
+    try {
+      await userStore.login(attempt.credentials)
+      return
+    } catch (error) {
+      lastError = error
+      const hasNextAttempt = index < attempts.length - 1
+      const code = getLoginErrorCode(error)
+
+      if (!shouldContinueLoginFallback({ code, hasNextAttempt })) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError
+}
+
 const handleLogin = async () => {
   if (!validateLogin()) {
     return
@@ -240,17 +321,7 @@ const handleLogin = async () => {
   passwordFocused.value = false
 
   try {
-    const selectedProviderId =
-      selectedLoginSource.value === 'local'
-        ? null
-        : Number(selectedLoginSource.value)
-
-    await userStore.login({
-      username: formData.username,
-      password: formData.password,
-      auth_source: selectedProviderId ? 'ldap' : 'local',
-      ldap_instance_id: selectedProviderId
-    })
+    await loginWithFallback()
 
     try {
       await router.push(userStore.getUserLandingPath())
@@ -444,6 +515,69 @@ onMounted(loadLdapProviders)
   line-height: 1.55;
 }
 
+.auth-form__subhint {
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.auth-source-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  border: 1px solid rgba(219, 234, 254, 0.9);
+  border-radius: 1.1rem;
+  background: rgba(239, 246, 255, 0.68);
+  padding: 0.8rem 0.9rem;
+}
+
+.auth-source-panel__copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.auth-source-panel__title {
+  color: #1e3a8a;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.auth-source-panel__hint {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.auth-source-panel__toggle {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.48rem 0.72rem;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.auth-source-panel__toggle:hover {
+  background: #2563eb;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.auth-source-panel__toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+}
+
 .auth-source-select {
   width: 100%;
   border-radius: 1rem;
@@ -559,9 +693,14 @@ onMounted(loadLdapProviders)
   }
 
   .auth-form__meta,
+  .auth-source-panel,
   .auth-card__footer {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .auth-source-panel__toggle {
+    width: 100%;
   }
 }
 </style>

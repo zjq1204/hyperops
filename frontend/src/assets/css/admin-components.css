@@ -1,0 +1,1008 @@
+@layer components {
+  /* Admin ScopePage */
+
+  .admin-scope-panel {
+    @apply overflow-hidden rounded-lg border px-4 py-4;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .admin-scope-header {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+
+  .admin-scope-meta {
+    @apply min-w-0;
+  }
+
+  .admin-scope-kicker {
+    @apply text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400;
+  }
+
+  .admin-scope-heading {
+    @apply mt-1 text-base font-semibold text-slate-900;
+  }
+
+  .admin-scope-copy {
+    @apply mt-1 text-sm leading-6 text-slate-500;
+  }
+
+  .admin-scope-actions {
+    @apply flex flex-wrap items-center justify-end gap-2;
+  }
+
+  .admin-scope-grid {
+    @apply mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(16rem,0.9fr)];
+  }
+
+  .admin-scope-card {
+    @apply rounded-lg border p-3.5;
+    border-color: rgba(226, 232, 240, 0.64);
+    background: rgba(255, 255, 255, 0.62);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+  }
+
+  .admin-scope-card-label {
+    @apply mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400;
+  }
+
+  .admin-scope-summary {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-3;
+  }
+
+  .admin-scope-stat {
+    @apply rounded-lg border px-3.5 py-3;
+    border-color: rgba(226, 232, 240, 0.64);
+    background: rgba(248, 250, 252, 0.64);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+  }
+
+  .admin-scope-stat-label {
+    @apply block text-[11px] font-medium text-slate-500;
+  }
+
+  .admin-scope-stat-value {
+    @apply mt-1 block text-xl font-semibold text-slate-900;
+  }
+
+  .admin-scope-step-card {
+    @apply rounded-lg border px-4 py-4 text-left text-slate-600 transition-all duration-150;
+    border-color: rgba(226, 232, 240, 0.72);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+  }
+
+  .admin-scope-step-card:not(:disabled):hover {
+    border-color: rgba(148, 163, 184, 0.62);
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .admin-scope-step-card.is-active {
+    border-color: rgba(15, 23, 42, 0.88);
+    background: rgb(15 23 42);
+    color: white;
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+  }
+
+  .admin-scope-step-card.is-disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
+
+  .admin-scope-preview-card {
+    @apply rounded-lg border px-4 py-3 text-sm font-medium text-slate-600 lg:max-w-xs lg:text-right;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(248, 250, 252, 0.72);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+  }
+
+  .admin-inline-stat {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold text-slate-600;
+    border-color: rgba(203, 213, 225, 0.58);
+    background: rgba(255, 255, 255, 0.62);
+  }
+
+  .admin-workbench-panel {
+    @apply rounded-lg border p-5;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .admin-settings-group {
+    @apply grid gap-0;
+  }
+
+  .admin-settings-title {
+    @apply mb-5 text-base font-semibold text-slate-900;
+  }
+
+  .admin-settings-row {
+    @apply grid grid-cols-1 items-start gap-4 border-t border-slate-200/70 py-5 first:border-t-0 first:pt-0 md:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)];
+  }
+
+  .admin-settings-row-main {
+    @apply min-w-0;
+  }
+
+  .admin-settings-row-title {
+    @apply text-sm font-semibold text-slate-900;
+  }
+
+  .admin-settings-row-copy {
+    @apply mt-1 text-sm leading-6 text-slate-500;
+  }
+
+  .admin-settings-row-control {
+    @apply flex w-full min-w-0 items-center justify-start gap-2 md:justify-end;
+  }
+
+  .admin-settings-unit {
+    @apply w-14 shrink-0 text-sm text-slate-500;
+  }
+
+  .admin-settings-actions {
+    @apply flex flex-wrap items-center justify-end gap-3 border-t border-slate-200/70 pt-5;
+  }
+
+  .admin-settings-feedback {
+    @apply mt-3 text-sm;
+  }
+
+  .admin-settings-feedback--error {
+    @apply text-rose-600;
+  }
+
+  .admin-settings-feedback--success {
+    @apply text-emerald-700;
+  }
+
+  .admin-segmented-control {
+    @apply inline-flex rounded-lg border border-slate-200/75 bg-slate-50/70 p-1;
+  }
+
+  .admin-segmented-option {
+    @apply rounded-md px-4 py-1.5 text-xs font-semibold text-slate-500 transition-colors;
+  }
+
+  .admin-segmented-option:hover {
+    @apply text-slate-700;
+  }
+
+  .admin-segmented-option.is-active {
+    @apply bg-white text-sky-700 shadow-sm;
+  }
+
+  .admin-progress-track {
+    @apply h-2 overflow-hidden rounded-full bg-slate-100;
+  }
+
+  .admin-chart-panel {
+    @apply flex min-h-[320px] flex-col rounded-lg border p-5;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .admin-chart-panel--tall {
+    @apply min-h-[360px];
+  }
+
+  .admin-chart-title {
+    @apply mb-1 text-base font-semibold text-slate-900;
+  }
+
+  .admin-chart-copy {
+    @apply mb-4 text-sm text-slate-500;
+  }
+
+  .admin-chart-body {
+    @apply flex min-h-0 flex-1 flex-col;
+  }
+
+  .admin-chart-canvas {
+    @apply min-h-[260px] flex-1;
+  }
+
+  .admin-chart-canvas--tall {
+    @apply min-h-[280px];
+  }
+
+  .admin-chart-empty {
+    @apply flex min-h-[260px] flex-1 items-center justify-center rounded-lg border text-sm text-slate-400;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  .admin-tag-filter-list {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .admin-tag-filter-chip {
+    @apply inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-sm font-medium text-slate-600 transition-all duration-200;
+    border-color: rgba(203, 213, 225, 0.88);
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .admin-tag-filter-chip:hover {
+    @apply border-slate-300 text-slate-900;
+    background: rgba(255, 255, 255, 0.98);
+  }
+
+  .admin-tag-filter-chip.is-active {
+    border-color: rgba(125, 211, 252, 0.6);
+    background: rgba(239, 246, 255, 0.96);
+    color: rgb(3 105 161);
+    box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.24);
+  }
+
+  .admin-tag-filter-chip__check {
+    @apply inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-sky-500 text-white;
+  }
+
+  .admin-labels-empty-inline {
+    @apply flex min-h-10 w-full items-center rounded-lg border border-dashed border-slate-300/80 bg-white/60 px-3 text-left text-[12.5px] font-semibold text-slate-500 transition;
+  }
+
+  .admin-labels-empty-inline:hover {
+    @apply border-sky-300 bg-sky-50 text-sky-700;
+  }
+
+  .admin-project-tag-list {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .admin-project-tag-chip {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold text-sky-700;
+    border-color: rgba(186, 230, 253, 0.95);
+    background: rgba(240, 249, 255, 0.92);
+  }
+
+  .admin-project-tag-empty {
+    @apply text-sm text-slate-400;
+  }
+
+  .admin-label-library-item {
+    @apply flex items-start justify-between gap-4 rounded-lg border px-4 py-4;
+    border-color: rgba(226, 232, 240, 0.92);
+    background: rgba(248, 250, 252, 0.74);
+  }
+
+  .admin-record-panel {
+    @apply mt-6 rounded-lg border bg-white/80 p-5;
+    border-color: rgba(226, 232, 240, 0.92);
+    box-shadow:
+      0 18px 42px rgba(15, 23, 42, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .admin-record-panel-head {
+    @apply mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between;
+  }
+
+  .admin-record-title {
+    @apply text-base font-semibold text-slate-900;
+  }
+
+  .admin-record-subtitle {
+    @apply mt-1 text-sm leading-6 text-slate-500;
+  }
+
+  /* Admin Table */
+
+  .admin-table-shell {
+    @apply overflow-x-auto rounded-lg border;
+    border-color: rgba(226, 232, 240, 0.68);
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.032);
+  }
+
+  .admin-modal-stack {
+    @apply space-y-4;
+  }
+
+  .admin-modal-card {
+    @apply rounded-[1rem] border bg-white/90 p-4;
+    border-color: rgba(226, 232, 240, 0.72);
+  }
+
+  .admin-modal-card-muted {
+    @apply rounded-[1rem] border bg-slate-50/80 p-4;
+    border-color: rgba(226, 232, 240, 0.72);
+  }
+
+  .admin-modal-card-dashed {
+    @apply rounded-lg border border-dashed border-slate-200/80 bg-slate-50/70 px-4 py-6 text-center;
+  }
+
+  .admin-modal-section-title {
+    @apply text-sm font-medium text-slate-700;
+  }
+
+  .admin-modal-section-copy {
+    @apply mt-1 text-xs text-slate-500;
+  }
+
+  .admin-modal-field-label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+
+  .admin-modal-field-label--compact {
+    @apply mb-1 block text-xs font-medium text-slate-600;
+  }
+
+  .admin-modal-control {
+    @apply block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition-all placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60;
+    border-color: rgba(203, 213, 225, 0.86);
+  }
+
+  .admin-modal-inline-field {
+    @apply flex flex-col gap-3 sm:flex-row sm:items-center;
+  }
+
+  .admin-modal-inline-field .admin-modal-control {
+    @apply min-w-0 flex-1;
+  }
+
+  .admin-modal-help {
+    @apply mt-1 text-xs leading-5 text-slate-500;
+  }
+
+  .admin-modal-card-title {
+    @apply mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700;
+  }
+
+  .admin-modal-card-title svg {
+    @apply h-4 w-4 text-slate-500;
+  }
+
+  .admin-modal-code-panel {
+    @apply rounded-lg border bg-slate-50/80 p-4;
+    border-color: rgba(226, 232, 240, 0.72);
+  }
+
+  .admin-modal-code-panel--error {
+    @apply bg-rose-50/80;
+    border-color: rgba(254, 205, 211, 0.86);
+  }
+
+  .admin-modal-code {
+    @apply whitespace-pre-wrap break-words font-mono text-xs text-slate-800;
+  }
+
+  .admin-modal-code--error {
+    @apply text-rose-800;
+  }
+
+  .admin-drawer-overlay {
+    @apply fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[1px];
+  }
+
+  .admin-drawer {
+    @apply fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col bg-white shadow-[0_16px_44px_rgba(15,23,42,0.12)];
+  }
+
+  .admin-drawer-header {
+    @apply flex shrink-0 items-center justify-between border-b border-slate-200/70 bg-white px-6 py-4;
+  }
+
+  .admin-drawer-title {
+    @apply text-base font-semibold text-slate-900;
+  }
+
+  .admin-drawer-close {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700;
+  }
+
+  .admin-drawer-body {
+    @apply flex-1 space-y-6 overflow-y-auto p-6;
+  }
+
+  .admin-drawer-section {
+    @apply border-t border-slate-200/70 pt-6;
+  }
+
+  .admin-drawer-section:first-child {
+    @apply border-t-0 pt-0;
+  }
+
+  .admin-drawer-section-title {
+    @apply mb-4 text-sm font-semibold text-slate-900;
+  }
+
+  .admin-drawer-field-label {
+    @apply mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500;
+  }
+
+  .admin-drawer-field-value {
+    @apply text-sm font-medium text-slate-900;
+  }
+
+  .admin-toast {
+    @apply fixed bottom-5 right-5 z-[90] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.2)];
+  }
+
+  .admin-toast--success {
+    @apply bg-emerald-600;
+  }
+
+  .admin-toast--error {
+    @apply bg-rose-600;
+  }
+
+  .admin-permission-option {
+    @apply flex cursor-pointer items-start gap-3 rounded-lg border bg-white/80 px-3 py-2.5 transition-all duration-150;
+    border-color: rgba(226, 232, 240, 0.54);
+  }
+
+  .admin-permission-option:hover {
+    border-color: rgba(125, 211, 252, 0.54);
+    background: rgba(240, 249, 255, 0.72);
+  }
+
+  .admin-permission-option:has(input[type='checkbox']:checked) {
+    border-color: rgba(56, 189, 248, 0.46);
+    background: rgba(240, 249, 255, 0.9);
+  }
+
+  .admin-modal-note {
+    @apply rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-800;
+  }
+
+  .admin-modal-toggle {
+    @apply flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200/75 bg-slate-50/70 px-4 py-3 transition-all duration-150;
+  }
+
+  .admin-modal-toggle:hover {
+    @apply border-sky-200 bg-sky-50/50;
+  }
+
+  .admin-modal-toggle:has(input[type='checkbox']:checked) {
+    @apply border-sky-400 bg-sky-50 shadow-[0_0_0_1px_rgba(14,165,233,0.24)];
+  }
+
+  .admin-modal-toggle:has(input[type='checkbox']:checked) span {
+    @apply text-sky-900;
+  }
+
+  .admin-modal-chip {
+    @apply rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500;
+  }
+
+  .admin-modal-checklist {
+    @apply max-h-40 space-y-2 overflow-y-auto rounded-lg border border-slate-200/75 bg-white/90 p-2;
+  }
+
+  .admin-modal-checkitem {
+    @apply flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-slate-50;
+  }
+
+  .admin-modal-checkitem:has(input[type='checkbox']:checked) {
+    @apply bg-sky-50 text-sky-900;
+  }
+
+  .admin-modal-checkitem:has(input[type='checkbox']:checked) span {
+    @apply text-sky-900;
+  }
+
+  .admin-modal-checkbox {
+    @apply h-4 w-4 shrink-0 rounded border-slate-300 text-primary-600 focus:ring-primary-500;
+  }
+
+  .admin-modal-inline-toggle {
+    @apply flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-all duration-150;
+  }
+
+  .admin-modal-inline-toggle:hover {
+    @apply border-sky-100 bg-sky-50/50;
+  }
+
+  .admin-modal-inline-toggle:has(input[type='checkbox']:checked) {
+    @apply border-sky-200 bg-sky-50;
+  }
+
+  .admin-modal-inline-toggle:has(input[type='checkbox']:checked) label,
+  .admin-modal-inline-toggle:has(input[type='checkbox']:checked) span {
+    @apply text-sky-900;
+  }
+
+  .admin-bulk-dialog {
+    @apply grid gap-5;
+  }
+
+  .admin-bulk-operations {
+    @apply grid gap-2 rounded-lg border border-slate-200/75 bg-slate-50/70 p-1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-bulk-operations--single {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-bulk-operation {
+    @apply rounded-lg border border-transparent bg-transparent px-3 py-3 text-sm font-semibold text-slate-600 transition-all duration-150;
+  }
+
+  .admin-bulk-operation:hover {
+    @apply bg-white text-slate-900;
+  }
+
+  .admin-bulk-operation.is-active {
+    @apply border-slate-200/80 bg-white text-slate-900 shadow-sm;
+  }
+
+  .admin-bulk-grid {
+    @apply grid gap-4;
+    grid-template-columns: minmax(17rem, 0.66fr) minmax(0, 1.34fr);
+  }
+
+  .admin-bulk-panel {
+    @apply min-w-0 rounded-lg border border-slate-200/75 bg-white/90 p-4 shadow-sm;
+  }
+
+  .admin-bulk-panel-head,
+  .admin-bulk-selected-head {
+    @apply mb-4 flex items-start justify-between gap-3;
+  }
+
+  .admin-bulk-panel-head > div:first-child,
+  .admin-bulk-selected-head > div:first-child {
+    @apply min-w-0;
+  }
+
+  .admin-bulk-panel-head--compact {
+    @apply mb-4;
+  }
+
+  .admin-bulk-title {
+    @apply text-[15px] font-semibold leading-5 text-slate-900;
+  }
+
+  .admin-bulk-subtitle {
+    @apply mt-2 text-sm leading-6 text-slate-500;
+  }
+
+  .admin-bulk-count {
+    @apply inline-flex min-w-[2.15rem] items-center justify-center rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600;
+  }
+
+  .admin-bulk-choice-box {
+    @apply overflow-y-auto pr-1;
+    max-height: 20rem;
+  }
+
+  .admin-bulk-choice-box--groups {
+    max-height: 16.25rem;
+  }
+
+  .admin-bulk-choice {
+    @apply mb-3 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200/75 bg-white/90 px-4 py-3.5 text-[15px] font-semibold text-slate-700 transition-all duration-150;
+  }
+
+  .admin-bulk-choice:hover {
+    @apply -translate-y-px border-slate-300 shadow-sm;
+  }
+
+  .admin-bulk-choice.is-selected {
+    @apply border-sky-300/80 bg-sky-50/70 text-slate-900 shadow-sm;
+  }
+
+  .admin-bulk-choice--group {
+    @apply items-center;
+  }
+
+  .admin-bulk-choice input[type='checkbox'],
+  .admin-bulk-project-card input[type='checkbox'] {
+    @apply h-4 w-4 shrink-0;
+    margin-top: 0.15rem;
+    accent-color: #1976d2;
+  }
+
+  .admin-bulk-choice-copy,
+  .admin-bulk-project-copy {
+    @apply grid min-w-0 gap-0.5;
+  }
+
+  .admin-bulk-choice-text,
+  .admin-bulk-project-copy strong {
+    @apply min-w-0 text-[15px] leading-5;
+    overflow-wrap: anywhere;
+  }
+
+  .admin-bulk-choice-meta,
+  .admin-bulk-project-copy span {
+    @apply text-xs font-medium leading-5 text-slate-500;
+    overflow-wrap: anywhere;
+  }
+
+  .admin-bulk-panel-actions {
+    @apply flex items-center justify-end gap-2;
+  }
+
+  .admin-bulk-actions-divider {
+    @apply text-xs font-bold text-slate-300;
+  }
+
+  .admin-bulk-inline-action {
+    @apply border-0 bg-transparent p-0 text-sm font-semibold text-sky-700;
+  }
+
+  .admin-bulk-inline-action:disabled {
+    @apply cursor-not-allowed text-slate-400;
+  }
+
+  .admin-bulk-project-grid {
+    @apply grid gap-3 overflow-y-auto pr-1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 20rem;
+  }
+
+  .admin-bulk-project-card {
+    @apply flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-200/75 bg-white/90 px-4 py-3.5 transition-all duration-150;
+  }
+
+  .admin-bulk-project-card:hover {
+    @apply -translate-y-px border-slate-300 shadow-sm;
+  }
+
+  .admin-bulk-project-card.is-selected {
+    @apply border-sky-300/80 bg-sky-50/70 shadow-sm;
+  }
+
+  .admin-bulk-empty {
+    @apply grid min-h-48 place-items-center rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500;
+  }
+
+  .admin-bulk-summary-panel,
+  .admin-bulk-compose-panel,
+  .admin-bulk-selected-shell {
+    @apply grid gap-4;
+  }
+
+  .admin-bulk-selected-shell--fill {
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .admin-bulk-summary-metrics {
+    @apply grid grid-cols-2 gap-3;
+  }
+
+  .admin-bulk-summary-metric {
+    @apply rounded-lg border border-slate-200/70 bg-slate-50/70 px-4 py-3.5 text-center;
+  }
+
+  .admin-bulk-summary-metric span {
+    @apply block text-xs font-semibold text-slate-500;
+  }
+
+  .admin-bulk-summary-metric strong {
+    @apply mt-2 block text-3xl font-semibold leading-none text-slate-900;
+  }
+
+  .admin-bulk-note {
+    @apply rounded-lg border border-slate-200/70 bg-slate-50/70 px-4 py-3.5 text-sm leading-6 text-slate-500;
+  }
+
+  .admin-bulk-selected-grid {
+    @apply grid gap-2 overflow-y-auto pr-1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 8.7rem;
+  }
+
+  .admin-bulk-selected-grid--fill {
+    @apply rounded-lg border border-slate-200/70 bg-slate-50/70 p-2;
+    align-content: start;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .admin-bulk-selected-chip {
+    @apply flex items-center justify-between gap-2 rounded-md border border-slate-200/75 bg-white/85 px-3 py-2.5 text-left text-xs font-bold text-slate-700 transition-colors duration-150;
+  }
+
+  .admin-bulk-selected-chip:hover {
+    @apply border-slate-300 bg-slate-100;
+  }
+
+  .admin-bulk-selected-chip span:first-child {
+    @apply min-w-0;
+    overflow-wrap: anywhere;
+  }
+
+  .admin-bulk-selected-empty {
+    @apply rounded-lg border border-slate-200/70 bg-white/80 px-4 py-3.5 text-sm text-slate-400;
+  }
+
+  .admin-bulk-selected-empty--inline {
+    @apply flex min-h-12 items-center;
+  }
+
+  .admin-bulk-form-grid {
+    @apply grid items-start gap-4;
+    grid-template-columns: minmax(15rem, 0.9fr) minmax(0, 1fr);
+  }
+
+  .admin-bulk-form-grid--single {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-bulk-input-card,
+  .admin-bulk-input-card--wide {
+    @apply min-w-0;
+  }
+
+  .admin-bulk-input-label {
+    @apply mb-2 block text-sm font-medium text-slate-700;
+  }
+
+  .admin-bulk-input-hint {
+    @apply mt-2 text-xs leading-5 text-slate-500;
+  }
+
+  .admin-bulk-textarea {
+    min-height: 4.2rem;
+  }
+
+  .admin-bulk-preview {
+    @apply mt-2 text-xs leading-5 text-slate-500;
+  }
+
+  .admin-bulk-event-grid {
+    @apply mt-4 grid gap-3;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-bulk-event-card {
+    @apply flex items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-700;
+  }
+
+  .admin-bulk-event-card input[type='checkbox'] {
+    @apply h-4 w-4;
+    accent-color: #2563eb;
+  }
+
+  @media (max-width: 1024px) {
+    .admin-bulk-operations {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .admin-bulk-grid,
+    .admin-bulk-form-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .admin-bulk-project-grid,
+    .admin-bulk-selected-grid,
+    .admin-bulk-event-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .admin-bulk-operations {
+      grid-template-columns: 1fr;
+    }
+
+    .admin-bulk-summary-metrics {
+      grid-template-columns: 1fr;
+    }
+
+    .admin-bulk-panel-actions {
+      @apply flex-wrap justify-start;
+    }
+  }
+
+  .admin-table {
+    @apply min-w-full divide-y divide-slate-100;
+  }
+
+  .admin-table thead {
+    background: rgba(248, 250, 252, 0.74);
+  }
+
+  .admin-table-head {
+    @apply px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.18em] text-slate-500;
+  }
+
+  .admin-table tbody {
+    @apply divide-y divide-slate-100;
+    background: rgba(255, 255, 255, 0.82);
+  }
+
+  .admin-table-row {
+    @apply align-top transition-colors duration-150 hover:bg-sky-50/35;
+  }
+
+  .admin-table-cell {
+    @apply px-4 py-3 text-sm text-slate-700;
+  }
+
+  /* Admin Empty / Pagination / Status */
+
+  .admin-pagination {
+    @apply mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4;
+    border-color: rgba(226, 232, 240, 0.88);
+  }
+
+  .admin-status-badge {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em];
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  }
+
+  .admin-status-badge--success {
+    border-color: rgba(167, 243, 208, 0.95);
+    background: rgba(236, 253, 245, 0.96);
+    color: rgb(5 150 105);
+  }
+
+  .admin-status-badge--info {
+    border-color: rgba(186, 230, 253, 0.96);
+    background: rgba(240, 249, 255, 0.96);
+    color: rgb(3 105 161);
+  }
+
+  .admin-status-badge--muted {
+    border-color: rgba(226, 232, 240, 0.96);
+    background: rgba(248, 250, 252, 0.96);
+    color: rgb(100 116 139);
+  }
+
+  .admin-status-badge--danger {
+    border-color: rgba(254, 205, 211, 0.96);
+    background: rgba(255, 241, 242, 0.96);
+    color: rgb(190 18 60);
+  }
+
+  .admin-summary-grid {
+    @apply grid gap-4 md:grid-cols-3;
+  }
+
+  .admin-summary-grid--four {
+    @apply md:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .admin-metric-card {
+    @apply relative min-h-[7.5rem] rounded-lg border px-5 py-4;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.76);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .admin-metric-card--compact {
+    @apply flex flex-col justify-between;
+  }
+
+  .admin-metric-card--compact + .admin-metric-card--compact {
+    @apply pt-0 md:pt-0;
+  }
+
+  .admin-metric-card--spotlight {
+    @apply overflow-hidden p-5;
+    border-color: rgba(148, 163, 184, 0.28);
+    background: linear-gradient(135deg, #1f2937, #334155);
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
+  }
+
+  .admin-metric-card--spotlight::after {
+    content: none;
+  }
+
+  .admin-metric-card__content {
+    @apply relative z-[1] min-w-0 flex-1;
+  }
+
+  .admin-metric-card__body--compact {
+    @apply mt-4 flex flex-col gap-2;
+  }
+
+  .admin-metric-card__body--spotlight {
+    @apply mt-5 flex flex-col gap-3;
+  }
+
+  .admin-metric-card__icon {
+    @apply relative z-[1] flex h-12 w-12 items-center justify-center rounded-lg border text-white;
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .admin-metric-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400;
+  }
+
+  .admin-metric-card--spotlight .admin-metric-label {
+    color: rgba(226, 232, 240, 0.78);
+  }
+
+  .admin-metric-value {
+    font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
+    @apply break-words text-[2rem] font-semibold leading-none text-slate-900;
+  }
+
+  .admin-metric-card--spotlight .admin-metric-value {
+    @apply text-[2.4rem] font-bold text-white;
+  }
+
+  .admin-metric-hint {
+    @apply text-sm leading-6 text-slate-500;
+  }
+
+  .admin-metric-card--spotlight .admin-metric-hint {
+    @apply text-slate-200/90;
+  }
+
+  .panel-table {
+    @apply min-w-full divide-y divide-slate-200/70 text-sm;
+  }
+
+  .panel-table thead {
+    @apply bg-slate-50/80;
+  }
+
+  .panel-table th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600;
+  }
+
+  .panel-table td {
+    @apply px-4 py-3 align-middle text-slate-700;
+    border-top: 1px solid rgba(226, 232, 240, 0.68);
+  }
+
+  .table-shell {
+    @apply overflow-x-auto rounded-lg border border-slate-200/75 bg-white/90 shadow-sm;
+  }
+
+  .pagination-bar {
+    @apply mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-4;
+  }
+
+  .empty-state {
+    @apply surface-panel flex flex-col items-center justify-center px-6 py-16 text-center;
+  }
+
+  .empty-state-icon {
+    @apply mb-5 flex h-20 w-20 items-center justify-center rounded-lg;
+    background: linear-gradient(
+      135deg,
+      rgba(14, 165, 233, 0.16),
+      rgba(249, 115, 22, 0.18)
+    );
+    color: #0369a1;
+  }
+
+  .status-pill {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+
+  .status-pill-success {
+    @apply status-pill bg-emerald-50 text-emerald-700;
+  }
+
+  .status-pill-warning {
+    @apply status-pill bg-amber-50 text-amber-700;
+  }
+
+  .status-pill-danger {
+    @apply status-pill bg-rose-50 text-rose-700;
+  }
+
+  .status-pill-neutral {
+    @apply status-pill bg-slate-100 text-slate-600;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
+  .break-words {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+}

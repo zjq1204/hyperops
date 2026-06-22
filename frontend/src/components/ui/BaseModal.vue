@@ -15,7 +15,7 @@
       >
         <div class="flex min-h-full items-center justify-center p-4">
           <div
-            class="fixed inset-0 bg-slate-950/58 backdrop-blur-xl transition-opacity"
+            class="fixed inset-0 bg-slate-950/42 backdrop-blur-[2px] transition-opacity"
             aria-hidden="true"
           />
 
@@ -30,14 +30,14 @@
             <div
               v-if="show"
               :class="[
-                'relative transform overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white text-left shadow-[0_30px_80px_rgba(15,23,42,0.28)] transition-all w-full max-h-[90vh] sm:max-h-[90vh] flex flex-col my-4 sm:my-8',
+                'relative my-4 flex max-h-[90vh] w-full transform flex-col overflow-hidden rounded-lg border border-slate-200/85 bg-white text-left shadow-[0_18px_44px_rgba(15,23,42,0.16)] transition-all sm:my-8 sm:max-h-[90vh]',
                 modalWidthClass,
               ]"
               @click.stop
             >
               <!-- Header -->
               <div
-                class="flex-shrink-0 flex items-start justify-between gap-3 bg-white px-5 pt-6 pb-4 sm:px-6 sm:pt-6 sm:pb-4 border-b border-slate-200/90"
+                class="flex-shrink-0 flex items-start justify-between gap-3 bg-white px-5 py-4 sm:px-6 border-b border-slate-200/80"
               >
                 <h3
                   v-if="title"
@@ -94,7 +94,7 @@
               <!-- Footer (fixed at bottom) -->
               <div
                 v-if="$slots.footer"
-                class="bg-slate-50 px-5 py-4 sm:flex sm:flex-row-reverse sm:px-6 flex-shrink-0 border-t border-slate-200/90"
+                class="bg-slate-50/80 px-5 py-4 sm:flex sm:flex-row-reverse sm:px-6 flex-shrink-0 border-t border-slate-200/80"
               >
                 <slot name="footer" />
               </div>

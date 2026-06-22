@@ -68,19 +68,19 @@
                 {{ group.path }}
               </td>
               <td class="admin-table-cell text-sm text-slate-500">
-                {{ group.collected_at || '-' }}
+                {{ group.collected_at || t('common.emptyValue') }}
               </td>
               <td class="admin-table-cell">
-                <div class="flex gap-3 text-sm font-semibold">
+                <div class="admin-row-actions">
                   <button
                     @click="collectProjects(group)"
-                    class="text-violet-700 hover:text-violet-900"
+                    class="admin-row-action admin-row-action--primary"
                   >
                     {{ t('adminPages.gitlabGroups.collectProjects') }}
                   </button>
                   <button
                     @click="deleteGroup(group)"
-                    class="text-rose-700 hover:text-rose-900"
+                    class="admin-row-action admin-row-action--danger"
                   >
                     {{ t('common.delete') }}
                   </button>
@@ -130,10 +130,10 @@
         @close="showGroupModal = false"
       >
         <div class="admin-modal-stack">
-          <label class="mb-2 block text-sm font-medium text-slate-700">{{
+          <label class="admin-modal-field-label">{{
             t('adminPages.gitlabGroups.chooseGroup')
           }}</label>
-          <select v-model="selectedGitLabGroup" class="input">
+          <select v-model="selectedGitLabGroup" class="admin-modal-control">
             <option value="">
               {{
                 gitLabGroups.length
@@ -177,8 +177,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

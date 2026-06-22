@@ -13,20 +13,20 @@
       </template>
 
       <AdminListSection>
-        <section v-if="instances.length" class="grid gap-5 xl:grid-cols-2">
+        <section v-if="instances.length" class="admin-instance-grid">
           <article
             v-for="inst in instances"
             :key="inst.id"
-            class="admin-card admin-card-body transition-transform duration-200 hover:-translate-y-0.5"
+            class="admin-instance-card"
           >
-            <div class="flex items-start justify-between gap-4">
-              <div class="flex min-w-0 items-center gap-4">
+            <div class="admin-instance-card-head">
+              <div class="admin-instance-identity">
                 <div
                   :class="[
-                    'flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.1rem] shadow-sm',
+                    'admin-instance-icon',
                     inst.is_active
-                      ? 'bg-orange-100 text-orange-600'
-                      : 'bg-slate-100 text-slate-400'
+                      ? 'admin-instance-icon--gitlab-active'
+                      : 'admin-instance-icon--inactive'
                   ]"
                 >
                   <svg
@@ -44,7 +44,7 @@
                   </svg>
                 </div>
                 <div class="min-w-0">
-                  <h3 class="truncate text-lg font-semibold text-slate-900">
+                  <h3 class="admin-instance-title">
                     {{ inst.name }}
                   </h3>
                 </div>
@@ -62,23 +62,19 @@
               </span>
             </div>
 
-            <div
-              class="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
-            >
-              <div
-                class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400"
-              >
+            <div class="admin-instance-detail-card">
+              <div class="admin-instance-detail-label">
                 {{ t('common.url') }}
               </div>
-              <div class="mt-2 break-all font-mono text-sm text-slate-600">
+              <div class="admin-instance-detail-value">
                 {{ inst.url }}
               </div>
             </div>
 
-            <div class="admin-jenkins-instance-actions">
+            <div class="admin-instance-actions">
               <button
                 type="button"
-                class="admin-jenkins-instance-action admin-jenkins-instance-action-primary"
+                class="admin-instance-action admin-instance-action-primary"
                 @click="testGitLabConnection(inst)"
               >
                 <svg
@@ -98,7 +94,7 @@
               </button>
               <button
                 type="button"
-                class="admin-jenkins-instance-action admin-jenkins-instance-action-secondary"
+                class="admin-instance-action admin-instance-action-secondary"
                 @click="editInstance(inst)"
               >
                 <svg
@@ -118,7 +114,7 @@
               </button>
               <button
                 type="button"
-                class="admin-jenkins-instance-action admin-jenkins-instance-action-danger"
+                class="admin-instance-action admin-instance-action-danger"
                 @click="deleteInstance(inst)"
               >
                 <svg
@@ -191,39 +187,39 @@
         <form @submit.prevent="saveInstance">
           <div class="admin-modal-stack">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{
+              <label class="admin-modal-field-label">{{
                 t('common.name')
               }}</label>
               <input
                 v-model="instanceForm.name"
                 type="text"
                 required
-                class="input"
+                class="admin-modal-control"
               />
             </div>
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{
+              <label class="admin-modal-field-label">{{
                 t('common.url')
               }}</label>
               <input
                 v-model="instanceForm.url"
                 type="url"
                 required
-                placeholder="https://gitlab.example.com"
-                class="input"
+                :placeholder="t('adminPages.gitlabInstances.urlPlaceholder')"
+                class="admin-modal-control"
               />
             </div>
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">{{
+              <label class="admin-modal-field-label">{{
                 t('adminPages.gitlabInstances.tokenLabel')
               }}</label>
               <input
                 v-model="instanceForm.private_token"
                 type="password"
                 :required="!editingInstance"
-                class="input"
+                class="admin-modal-control"
               />
-              <p v-if="editingInstance" class="mt-2 text-xs text-slate-500">
+              <p v-if="editingInstance" class="admin-modal-help">
                 {{ t('adminPages.gitlabInstances.tokenEditHint') }}
               </p>
             </div>
@@ -266,8 +262,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

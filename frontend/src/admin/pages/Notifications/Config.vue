@@ -5,104 +5,89 @@
       :title="t('notificationManagement.settings.title')"
       :subtitle="t('notificationManagement.settings.subtitle')"
     >
-      <section class="admin-card admin-card-body">
+      <section class="admin-workbench-panel">
         <BaseLoading v-if="loading" />
-        <template v-else>
-          <h2 class="text-base font-semibold text-gray-900 mb-6">
+        <div v-else class="admin-settings-group">
+          <h2 class="admin-settings-title">
             {{ t('notificationManagement.settings.scheduleSection') }}
           </h2>
 
-          <section
-            class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start pb-6"
-          >
-            <div class="md:col-span-2">
-              <h3 class="text-sm font-semibold text-gray-900 mb-1">
+          <section class="admin-settings-row">
+            <div class="admin-settings-row-main">
+              <h3 class="admin-settings-row-title">
                 {{ t('notificationManagement.settings.retentionTitle') }}
               </h3>
-              <p class="text-sm text-gray-600">
+              <p class="admin-settings-row-copy">
                 {{ t('notificationManagement.settings.retentionDesc') }}
               </p>
             </div>
-            <div class="md:col-span-1 flex justify-end">
-              <div class="w-full md:w-64 flex items-center justify-end gap-2">
+            <div class="admin-settings-row-control">
+              <input
+                v-model.number="form.retention_days"
+                type="number"
+                min="1"
+                max="3650"
+                :placeholder="
+                  t('notificationManagement.settings.retentionDaysPlaceholder')
+                "
+                class="admin-modal-control w-24"
+              />
+              <span class="admin-settings-unit">
+                {{ t('notificationManagement.settings.daysUnit') }}
+              </span>
+            </div>
+          </section>
+
+          <section class="admin-settings-row">
+            <div class="admin-settings-row-main">
+              <h3 class="admin-settings-row-title">
+                {{ t('notificationManagement.settings.cleanupTitle') }}
+              </h3>
+              <p class="admin-settings-row-copy">
+                {{ t('notificationManagement.settings.cleanupDesc') }}
+              </p>
+            </div>
+            <div class="admin-settings-row-control">
+              <label class="admin-modal-toggle">
                 <input
-                  v-model.number="form.retention_days"
-                  type="number"
-                  min="1"
-                  max="3650"
-                  :placeholder="
-                    t(
-                      'notificationManagement.settings.retentionDaysPlaceholder'
-                    )
-                  "
-                  class="rounded-md border border-gray-300 px-3 py-2 text-sm w-24 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                  v-model="form.cleanup_enabled"
+                  type="checkbox"
+                  class="admin-modal-checkbox"
                 />
-                <span class="text-sm text-gray-500 w-14">
-                  {{ t('notificationManagement.settings.daysUnit') }}
+                <span class="text-sm font-medium text-slate-700">
+                  {{
+                    form.cleanup_enabled
+                      ? t('common.enabled')
+                      : t('common.disabled')
+                  }}
                 </span>
-              </div>
+              </label>
             </div>
           </section>
 
-          <section class="pt-6 pb-6 border-t border-gray-200">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-              <div class="md:col-span-2">
-                <h3 class="text-sm font-semibold text-gray-900 mb-1">
-                  {{ t('notificationManagement.settings.cleanupTitle') }}
-                </h3>
-                <p class="text-sm text-gray-600">
-                  {{ t('notificationManagement.settings.cleanupDesc') }}
-                </p>
-              </div>
-              <div class="md:col-span-1 flex justify-end">
-                <div class="w-full md:w-64 flex justify-end">
-                  <label
-                    class="relative inline-flex items-center cursor-pointer"
-                  >
-                    <input
-                      v-model="form.cleanup_enabled"
-                      type="checkbox"
-                      class="sr-only peer"
-                    />
-                    <div
-                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"
-                    />
-                  </label>
-                </div>
-              </div>
+          <section class="admin-settings-row">
+            <div class="admin-settings-row-main">
+              <label class="admin-settings-row-title">
+                {{ t('notificationManagement.settings.cleanupCrontab') }}
+              </label>
+              <p class="admin-settings-row-copy">
+                {{ t('notificationManagement.settings.crontabHelp') }}
+              </p>
             </div>
-            <div
-              class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center mt-4"
-            >
-              <div class="md:col-span-2">
-                <label class="text-sm font-medium text-gray-700">
-                  {{ t('notificationManagement.settings.cleanupCrontab') }}
-                </label>
-                <p class="text-xs text-gray-500 mt-0.5">
-                  {{ t('notificationManagement.settings.crontabHelp') }}
-                </p>
-              </div>
-              <div class="md:col-span-1 flex justify-end">
-                <div class="w-full md:w-64">
-                  <input
-                    v-model="form.cleanup_crontab"
-                    type="text"
-                    :placeholder="
-                      t(
-                        'notificationManagement.settings.cleanupCrontabPlaceholder'
-                      )
-                    "
-                    :disabled="!form.cleanup_enabled"
-                    class="rounded-md border border-gray-300 px-3 py-2 text-sm w-full font-mono focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
-                  />
-                </div>
-              </div>
+            <div class="admin-settings-row-control">
+              <input
+                v-model="form.cleanup_crontab"
+                type="text"
+                :placeholder="
+                  t('notificationManagement.settings.cleanupCrontabPlaceholder')
+                "
+                :disabled="!form.cleanup_enabled"
+                class="admin-modal-control font-mono"
+              />
             </div>
           </section>
 
-          <div
-            class="flex items-center justify-end gap-3 border-t border-gray-200 pt-6"
-          >
+          <div class="admin-settings-actions">
             <BaseButton
               variant="secondary"
               size="sm"
@@ -120,13 +105,19 @@
               {{ t('notificationManagement.settings.saveChanges') }}
             </BaseButton>
           </div>
-          <p v-if="saveError" class="text-sm text-red-600 mt-2">
+          <p
+            v-if="saveError"
+            class="admin-settings-feedback admin-settings-feedback--error"
+          >
             {{ saveError }}
           </p>
-          <p v-if="saveSuccess" class="text-sm text-green-600 mt-2">
+          <p
+            v-if="saveSuccess"
+            class="admin-settings-feedback admin-settings-feedback--success"
+          >
             {{ t('notificationManagement.settings.saveSuccess') }}
           </p>
-        </template>
+        </div>
       </section>
     </PageFrame>
   </AdminLayout>

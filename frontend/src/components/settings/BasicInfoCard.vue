@@ -111,7 +111,7 @@
     <div v-if="resetEmailSent || resetEmailError" class="mt-5">
       <div
         v-if="resetEmailSent"
-        class="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+        class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
       >
         <p class="font-medium">{{ t('settings.passwordResetEmailSent') }}</p>
         <p class="mt-1 text-emerald-700">
@@ -121,7 +121,7 @@
 
       <div
         v-if="resetEmailError"
-        class="rounded-[1.25rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+        class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
       >
         {{ resetEmailError }}
       </div>
@@ -133,7 +133,7 @@
       @click.self="showPasswordResetConfirm = false"
     >
       <div
-        class="surface-panel-strong relative mx-auto w-full max-w-md rounded-[1.8rem] p-6 shadow-[0_28px_60px_rgba(15,23,42,0.24)]"
+        class="surface-panel-strong relative mx-auto w-full max-w-md rounded-lg p-6 shadow-[0_18px_44px_rgba(15,23,42,0.16)]"
       >
         <div class="flex items-start justify-between gap-4">
           <div>
@@ -146,7 +146,7 @@
           </div>
           <button
             type="button"
-            class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-slate-300 hover:bg-slate-100"
+            class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-slate-300 hover:bg-slate-100"
             @click="showPasswordResetConfirm = false"
           >
             <svg
@@ -166,7 +166,7 @@
         </div>
 
         <div
-          class="mt-5 rounded-[1.4rem] border border-slate-200/90 bg-slate-50/80 p-4"
+          class="mt-5 rounded-lg border border-slate-200/90 bg-slate-50/80 p-4"
         >
           <p
             class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400"

@@ -1,0 +1,502 @@
+@layer components {
+  .layout-admin-sidebar {
+    min-width: 19rem;
+    background: linear-gradient(
+      180deg,
+      rgba(249, 251, 254, 0.94),
+      rgba(244, 248, 252, 0.96)
+    );
+    box-shadow: inset -1px 0 0 rgba(203, 213, 225, 0.42);
+  }
+
+  .admin-brand-rail {
+    @apply flex items-center rounded-lg;
+    background: rgba(255, 255, 255, 0.36);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  }
+
+  .admin-sidebar-shell {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.24);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  }
+
+  .admin-sidebar-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.03),
+      transparent 24%,
+      transparent 72%,
+      rgba(255, 255, 255, 0.02)
+    );
+  }
+
+  .layout-admin-sidebar:not(.fixed) .admin-sidebar-shell {
+    border-radius: 1rem;
+  }
+
+  .layout-admin-sidebar.fixed .admin-sidebar-shell {
+    border-right: 1px solid rgba(203, 213, 225, 0.55);
+    border-radius: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .layout-admin-sidebar {
+      backdrop-filter: blur(18px);
+    }
+  }
+
+  .admin-section-shell {
+    @apply relative rounded-lg p-1.5 transition-all duration-200;
+    background: transparent;
+  }
+
+  .admin-section-shell-active {
+    background: rgba(255, 255, 255, 0.38);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  }
+
+  .admin-section-trigger {
+    @apply flex w-full items-center justify-between rounded-lg px-3 py-3 text-left transition-all duration-200;
+  }
+
+  .admin-section-trigger:hover {
+    background: rgba(255, 255, 255, 0.48);
+  }
+
+  .admin-section-trigger-active {
+    background: rgba(255, 255, 255, 0.58);
+  }
+
+  .admin-section-icon {
+    @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[0.9rem] text-slate-700;
+    background: rgba(255, 255, 255, 0.44);
+    box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.32);
+  }
+
+  .admin-section-icon-slate {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.8),
+      rgba(241, 245, 249, 0.58)
+    );
+  }
+
+  .admin-subnav-list {
+    @apply space-y-1 overflow-hidden px-2 pb-2 pt-1;
+  }
+
+  .admin-subnav-item {
+    @apply relative flex items-center gap-3 overflow-hidden rounded-[0.95rem] px-3 py-2.5 text-sm font-medium transition-all duration-200;
+    color: rgba(71, 85, 105, 0.96);
+  }
+
+  .admin-subnav-item:hover {
+    background: rgba(255, 255, 255, 0.5);
+    color: #0f172a;
+  }
+
+  .admin-subnav-item-active {
+    color: rgb(15, 23, 42);
+    background: linear-gradient(
+      135deg,
+      rgba(239, 246, 255, 0.64),
+      rgba(255, 255, 255, 0.64)
+    );
+    box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.16);
+  }
+
+  .admin-subnav-rail {
+    @apply absolute bottom-2 left-0 top-2 w-[3px] rounded-full bg-transparent transition-all duration-200;
+  }
+
+  .admin-subnav-item-active .admin-subnav-rail {
+    @apply bg-gradient-to-b from-sky-400 via-blue-500 to-indigo-500;
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.26);
+  }
+
+  .admin-subnav-icon {
+    @apply flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl transition-colors duration-200;
+    background: rgba(255, 255, 255, 0.34);
+    color: rgba(51, 65, 85, 0.92);
+  }
+
+  .admin-subnav-item-active .admin-subnav-icon {
+    background: rgba(219, 234, 254, 0.7);
+    color: rgb(29, 78, 216);
+  }
+
+  .admin-instance-grid {
+    @apply grid gap-5 xl:grid-cols-2;
+  }
+
+  .admin-instance-card {
+    @apply overflow-hidden rounded-lg border p-6 transition-transform duration-200 hover:-translate-y-0.5;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.76);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .admin-instance-card-head {
+    @apply flex items-start justify-between gap-4;
+  }
+
+  .admin-instance-identity {
+    @apply flex min-w-0 items-center gap-4;
+  }
+
+  .admin-instance-icon {
+    @apply flex h-12 w-12 shrink-0 items-center justify-center rounded-lg shadow-sm;
+  }
+
+  .admin-instance-icon--active {
+    @apply bg-sky-100 text-sky-600;
+  }
+
+  .admin-instance-icon--inactive {
+    @apply bg-slate-100 text-slate-400;
+  }
+
+  .admin-instance-icon--gitlab-active {
+    @apply bg-orange-100 text-orange-600;
+  }
+
+  .admin-instance-title {
+    @apply truncate text-lg font-semibold text-slate-900;
+  }
+
+  .admin-instance-subtitle {
+    @apply mt-1 truncate text-sm text-slate-500;
+  }
+
+  .admin-instance-detail-card {
+    @apply mt-5 rounded-lg border px-4 py-3;
+    border-color: rgba(226, 232, 240, 0.68);
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  .admin-instance-detail-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400;
+  }
+
+  .admin-instance-detail-value {
+    @apply mt-2 break-all font-mono text-sm text-slate-600;
+  }
+
+  .admin-instance-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    align-items: center;
+  }
+
+  .admin-instance-cache-card {
+    display: grid;
+    gap: 0.6rem;
+    min-width: 14rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    background: #ffffff;
+    color: rgb(71 85 105);
+  }
+
+  .admin-instance-cache-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .admin-instance-cache-card-label {
+    border-radius: 9999px;
+    background: rgba(241, 245, 249, 1);
+    padding: 0.35rem 0.65rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgb(71 85 105);
+  }
+
+  .admin-instance-cache-card-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: rgb(100 116 139);
+  }
+
+  .admin-instance-cache-card-time {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid rgba(226, 232, 240, 0.95);
+    padding-top: 0.55rem;
+    font-size: 0.72rem;
+    color: rgb(100 116 139);
+  }
+
+  .admin-instance-cache-card-time span {
+    color: rgb(148 163 184);
+  }
+
+  .admin-instance-cache-card-time time,
+  .admin-instance-cache-card-time strong {
+    text-align: right;
+    font-weight: 700;
+    color: rgb(51 65 85);
+  }
+
+  .admin-instance-action {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    border-radius: 0.5rem;
+    padding: 0 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      border-color 180ms ease,
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+
+  .admin-instance-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  .admin-instance-action:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+
+  .admin-instance-action-primary {
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: linear-gradient(
+      180deg,
+      rgba(248, 251, 255, 0.96),
+      rgba(239, 244, 249, 0.92)
+    );
+    color: #3b4d61;
+  }
+
+  .admin-instance-action-primary:not(:disabled):hover {
+    border-color: rgba(148, 163, 184, 0.44);
+    box-shadow: 0 10px 20px rgba(71, 85, 105, 0.1);
+  }
+
+  .admin-instance-action-secondary {
+    border: 1px solid rgba(203, 213, 225, 0.9);
+    background: rgba(255, 255, 255, 0.88);
+    color: #475569;
+  }
+
+  .admin-instance-action-secondary:not(:disabled):hover {
+    border-color: rgba(148, 163, 184, 0.46);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 10px 20px rgba(71, 85, 105, 0.08);
+  }
+
+  .admin-instance-action-danger {
+    border: 1px solid rgba(229, 184, 181, 0.94);
+    background: rgba(252, 244, 243, 1);
+    color: #ad5a56;
+    padding-inline: 1rem;
+  }
+
+  .admin-instance-action-danger:not(:disabled):hover {
+    border-color: rgba(214, 154, 149, 1);
+    background: rgba(250, 235, 233, 1);
+    box-shadow: 0 10px 20px rgba(141, 75, 73, 0.1);
+  }
+
+  .admin-row-actions,
+  .admin-instance-table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .admin-row-action {
+    @apply inline-flex min-h-9 items-center justify-center rounded-[0.75rem] border px-3 text-sm font-semibold transition-all duration-150;
+    border-color: rgba(203, 213, 225, 0.72);
+    background: rgba(255, 255, 255, 0.72);
+    color: rgb(71 85 105);
+  }
+
+  .admin-row-action:hover {
+    border-color: rgba(148, 163, 184, 0.62);
+    background: rgba(255, 255, 255, 0.94);
+    color: rgb(15 23 42);
+  }
+
+  .admin-row-action--primary {
+    border-color: rgba(125, 211, 252, 0.58);
+    background: rgba(240, 249, 255, 0.72);
+    color: rgb(3 105 161);
+  }
+
+  .admin-row-action--primary:hover {
+    border-color: rgba(56, 189, 248, 0.68);
+    background: rgba(224, 242, 254, 0.84);
+    color: rgb(3 105 161);
+  }
+
+  .admin-row-action--danger {
+    border-color: rgba(254, 205, 211, 0.82);
+    background: rgba(255, 241, 242, 0.72);
+    color: rgb(190 18 60);
+  }
+
+  .admin-row-action--danger:hover {
+    border-color: rgba(251, 113, 133, 0.72);
+    background: rgba(255, 228, 230, 0.86);
+    color: rgb(159 18 57);
+  }
+
+  .admin-instance-table-actions .admin-instance-action {
+    min-height: 2.25rem;
+    border-radius: 0.75rem;
+    padding-inline: 0.8rem;
+    font-size: 0.82rem;
+  }
+
+  @media (max-width: 640px) {
+    .admin-instance-actions {
+      grid-template-columns: 1fr;
+    }
+
+    .admin-instance-cache-card {
+      width: 100%;
+    }
+  }
+
+  /* Admin ListPage */
+
+  .admin-list-layout {
+    @apply space-y-4;
+  }
+
+  .admin-toolbar {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
+
+  .admin-toolbar-end {
+    @apply flex items-center gap-2;
+  }
+
+  .admin-toolbar-start {
+    @apply flex flex-wrap items-center gap-3;
+  }
+
+  .admin-summary-pill {
+    @apply inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-semibold text-slate-600;
+    border-color: rgba(203, 213, 225, 0.58);
+    background: rgba(255, 255, 255, 0.62);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  }
+
+  .admin-state-shell {
+    @apply rounded-lg border px-6 py-14;
+    border-color: rgba(226, 232, 240, 0.68);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.04);
+  }
+
+  .admin-empty-state {
+    @apply flex flex-col items-center justify-center rounded-lg border px-6 py-14 text-center;
+    border-color: rgba(226, 232, 240, 0.68);
+    background: rgba(255, 255, 255, 0.7);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.03);
+  }
+
+  .admin-empty-state--error {
+    @apply bg-rose-50/60;
+  }
+
+  .admin-empty-state-icon {
+    @apply mb-4 flex h-14 w-14 items-center justify-center rounded-[1rem];
+    background: rgba(241, 245, 249, 0.86);
+    color: rgb(100 116 139);
+  }
+
+  .admin-empty-state-icon svg {
+    @apply h-8 w-8;
+  }
+
+  .admin-empty-state-icon--error {
+    background: linear-gradient(
+      135deg,
+      rgba(254, 226, 226, 0.92),
+      rgba(255, 241, 242, 1)
+    );
+    color: rgb(220 38 38);
+  }
+
+  .admin-filter-panel {
+    @apply flex flex-wrap items-end justify-between gap-4 overflow-hidden rounded-lg border px-4 py-4;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .admin-filter-grid {
+    @apply flex min-w-0 flex-1 flex-wrap items-end gap-3;
+  }
+
+  .admin-filter-field {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .admin-filter-label {
+    @apply ml-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400;
+  }
+
+  .admin-filter-control {
+    @apply rounded-xl border px-3.5 py-2.5 text-sm text-slate-700 transition-all duration-200 hover:border-slate-300 focus:outline-none focus:ring-0;
+    border-color: rgba(203, 213, 225, 0.72);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  }
+
+  .admin-filter-control:focus {
+    border-color: rgba(56, 189, 248, 0.68);
+    box-shadow:
+      0 0 0 4px rgba(14, 165, 233, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  }
+
+  .admin-filter-control-shell {
+    @apply relative flex w-full items-center;
+  }
+
+  .admin-filter-control-icon {
+    @apply pointer-events-none absolute left-4 h-4 w-4 text-slate-400;
+  }
+
+  .admin-filter-control--with-icon {
+    @apply pl-11;
+  }
+
+  .admin-filter-manage-link {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[11.5px] font-semibold text-slate-600 transition;
+  }
+
+  .admin-filter-manage-link:hover {
+    @apply border-sky-300 bg-sky-50 text-sky-700;
+  }
+ }

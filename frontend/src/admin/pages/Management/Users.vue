@@ -45,7 +45,7 @@
           <AdminTable>
             <thead>
               <tr>
-                <th class="admin-table-head">ID</th>
+                <th class="admin-table-head">{{ t('common.id') }}</th>
                 <th class="admin-table-head">
                   {{ t('dashboard.username') }}
                 </th>
@@ -73,33 +73,33 @@
             </thead>
             <tbody>
               <tr v-for="user in users" :key="user.id" class="admin-table-row">
-                <td class="admin-table-cell text-gray-900">{{ user.id }}</td>
+                <td class="admin-table-cell text-slate-900">{{ user.id }}</td>
                 <td class="admin-table-cell">
-                  <div class="font-medium text-gray-900">
+                  <div class="font-medium text-slate-900">
                     {{ user.username }}
                   </div>
-                  <div class="text-xs text-gray-500">
-                    {{ user.display_name || '—' }}
+                  <div class="text-xs text-slate-500">
+                    {{ user.display_name || t('common.emptyValue') }}
                   </div>
                 </td>
-                <td class="admin-table-cell text-gray-500">
-                  {{ user.email || '—' }}
+                <td class="admin-table-cell text-slate-500">
+                  {{ user.email || t('common.emptyValue') }}
                 </td>
                 <td class="admin-table-cell">
                   <span :class="authSourceBadgeClass(user.auth_source)">
                     {{ formatAuthSource(user.auth_source) }}
                   </span>
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ formatLdapSync(user.ldap_last_synced_at) }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ joinNames(user.groups) }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ joinNames(user.effective_roles || user.roles) }}
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{
                     formatPlatform(
                       user.preferred_platform ||
@@ -133,7 +133,7 @@
                     }}
                   </span>
                 </td>
-                <td class="admin-table-cell text-gray-500">
+                <td class="admin-table-cell text-slate-500">
                   {{ formatDate(user.date_joined) }}
                 </td>
                 <td class="admin-table-cell">
@@ -168,25 +168,37 @@
             {{ submitError }}
           </p>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('dashboard.username')
             }}</label>
-            <input v-model="form.username" type="text" class="input" />
+            <input
+              v-model="form.username"
+              type="text"
+              class="admin-modal-control"
+            />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('dashboard.email')
             }}</label>
-            <input v-model="form.email" type="email" class="input" />
+            <input
+              v-model="form.email"
+              type="email"
+              class="admin-modal-control"
+            />
           </div>
           <div v-if="mode === 'create'">
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('password.reset.newPassword')
             }}</label>
-            <input v-model="form.password" type="password" class="input" />
+            <input
+              v-model="form.password"
+              type="password"
+              class="admin-modal-control"
+            />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.selectGroups')
             }}</label>
             <div class="admin-modal-checklist max-h-32">
@@ -201,12 +213,12 @@
                   :value="group.id"
                   class="admin-modal-checkbox"
                 />
-                <span class="text-sm text-gray-700">{{ group.name }}</span>
+                <span class="text-sm text-slate-700">{{ group.name }}</span>
               </label>
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.selectRoles')
             }}</label>
             <div class="admin-modal-checklist">
@@ -221,15 +233,18 @@
                   :value="role.id"
                   class="admin-modal-checkbox"
                 />
-                <span class="text-sm text-gray-700">{{ role.name }}</span>
+                <span class="text-sm text-slate-700">{{ role.name }}</span>
               </label>
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">{{
+            <label class="admin-modal-field-label">{{
               t('management.defaultPlatform')
             }}</label>
-            <select v-model="form.preferred_platform" class="input bg-white">
+            <select
+              v-model="form.preferred_platform"
+              class="admin-modal-control"
+            >
               <option value="">
                 {{ t('management.followRolePreference') }}
               </option>
@@ -252,7 +267,7 @@
               />
               <label
                 for="user-is-staff"
-                class="cursor-pointer text-sm font-medium text-gray-700"
+                class="cursor-pointer text-sm font-medium text-slate-700"
               >
                 {{ t('dashboard.isStaff') }}
               </label>
@@ -266,7 +281,7 @@
               />
               <label
                 for="user-is-active"
-                class="cursor-pointer text-sm font-medium text-gray-700"
+                class="cursor-pointer text-sm font-medium text-slate-700"
               >
                 {{ t('management.isActive') }}
               </label>
@@ -357,18 +372,18 @@ const platformOptions = computed(() =>
 function joinNames(items) {
   return Array.isArray(items) && items.length
     ? items.map((item) => item.name).join(', ')
-    : '—'
+    : t('common.emptyValue')
 }
 
 function formatDate(value) {
-  if (!value) return '—'
+  if (!value) return t('common.emptyValue')
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
 function formatPlatform(value) {
   const match = platformOptions.value.find((item) => item.key === value)
-  return match?.label || '—'
+  return match?.label || t('common.emptyValue')
 }
 
 function formatAuthSource(value) {

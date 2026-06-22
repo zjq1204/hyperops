@@ -10,7 +10,7 @@
       </template>
 
       <section class="space-y-5">
-        <section class="surface-panel-strong p-6">
+        <section class="workspace-panel workspace-panel--padded">
           <div class="section-heading">
             <div>
               <h2 class="section-title">{{ t('actions.workspace.availableTitle') }}</h2>
@@ -21,8 +21,8 @@
           <div v-if="loadingTemplates" class="py-12 text-center text-sm text-slate-500">
             {{ t('actions.workspace.loading') }}
           </div>
-          <div v-else-if="templates.length" class="action-template-list">
-            <div class="action-template-list__head">
+          <div v-else-if="templates.length" class="workspace-list workspace-list--actions">
+            <div class="workspace-list__head workspace-list__head--actions">
               <span>{{ t('actions.workspace.table.template') }}</span>
               <span>{{ t('actions.workspace.table.config') }}</span>
               <span>{{ t('actions.workspace.table.actions') }}</span>
@@ -30,19 +30,19 @@
             <article
               v-for="template in templates"
               :key="template.id"
-              class="action-template-row"
+              class="workspace-list-row workspace-list-row--actions"
             >
-              <div class="action-template-row__main">
-                <h3>{{ template.name }}</h3>
-                <p>{{ template.description || t('actions.workspace.table.noDescription') }}</p>
+              <div class="workspace-list-row__main">
+                <strong>{{ template.name }}</strong>
+                <small>{{ template.description || t('actions.workspace.table.noDescription') }}</small>
               </div>
 
-              <div class="action-template-row__meta">
+              <div class="workspace-list-row__meta">
                 <span>{{ t('actions.workspace.templateMeta.steps', { count: stepCount(template) }) }}</span>
                 <span>{{ t('actions.workspace.templateMeta.parameters', { count: parameterCount(template) }) }}</span>
               </div>
 
-              <div class="action-template-row__actions">
+              <div class="workspace-list-row__actions">
                 <BaseButton variant="secondary" size="sm" @click="openPreviewModal(template)">{{ t('actions.workspace.table.preview') }}</BaseButton>
                 <BaseButton size="sm" @click="openRunModal(template)">{{ t('actions.workspace.table.run') }}</BaseButton>
               </div>
@@ -63,7 +63,7 @@
         @close="closeRunModal"
       >
         <div v-if="selectedTemplate" class="space-y-6">
-          <section class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <section class="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
             <h3 class="text-sm font-semibold text-slate-900">{{ t('actions.workspace.runModal.paramsTitle') }}</h3>
             <p class="mt-1 text-sm text-slate-500">
               {{ t('actions.workspace.runModal.paramsHint') }}
@@ -100,13 +100,13 @@
             </label>
           </section>
 
-          <section class="rounded-2xl border border-slate-200 bg-white p-4">
+          <section class="rounded-lg border border-slate-200 bg-white p-4">
             <h3 class="text-sm font-semibold text-slate-900">{{ t('actions.workspace.runModal.previewTitle') }}</h3>
             <ol class="mt-4 space-y-3">
               <li
                 v-for="step in selectedTemplate.steps"
                 :key="step.id"
-                class="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-3"
               >
                 <span class="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
                   {{ step.order }}
@@ -196,7 +196,7 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-5 right-5 z-[90] rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl',
+          'fixed bottom-5 right-5 z-[90] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
           toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
         ]"
       >
@@ -421,95 +421,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.action-template-list {
-  margin-top: 1rem;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 1.25rem;
-  background: #fff;
-}
-
-.action-template-list__head,
-.action-template-row {
-  display: grid;
-  grid-template-columns: minmax(16rem, 1fr) minmax(9rem, auto) auto;
-  align-items: center;
-  gap: 1rem;
-}
-
-.action-template-list__head {
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #64748b;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.action-template-row {
-  padding: 1rem;
-  transition: background 0.18s ease, box-shadow 0.18s ease;
-}
-
-.action-template-row + .action-template-row {
-  border-top: 1px solid #eef2f7;
-}
-
-.action-template-row:hover {
-  background: #fbfdff;
-  box-shadow: inset 3px 0 0 #0f766e;
-}
-
-.action-template-row__main {
-  min-width: 0;
-}
-
-.action-template-row__main h3 {
-  overflow: hidden;
-  color: #0f172a;
-  font-size: 0.95rem;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-template-row__main p {
-  display: -webkit-box;
-  margin-top: 0.35rem;
-  overflow: hidden;
-  color: #64748b;
-  font-size: 0.82rem;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
-}
-
-.action-template-row__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.action-template-row__meta span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.8rem;
-  border-radius: 999px;
-  padding: 0 0.7rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  background: #f1f5f9;
-  color: #475569;
-}
-
-.action-template-row__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
 .action-workspace-preview {
   display: grid;
   gap: 1rem;
@@ -522,9 +433,9 @@ onMounted(() => {
 }
 
 .action-workspace-preview__summary div {
-  border: 1px solid #e2e8f0;
-  border-radius: 1rem;
-  background: #f8fafc;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  border-radius: 0.75rem;
+  background: rgba(248, 250, 252, 0.8);
   padding: 1rem;
 }
 
@@ -540,7 +451,7 @@ onMounted(() => {
   margin-top: 0.35rem;
   color: #0f172a;
   font-size: 1.35rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .action-workspace-flow {
@@ -563,16 +474,16 @@ onMounted(() => {
   width: 2.25rem;
   min-height: 2.25rem;
   place-items: center;
-  border-radius: 999px;
-  background: #0f172a;
+  border-radius: 0.75rem;
+  background: #334155;
   color: #fff;
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .action-workspace-flow__content {
-  border: 1px solid #e2e8f0;
-  border-radius: 1rem;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  border-radius: 0.75rem;
   background: #fff;
   padding: 0.9rem 1rem;
 }
@@ -596,7 +507,7 @@ onMounted(() => {
   padding: 0.25rem 0.6rem;
   color: #475569;
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .action-workspace-flow__content p {
@@ -612,31 +523,4 @@ onMounted(() => {
   font-size: 0.75rem;
 }
 
-@media (max-width: 900px) {
-  .action-template-list__head {
-    display: none;
-  }
-
-  .action-template-list {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-
-  .action-template-row {
-    grid-template-columns: 1fr;
-    border: 1px solid #e2e8f0;
-    border-radius: 1.1rem;
-    background: #fff;
-  }
-
-  .action-template-row + .action-template-row {
-    margin-top: 0.75rem;
-    border-top: 1px solid #e2e8f0;
-  }
-
-  .action-template-row__actions {
-    justify-content: flex-start;
-  }
-}
 </style>

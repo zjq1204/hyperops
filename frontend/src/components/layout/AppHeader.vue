@@ -1,9 +1,7 @@
 <template>
-  <header
-    class="flex-shrink-0 z-30 border-b border-white/35 bg-white/62 backdrop-blur-2xl"
-  >
+  <header class="workspace-header">
     <div class="px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between items-center h-20">
+      <div class="flex h-16 items-center justify-between">
         <!-- Mobile menu button -->
         <div class="flex items-center gap-3">
           <button
@@ -76,7 +74,7 @@
             >
               <div
                 v-if="showUserMenu"
-                class="absolute right-0 mt-3 w-80 rounded-2xl border border-white/50 bg-white/92 py-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)] backdrop-blur-xl z-50"
+                class="workspace-user-menu-panel"
               >
                 <!-- User Info -->
                 <div class="px-4 py-2 border-b border-gray-100">
@@ -88,7 +86,7 @@
                 <!-- AI Email Card (Always at the top) -->
                 <div v-if="userStore.userInfo?.virtual_email" class="px-4 py-2">
                   <div
-                    class="bg-gradient-to-r from-primary-50 to-blue-50 rounded-lg p-3 border border-primary-100"
+                    class="rounded-lg border border-sky-100 bg-sky-50/70 p-3"
                   >
                     <div class="flex items-center gap-2 mb-2">
                       <svg

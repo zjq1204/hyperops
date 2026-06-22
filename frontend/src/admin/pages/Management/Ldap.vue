@@ -74,7 +74,8 @@
                       {{ instance.name || instance.host || 'LDAP' }}
                     </span>
                     <span class="ldap-instance-row__meta">
-                      {{ instance.slug }} · {{ formatEndpoint(instance) }}
+                      {{ instance.slug }}{{ t('common.metaSeparator')
+                      }}{{ formatEndpoint(instance) }}
                     </span>
                   </span>
                   <span
@@ -185,7 +186,9 @@
                   </div>
                   <div>
                     <span>{{ t('adminPages.ldap.bindAccount') }}</span>
-                    <strong>{{ selectedInstance.bind_dn || '—' }}</strong>
+                    <strong>{{
+                      selectedInstance.bind_dn || t('common.emptyValue')
+                    }}</strong>
                   </div>
                 </div>
 
@@ -280,7 +283,10 @@
                           {{ formatMappingScope(mapping) }}
                         </td>
                         <td class="admin-table-cell text-slate-600">
-                          {{ mapping.target_group?.name || '—' }}
+                          {{
+                            mapping.target_group?.name ||
+                            t('common.emptyValue')
+                          }}
                         </td>
                         <td class="admin-table-cell">
                           <span
@@ -374,7 +380,7 @@
               </p>
               <div class="ldap-modal-grid mt-4">
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.instanceName') }}
                     <span class="text-rose-500">*</span>
                   </label>
@@ -382,13 +388,13 @@
                     v-model.trim="instanceForm.name"
                     type="text"
                     required
-                    class="input"
-                    placeholder="OneProCloud LDAP"
+                    class="admin-modal-control"
+                    :placeholder="t('adminPages.ldap.instanceNamePlaceholder')"
                   />
                 </div>
 
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.slug') }}
                     <span class="text-rose-500">*</span>
                   </label>
@@ -396,10 +402,10 @@
                     v-model.trim="instanceForm.slug"
                     type="text"
                     required
-                    class="input"
-                    placeholder="oneprocloud"
+                    class="admin-modal-control"
+                    :placeholder="t('adminPages.ldap.slugPlaceholder')"
                   />
-                  <p class="mt-2 text-xs text-slate-500">
+                  <p class="admin-modal-help">
                     {{ t('adminPages.ldap.slugHint') }}
                   </p>
                 </div>
@@ -412,7 +418,7 @@
               </p>
               <div class="ldap-modal-grid mt-4">
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.host') }}
                     <span class="text-rose-500">*</span>
                   </label>
@@ -420,13 +426,13 @@
                     v-model.trim="instanceForm.host"
                     type="text"
                     required
-                    class="input"
-                    placeholder="ldap.example.com"
+                    class="admin-modal-control"
+                    :placeholder="t('adminPages.ldap.hostPlaceholder')"
                   />
                 </div>
 
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.port') }}
                     <span class="text-rose-500">*</span>
                   </label>
@@ -435,34 +441,34 @@
                     type="number"
                     min="1"
                     required
-                    class="input"
+                    class="admin-modal-control"
                     placeholder="389"
                   />
                 </div>
 
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.bindDn') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.bind_dn"
                     type="text"
-                    class="input"
-                    placeholder="cn=admin,dc=example,dc=com"
+                    class="admin-modal-control"
+                    :placeholder="t('adminPages.ldap.bindDnPlaceholder')"
                   />
                 </div>
 
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.bindPassword') }}
                   </label>
                   <input
                     v-model="bindPassword"
                     type="password"
-                    class="input"
+                    class="admin-modal-control"
                     :placeholder="t('adminPages.ldap.bindPasswordHint')"
                   />
-                  <p class="mt-2 text-xs text-slate-500">
+                  <p class="admin-modal-help">
                     {{
                       hasBindPassword
                         ? t('adminPages.ldap.storedPasswordHint')
@@ -502,46 +508,46 @@
               </p>
               <div class="ldap-modal-grid mt-4">
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.userBaseDn') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.user_base_dn"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.groupBaseDn') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.group_base_dn"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.userFilterTemplate') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.user_filter_template"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.groupFilterTemplate') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.group_filter_template"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
               </div>
@@ -553,57 +559,57 @@
               </p>
               <div class="ldap-modal-grid ldap-modal-grid--four mt-4">
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.uidAttr') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.uid_attr"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.emailAttr') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.email_attr"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.firstNameAttr') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.first_name_attr"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div>
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.lastNameAttr') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.last_name_attr"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
 
                 <div class="ldap-modal-grid__wide">
-                  <label class="mb-2 block text-sm font-medium text-slate-700">
+                  <label class="admin-modal-field-label">
                     {{ t('adminPages.ldap.displayNameAttr') }}
                   </label>
                   <input
                     v-model.trim="instanceForm.display_name_attr"
                     type="text"
-                    class="input"
+                    class="admin-modal-control"
                   />
                 </div>
               </div>
@@ -634,7 +640,7 @@
                 <input
                   v-model.trim="previewUsername"
                   type="text"
-                  class="input"
+                  class="admin-modal-control"
                   :placeholder="t('adminPages.ldap.previewUsernamePlaceholder')"
                 />
                 <BaseButton
@@ -730,20 +736,29 @@
                   </p>
                   <div class="ldap-dn-box">
                     <span>{{ t('adminPages.ldap.ldapDn') }}</span>
-                    <strong>{{ userPreview.user?.dn || '—' }}</strong>
+                    <strong>{{
+                      userPreview.user?.dn || t('common.emptyValue')
+                    }}</strong>
                   </div>
                   <dl class="ldap-preview-list">
                     <div>
                       <dt>uid</dt>
-                      <dd>{{ userPreview.user?.username || '—' }}</dd>
+                      <dd>{{
+                        userPreview.user?.username || t('common.emptyValue')
+                      }}</dd>
                     </div>
                     <div>
                       <dt>{{ t('dashboard.email') }}</dt>
-                      <dd>{{ userPreview.user?.email || '—' }}</dd>
+                      <dd>{{
+                        userPreview.user?.email || t('common.emptyValue')
+                      }}</dd>
                     </div>
                     <div>
                       <dt>{{ t('management.displayName') }}</dt>
-                      <dd>{{ userPreview.user?.display_name || '—' }}</dd>
+                      <dd>{{
+                        userPreview.user?.display_name ||
+                        t('common.emptyValue')
+                      }}</dd>
                     </div>
                   </dl>
                 </article>
@@ -780,7 +795,7 @@
 
           <div class="ldap-mapping-instance-note">
             <span>{{ t('adminPages.ldap.mappingInstance') }}</span>
-            <strong>{{ selectedInstance?.name || '—' }}</strong>
+            <strong>{{ selectedInstance?.name || t('common.emptyValue') }}</strong>
           </div>
 
           <label class="admin-filter-field">
@@ -835,13 +850,11 @@
             </select>
           </label>
 
-          <label
-            class="flex items-center gap-3 rounded-[1rem] border border-slate-200 bg-white px-4 py-3"
-          >
+          <label class="admin-modal-toggle">
             <input
               v-model="mappingForm.is_active"
               type="checkbox"
-              class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+              class="admin-modal-checkbox"
             />
             <span class="text-sm font-medium text-slate-700">
               {{ t('adminPages.ldap.active') }}
@@ -1080,12 +1093,12 @@ function buildConfigPayload(extra = {}) {
 }
 
 function formatEndpoint(instance) {
-  if (!instance?.host) return '—'
+  if (!instance?.host) return t('common.emptyValue')
   return `${instance.use_ssl ? 'ldaps' : 'ldap'}://${instance.host}:${instance.port || 389}`
 }
 
 function formatDate(value) {
-  if (!value) return '—'
+  if (!value) return t('common.emptyValue')
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
 }
@@ -1094,7 +1107,7 @@ function formatMappingScope(mapping) {
   if (mapping?.mapping_scope === 'all') {
     return t('adminPages.ldap.mappingScopeAll')
   }
-  return mapping?.ldap_group_dn || '—'
+  return mapping?.ldap_group_dn || t('common.emptyValue')
 }
 
 function resetMappingForm() {

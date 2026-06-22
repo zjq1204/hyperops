@@ -12,7 +12,7 @@
         v-if="state.show"
         :class="[
           'fixed top-4 right-4 left-4 sm:left-auto max-w-sm',
-          'rounded-2xl border p-4 shadow-[0_20px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl',
+          'rounded-lg border p-4 shadow-[0_14px_34px_rgba(15,23,42,0.14)] backdrop-blur-xl',
           typeClasses[state.type]
         ]"
         style="z-index: 9999"

@@ -122,7 +122,9 @@
               {{ t('adminPages.gitlabTags.tagName') }}
             </th>
             <th class="admin-table-head">{{ t('common.project') }}</th>
-            <th class="admin-table-head">COMMIT SHA</th>
+            <th class="admin-table-head">
+              {{ t('adminPages.gitlabTags.commitSha') }}
+            </th>
             <th class="admin-table-head">
               {{ t('adminPages.gitlabTags.releaseDate') }}
             </th>
@@ -147,10 +149,10 @@
               {{ tag.project_path }}
             </td>
             <td class="admin-table-cell font-mono text-sm text-slate-600">
-              {{ tag.commit_sha?.substring(0, 8) || '-' }}
+              {{ tag.commit_sha?.substring(0, 8) || t('common.emptyValue') }}
             </td>
             <td class="admin-table-cell text-sm text-slate-500">
-              {{ tag.released_at || '-' }}
+              {{ tag.released_at || t('common.emptyValue') }}
             </td>
           </tr>
         </tbody>
@@ -200,10 +202,8 @@
               <button
                 type="button"
                 :class="[
-                  'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                  bulkTagStep === 1
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600'
+                  'admin-scope-step-card',
+                  bulkTagStep === 1 ? 'is-active' : ''
                 ]"
                 @click="bulkTagStep = 1"
               >
@@ -221,11 +221,9 @@
                 type="button"
                 :disabled="!canGoToBulkProjectsStep"
                 :class="[
-                  'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                  bulkTagStep === 2
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600',
-                  !canGoToBulkProjectsStep ? 'cursor-not-allowed opacity-60' : ''
+                  'admin-scope-step-card',
+                  bulkTagStep === 2 ? 'is-active' : '',
+                  !canGoToBulkProjectsStep ? 'is-disabled' : ''
                 ]"
                 @click="goToBulkProjectsStep"
               >
@@ -243,11 +241,9 @@
                 type="button"
                 :disabled="!canGoToBulkComposeStep"
                 :class="[
-                  'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                  bulkTagStep === 3
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600',
-                  !canGoToBulkComposeStep ? 'cursor-not-allowed opacity-60' : ''
+                  'admin-scope-step-card',
+                  bulkTagStep === 3 ? 'is-active' : '',
+                  !canGoToBulkComposeStep ? 'is-disabled' : ''
                 ]"
                 @click="goToBulkComposeStep"
               >
@@ -280,7 +276,9 @@
                     }}</span
                   >
                 </header>
-                <div class="admin-bulk-choice-box admin-bulk-choice-box--groups">
+                <div
+                  class="admin-bulk-choice-box admin-bulk-choice-box--groups"
+                >
                   <label
                     v-for="group in groups"
                     :key="group.id"
@@ -296,7 +294,9 @@
                       @change="toggleBulkGroup(group.id)"
                     />
                     <div class="admin-bulk-choice-copy">
-                      <span class="admin-bulk-choice-text">{{ group.name }}</span>
+                      <span class="admin-bulk-choice-text">{{
+                        group.name
+                      }}</span>
                       <span class="admin-bulk-choice-meta">{{
                         t('adminPages.gitlabTags.groupProjectsPreview')
                       }}</span>
@@ -415,7 +415,9 @@
               <section
                 class="admin-modal-card flex min-h-0 h-full flex-col overflow-hidden xl:w-[37%] xl:max-w-[25rem]"
               >
-                <div class="admin-bulk-selected-shell admin-bulk-selected-shell--fill">
+                <div
+                  class="admin-bulk-selected-shell admin-bulk-selected-shell--fill"
+                >
                   <div class="admin-bulk-selected-head">
                     <h3 class="admin-bulk-title">
                       {{
@@ -471,9 +473,7 @@
                       {{ t('adminPages.gitlabTags.stepComposeDesc') }}
                     </p>
                   </div>
-                  <div
-                    class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 lg:max-w-xs lg:text-right"
-                  >
+                  <div class="admin-scope-preview-card">
                     {{
                       t('adminPages.gitlabTags.bulkPreview', {
                         projects: bulkTagForm.project_ids.length,
@@ -492,8 +492,10 @@
                       <input
                         v-model="bulkTagForm.ref"
                         type="text"
-                        placeholder="main"
-                        class="input"
+                        :placeholder="
+                          t('adminPages.gitlabTags.sourceRefPlaceholder')
+                        "
+                        class="admin-modal-control"
                       />
                       <p class="text-xs leading-5 text-slate-500">
                         {{ t('adminPages.gitlabTags.sourceRefHint') }}
@@ -507,8 +509,10 @@
                       <textarea
                         v-model="bulkTagForm.message"
                         rows="6"
-                        :placeholder="t('adminPages.gitlabTags.tagMessagePlaceholder')"
-                        class="input admin-bulk-textarea min-h-[132px]"
+                        :placeholder="
+                          t('adminPages.gitlabTags.tagMessagePlaceholder')
+                        "
+                        class="admin-modal-control admin-bulk-textarea min-h-[132px]"
                       ></textarea>
                       <p class="text-xs leading-5 text-slate-500">
                         {{ t('adminPages.gitlabTags.tagMessageHint') }}
@@ -523,8 +527,10 @@
                     <textarea
                       v-model="bulkTagForm.tag_names"
                       rows="8"
-                      placeholder="v1.0.0&#10;v1.0.1"
-                      class="input admin-bulk-textarea min-h-[220px] font-mono"
+                      :placeholder="
+                        t('adminPages.gitlabTags.tagNamesPlaceholder')
+                      "
+                      class="admin-modal-control admin-bulk-textarea min-h-[220px] font-mono"
                     ></textarea>
                   </div>
                 </section>
@@ -623,8 +629,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

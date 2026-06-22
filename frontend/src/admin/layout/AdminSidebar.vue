@@ -33,9 +33,7 @@
           class="h-10 w-auto max-w-[3.25rem] shrink-0 object-contain"
         />
         <div class="min-w-0">
-          <p
-            class="truncate text-[1.08rem] font-semibold tracking-tight text-slate-900"
-          >
+          <p class="truncate text-[1.08rem] font-semibold text-slate-900">
             {{ t('management.logoTitle') }}
           </p>
         </div>

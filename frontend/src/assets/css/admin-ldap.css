@@ -1,0 +1,326 @@
+@layer components {
+  .ldap-admin-page {
+    @apply space-y-5;
+  }
+
+  .ldap-instance-layout {
+    @apply grid gap-5 xl:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.6fr)];
+  }
+
+  .ldap-instance-list-panel,
+  .ldap-instance-detail-panel {
+    @apply p-5;
+  }
+
+  .ldap-instance-list {
+    @apply space-y-3;
+  }
+
+  .ldap-instance-row {
+    @apply flex w-full items-center gap-3 rounded-xl border border-slate-200/70 bg-white/85 px-4 py-3.5 text-left transition;
+  }
+
+  .ldap-instance-row:hover {
+    @apply border-slate-300/80 bg-slate-50/80;
+  }
+
+  .ldap-instance-row--active {
+    @apply border-sky-300/80 bg-sky-50/70 shadow-sm;
+  }
+
+  .ldap-instance-row__icon {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600;
+  }
+
+  .ldap-instance-row--active .ldap-instance-row__icon {
+    @apply bg-sky-600 text-white;
+  }
+
+  .ldap-instance-row__body {
+    @apply min-w-0 flex-1;
+  }
+
+  .ldap-instance-row__title {
+    @apply block truncate text-sm font-semibold text-slate-900;
+  }
+
+  .ldap-instance-row__meta {
+    @apply mt-1 block truncate text-xs text-slate-500;
+  }
+
+  .ldap-count-pill {
+    @apply inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600;
+  }
+
+  .ldap-instance-detail-head {
+    @apply flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .ldap-instance-detail-head__eyebrow {
+    @apply mb-2 inline-flex rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] font-semibold text-slate-500;
+  }
+
+  .ldap-instance-detail-head h2 {
+    @apply truncate text-xl font-semibold text-slate-950;
+  }
+
+  .ldap-instance-detail-head p {
+    @apply mt-1 break-all text-sm text-slate-500;
+  }
+
+  .ldap-instance-detail-head__actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .ldap-instance-compact-grid {
+    @apply mt-5 grid gap-3 md:grid-cols-3;
+  }
+
+  .ldap-instance-compact-grid div {
+    @apply min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3;
+  }
+
+  .ldap-instance-compact-grid span {
+    @apply block text-xs font-medium text-slate-500;
+  }
+
+  .ldap-instance-compact-grid strong {
+    @apply mt-1 block truncate text-sm font-semibold text-slate-900;
+  }
+
+  .ldap-mapping-toolbar {
+    @apply mt-6 mb-4 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .ldap-mapping-toolbar h3 {
+    @apply text-base font-semibold text-slate-900;
+  }
+
+  .ldap-mapping-toolbar p {
+    @apply mt-1 text-sm text-slate-500;
+  }
+
+  .ldap-mapping-instance-note {
+    @apply rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm;
+  }
+
+  .ldap-mapping-instance-note span {
+    @apply block text-xs font-medium text-slate-500;
+  }
+
+  .ldap-mapping-instance-note strong {
+    @apply mt-1 block text-slate-900;
+  }
+
+  .ldap-status-dot {
+    @apply inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs font-semibold;
+  }
+
+  .ldap-status-dot--on {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+
+  .ldap-status-dot--off {
+    @apply border-slate-200 bg-slate-100 text-slate-500;
+  }
+
+  .ldap-notice {
+    @apply rounded-[1rem] border px-4 py-3 text-sm font-medium;
+  }
+
+  .ldap-notice--success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+
+  .ldap-notice--error {
+    @apply border-rose-200 bg-rose-50 text-rose-700;
+  }
+
+  .ldap-panel {
+    @apply rounded-lg border;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(255, 255, 255, 0.76);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
+  }
+
+  .ldap-instance-card,
+  .ldap-mapping-panel {
+    @apply p-5;
+  }
+
+  .ldap-panel__header {
+    @apply mb-5 flex items-start gap-4;
+  }
+
+  .ldap-panel__header--spread {
+    @apply items-center justify-between gap-3;
+  }
+
+  .ldap-panel__header h2 {
+    @apply text-base font-semibold text-slate-900;
+  }
+
+  .ldap-panel__header p {
+    @apply mt-1 max-w-3xl text-sm leading-6 text-slate-500;
+  }
+
+  .ldap-instance-card__actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .ldap-instance-summary {
+    @apply rounded-xl border p-4;
+    border-color: rgba(226, 232, 240, 0.66);
+    background: rgba(248, 250, 252, 0.72);
+  }
+
+  .ldap-instance-summary__main {
+    @apply flex min-w-0 items-start gap-3;
+  }
+
+  .ldap-instance-summary__main > div {
+    @apply min-w-0;
+  }
+
+  .ldap-instance-summary__main strong {
+    @apply block truncate text-base font-semibold text-slate-900;
+  }
+
+  .ldap-instance-summary__main span:not(.ldap-status-dot) {
+    @apply mt-1 block truncate text-sm text-slate-500;
+  }
+
+  .ldap-inline-result {
+    @apply mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600;
+  }
+
+  .ldap-inline-result--success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+
+  .ldap-inline-result--error {
+    @apply border-rose-200 bg-rose-50 text-rose-700;
+  }
+
+  .ldap-inline-result span {
+    @apply font-semibold text-slate-900;
+  }
+
+  .ldap-inline-result strong {
+    @apply rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600;
+  }
+
+  .ldap-modal-section {
+    @apply rounded-xl border border-slate-200 bg-white p-4;
+  }
+
+  .ldap-modal-grid {
+    @apply grid gap-4 md:grid-cols-2;
+  }
+
+  .ldap-modal-grid--four {
+    @apply lg:grid-cols-4;
+  }
+
+  .ldap-modal-grid__wide {
+    @apply md:col-span-2;
+  }
+
+  .ldap-checkbox {
+    @apply h-4 w-4 rounded border-slate-300 text-slate-800 focus:ring-slate-400;
+  }
+
+  .ldap-test-results {
+    @apply mt-4 grid gap-4 lg:grid-cols-2;
+  }
+
+  .ldap-result-card {
+    @apply rounded-xl border border-slate-200 bg-slate-50 p-4;
+  }
+
+  .ldap-result-card__title {
+    @apply text-sm font-semibold text-slate-900;
+  }
+
+  .ldap-result-card__message {
+    @apply mt-2 text-sm font-medium;
+  }
+
+  .ldap-result-card__message--success {
+    @apply text-emerald-700;
+  }
+
+  .ldap-result-card__message--error {
+    @apply text-rose-700;
+  }
+
+  .ldap-result-metrics {
+    @apply mt-3 grid grid-cols-2 gap-3;
+  }
+
+  .ldap-result-metrics div {
+    @apply rounded-lg border border-slate-200 bg-white px-3 py-3;
+  }
+
+  .ldap-result-metrics span {
+    @apply block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400;
+  }
+
+  .ldap-result-metrics strong {
+    @apply mt-1 block text-sm font-semibold text-slate-900;
+  }
+
+  .ldap-chip-block {
+    @apply mt-4 space-y-2;
+  }
+
+  .ldap-chip-block > div {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .ldap-chip-block__label {
+    @apply block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400;
+  }
+
+  .ldap-empty-copy {
+    @apply mt-3 text-sm leading-6 text-slate-400;
+  }
+
+  .ldap-dn-box {
+    @apply mt-3 rounded-lg border border-slate-200 bg-white px-3 py-3;
+  }
+
+  .ldap-dn-box span {
+    @apply block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400;
+  }
+
+  .ldap-dn-box strong {
+    @apply mt-2 block break-all text-sm font-medium text-slate-800;
+  }
+
+  .ldap-preview-list {
+    @apply mt-3 grid gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm;
+  }
+
+  .ldap-preview-list div {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .ldap-preview-list dt {
+    @apply text-slate-500;
+  }
+
+  .ldap-preview-list dd {
+    @apply min-w-0 truncate font-medium text-slate-900;
+  }
+
+  @media (max-width: 767px) {
+    .ldap-panel__header--spread {
+      @apply items-stretch;
+    }
+
+    .ldap-instance-card__actions {
+      @apply w-full;
+    }
+  }
+ }

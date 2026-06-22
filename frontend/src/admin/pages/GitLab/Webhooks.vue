@@ -121,10 +121,14 @@
                 class="rounded"
               />
             </th>
-            <th class="admin-table-head">URL</th>
+            <th class="admin-table-head">{{ t('common.url') }}</th>
             <th class="admin-table-head">{{ t('common.project') }}</th>
-            <th class="admin-table-head">Push</th>
-            <th class="admin-table-head">Tag</th>
+            <th class="admin-table-head">
+              {{ t('adminPages.gitlabWebhooks.pushColumn') }}
+            </th>
+            <th class="admin-table-head">
+              {{ t('adminPages.gitlabWebhooks.tagColumn') }}
+            </th>
             <th class="admin-table-head">
               {{ t('adminPages.gitlabWebhooks.mr') }}
             </th>
@@ -150,25 +154,25 @@
               {{ hook.project_path }}
             </td>
             <td class="admin-table-cell">
-              {{ hook.push_events ? '✓' : '-' }}
+              {{ hook.push_events ? '✓' : t('common.emptyValue') }}
             </td>
             <td class="admin-table-cell">
-              {{ hook.tag_push_events ? '✓' : '-' }}
+              {{ hook.tag_push_events ? '✓' : t('common.emptyValue') }}
             </td>
             <td class="admin-table-cell">
-              {{ hook.merge_requests_events ? '✓' : '-' }}
+              {{ hook.merge_requests_events ? '✓' : t('common.emptyValue') }}
             </td>
             <td class="admin-table-cell">
-              <div class="flex gap-3 text-sm font-semibold">
+              <div class="admin-row-actions">
                 <button
                   @click="editWebhook(hook)"
-                  class="text-sky-700 hover:text-sky-900"
+                  class="admin-row-action admin-row-action--primary"
                 >
                   {{ t('common.edit') }}
                 </button>
                 <button
                   @click="deleteWebhook(hook)"
-                  class="text-rose-700 hover:text-rose-900"
+                  class="admin-row-action admin-row-action--danger"
                 >
                   {{ t('common.delete') }}
                 </button>
@@ -217,18 +221,13 @@
             </button>
           </section>
 
-          <section
-            v-if="bulkWebhookOperation === 'create'"
-            class="space-y-5"
-          >
+          <section v-if="bulkWebhookOperation === 'create'" class="space-y-5">
             <section class="grid gap-3 md:grid-cols-3">
               <button
                 type="button"
                 :class="[
-                  'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                  bulkWebhookStep === 1
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600'
+                  'admin-scope-step-card',
+                  bulkWebhookStep === 1 ? 'is-active' : ''
                 ]"
                 @click="bulkWebhookStep = 1"
               >
@@ -246,13 +245,9 @@
                 type="button"
                 :disabled="!canGoToBulkWebhookProjectsStep"
                 :class="[
-                  'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                  bulkWebhookStep === 2
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600',
-                  !canGoToBulkWebhookProjectsStep
-                    ? 'cursor-not-allowed opacity-60'
-                    : ''
+                  'admin-scope-step-card',
+                  bulkWebhookStep === 2 ? 'is-active' : '',
+                  !canGoToBulkWebhookProjectsStep ? 'is-disabled' : ''
                 ]"
                 @click="goToBulkWebhookProjectsStep"
               >
@@ -270,13 +265,9 @@
                 type="button"
                 :disabled="!canGoToBulkWebhookComposeStep"
                 :class="[
-                  'rounded-2xl border px-4 py-4 text-left transition-all duration-150',
-                  bulkWebhookStep === 3
-                    ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600',
-                  !canGoToBulkWebhookComposeStep
-                    ? 'cursor-not-allowed opacity-60'
-                    : ''
+                  'admin-scope-step-card',
+                  bulkWebhookStep === 3 ? 'is-active' : '',
+                  !canGoToBulkWebhookComposeStep ? 'is-disabled' : ''
                 ]"
                 @click="goToBulkWebhookComposeStep"
               >
@@ -312,7 +303,9 @@
                     }}</span
                   >
                 </header>
-                <div class="admin-bulk-choice-box admin-bulk-choice-box--groups">
+                <div
+                  class="admin-bulk-choice-box admin-bulk-choice-box--groups"
+                >
                   <label
                     v-for="group in groups"
                     :key="group.id"
@@ -328,7 +321,9 @@
                       @change="toggleBulkGroup(group.id)"
                     />
                     <div class="admin-bulk-choice-copy">
-                      <span class="admin-bulk-choice-text">{{ group.name }}</span>
+                      <span class="admin-bulk-choice-text">{{
+                        group.name
+                      }}</span>
                       <span class="admin-bulk-choice-meta">{{
                         t('adminPages.gitlabWebhooks.groupProjectsPreview')
                       }}</span>
@@ -359,7 +354,9 @@
                     :key="label.id"
                     type="button"
                     class="admin-tag-filter-chip"
-                    :class="{ 'is-active': bulkSelectedLabelIds.includes(label.id) }"
+                    :class="{
+                      'is-active': bulkSelectedLabelIds.includes(label.id)
+                    }"
                     @click="toggleBulkLabelFilter(label.id)"
                   >
                     {{ label.name }}
@@ -445,7 +442,9 @@
               <section
                 class="admin-modal-card flex min-h-0 h-full flex-col overflow-hidden xl:w-[37%] xl:max-w-[25rem]"
               >
-                <div class="admin-bulk-selected-shell admin-bulk-selected-shell--fill">
+                <div
+                  class="admin-bulk-selected-shell admin-bulk-selected-shell--fill"
+                >
                   <div class="admin-bulk-selected-head">
                     <h3 class="admin-bulk-title">
                       {{
@@ -503,9 +502,7 @@
                       {{ t('adminPages.gitlabWebhooks.stepComposeDesc') }}
                     </p>
                   </div>
-                  <div
-                    class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 lg:max-w-xs lg:text-right"
-                  >
+                  <div class="admin-scope-preview-card">
                     {{
                       t('adminPages.gitlabWebhooks.bulkPreview', {
                         projects: bulkWebhookForm.project_ids.length
@@ -516,11 +513,13 @@
 
                 <section class="space-y-4">
                   <div class="space-y-2">
-                    <label class="admin-bulk-input-label">URL</label>
+                    <label class="admin-bulk-input-label">{{
+                      t('common.url')
+                    }}</label>
                     <input
                       v-model="bulkWebhookForm.url"
                       type="url"
-                      class="input"
+                      class="admin-modal-control"
                     />
                   </div>
                   <div class="admin-bulk-event-grid">
@@ -586,7 +585,9 @@
                   <span>{{
                     t('adminPages.gitlabWebhooks.selectProject')
                   }}</span>
-                  <strong>{{ currentProject?.name || '--' }}</strong>
+                  <strong>{{
+                    currentProject?.name || t('common.emptyValue')
+                  }}</strong>
                 </div>
               </div>
               <div class="admin-bulk-note">
@@ -668,10 +669,14 @@
       >
         <div class="admin-modal-stack">
           <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">{{
+            <label class="admin-modal-field-label">{{
               t('common.project')
             }}</label>
-            <select v-model="webhookForm.project" required class="input">
+            <select
+              v-model="webhookForm.project"
+              required
+              class="admin-modal-control"
+            >
               <option value="">
                 {{ t('adminPages.gitlabWebhooks.selectProject') }}
               </option>
@@ -685,14 +690,12 @@
             </select>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700"
-              >URL</label
-            >
+            <label class="admin-modal-field-label">{{ t('common.url') }}</label>
             <input
               v-model="webhookForm.url"
               type="url"
               required
-              class="input"
+              class="admin-modal-control"
             />
           </div>
           <div class="admin-modal-card-muted space-y-2">
@@ -762,8 +765,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 px-4 py-2 rounded-md text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}

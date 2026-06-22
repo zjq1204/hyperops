@@ -189,10 +189,7 @@
           </button>
         </div>
       </section>
-      <section
-        v-if="loadingJobs"
-        class="rounded-[1.75rem] border border-white/75 bg-white/78 px-6 py-16 shadow-[0_20px_50px_rgba(15,23,42,0.08)]"
-      >
+      <section v-if="loadingJobs" class="admin-job-loading-panel">
         <div class="flex justify-center">
           <div
             class="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500"
@@ -254,16 +251,9 @@
         </template>
       </EmptyState>
 
-      <section
-        v-else
-        class="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(24rem,0.95fr)]"
-      >
-        <article
-          class="rounded-[1.9rem] border border-white/75 bg-white/82 shadow-[0_24px_70px_rgba(15,23,42,0.1)] backdrop-blur"
-        >
-          <div
-            class="flex items-center justify-between gap-4 border-b border-slate-200/70 px-5 py-4"
-          >
+      <section v-else class="admin-job-workbench-grid">
+        <article class="admin-job-workbench-panel">
+          <div class="admin-job-panel-head">
             <div>
               <p class="text-sm font-semibold text-slate-900">
                 {{
@@ -346,20 +336,20 @@
             </div>
           </div>
 
-          <div class="max-h-[44rem] overflow-y-auto p-3">
+          <div class="admin-job-list-scroll">
             <button
               v-for="job in filteredJobs"
               :key="job.full_name"
               type="button"
-              class="group mb-2 flex w-full items-stretch rounded-[1.35rem] border px-4 py-4 text-left transition-all duration-200"
+              class="admin-job-list-item"
               :class="
                 isBulkJobSelected(job)
-                  ? 'border-sky-400 bg-sky-50/90 shadow-[0_16px_30px_rgba(56,189,248,0.16)]'
+                  ? 'admin-job-list-item--bulk-selected'
                   : selectedJob?.full_name === job.full_name
-                    ? 'border-sky-300 bg-sky-50/80 shadow-[0_16px_30px_rgba(56,189,248,0.12)]'
+                    ? 'admin-job-list-item--selected'
                     : job.enabled === false
-                      ? 'border-slate-200/70 bg-slate-50/80 opacity-80 hover:border-slate-300 hover:bg-slate-100/80'
-                      : 'border-slate-200/80 bg-white/85 hover:border-sky-200 hover:bg-white'
+                      ? 'admin-job-list-item--disabled'
+                      : 'admin-job-list-item--default'
               "
               @click="selectJob(job)"
             >
@@ -381,11 +371,11 @@
                   />
                 </label>
                 <div
-                  class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[0.95rem] border shadow-sm"
+                  class="admin-job-type-icon"
                   :class="
                     job.has_children
-                      ? 'border-sky-200 bg-sky-50 text-sky-700'
-                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                      ? 'admin-job-type-icon--folder'
+                      : 'admin-job-type-icon--job'
                   "
                 >
                   <svg
@@ -426,7 +416,7 @@
                     <button
                       v-if="!job.has_children"
                       type="button"
-                      class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700"
+                      class="admin-job-quick-icon"
                       :title="t('adminPages.jenkinsJobs.editLabel')"
                       :aria-label="t('adminPages.jenkinsJobs.editLabel')"
                       @click.stop="openEditJobLabelsModal(job)"
@@ -507,7 +497,7 @@
         </article>
 
         <aside
-          class="rounded-[1.9rem] border border-white/75 bg-white/86 p-5 shadow-[0_24px_70px_rgba(15,23,42,0.1)] backdrop-blur"
+          class="admin-job-workbench-panel admin-job-workbench-panel--detail"
         >
           <template v-if="selectedJob">
             <div class="flex items-start justify-between gap-4">
@@ -551,37 +541,25 @@
               </div>
             </div>
 
-            <div class="mt-6 grid gap-3 sm:grid-cols-2">
-              <div
-                class="rounded-[1.2rem] border border-slate-200/80 bg-slate-50/75 px-4 py-3"
-              >
-                <p
-                  class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-                >
+            <div class="admin-job-detail-grid">
+              <div class="admin-job-detail-card">
+                <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailPath') }}
                 </p>
                 <p class="mt-2 break-all font-mono text-sm text-slate-700">
                   {{ selectedJob.full_name }}
                 </p>
               </div>
-              <div
-                class="rounded-[1.2rem] border border-slate-200/80 bg-slate-50/75 px-4 py-3"
-              >
-                <p
-                  class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-                >
+              <div class="admin-job-detail-card">
+                <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailType') }}
                 </p>
                 <p class="mt-2 text-sm font-medium text-slate-700">
                   {{ selectedJob.type }}
                 </p>
               </div>
-              <div
-                class="rounded-[1.2rem] border border-slate-200/80 bg-slate-50/75 px-4 py-3"
-              >
-                <p
-                  class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-                >
+              <div class="admin-job-detail-card">
+                <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailUrl') }}
                 </p>
                 <a
@@ -593,12 +571,8 @@
                   {{ selectedJob.url }}
                 </a>
               </div>
-              <div
-                class="rounded-[1.2rem] border border-slate-200/80 bg-slate-50/75 px-4 py-3"
-              >
-                <p
-                  class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-                >
+              <div class="admin-job-detail-card">
+                <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailChildren') }}
                 </p>
                 <p class="mt-2 text-sm font-medium text-slate-700">
@@ -615,11 +589,9 @@
                   selectedJob.enabled !== null &&
                   selectedJob.enabled !== undefined
                 "
-                class="rounded-[1.2rem] border border-slate-200/80 bg-slate-50/75 px-4 py-3"
+                class="admin-job-detail-card"
               >
-                <p
-                  class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-                >
+                <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailStatus') }}
                 </p>
                 <p
@@ -637,11 +609,9 @@
               </div>
               <div
                 v-if="!selectedJob.has_children && selectedJob.color"
-                class="rounded-[1.2rem] border border-slate-200/80 bg-slate-50/75 px-4 py-3"
+                class="admin-job-detail-card"
               >
-                <p
-                  class="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-                >
+                <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailColor') }}
                 </p>
                 <p class="mt-2 font-mono text-sm text-slate-700">
@@ -668,12 +638,8 @@
               </BaseButton>
             </div>
 
-            <div
-              class="mt-6 rounded-[1.35rem] border border-slate-200/80 bg-gradient-to-br from-sky-50/90 via-white to-indigo-50/80 px-4 py-4"
-            >
-              <p
-                class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400"
-              >
+            <div class="admin-job-detail-note">
+              <p class="admin-job-detail-label">
                 {{ t('adminPages.jenkinsJobs.detailNoteTitle') }}
               </p>
               <p class="mt-2 text-sm leading-6 text-slate-600">
@@ -709,8 +675,10 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-4 right-4 rounded-md px-4 py-2 text-white shadow-lg',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'admin-toast',
+          toast.type === 'success'
+            ? 'admin-toast--success'
+            : 'admin-toast--error'
         ]"
       >
         {{ toast.message }}
@@ -725,14 +693,14 @@
     >
       <div class="admin-modal-stack">
         <section class="admin-modal-card">
-          <label class="admin-bulk-input-label">
+          <label class="admin-modal-field-label">
             {{ t('adminPages.jenkinsJobs.labelName') }}
           </label>
-          <div class="flex gap-3">
+          <div class="admin-modal-inline-field">
             <input
               v-model="labelDraft.name"
               type="text"
-              class="input flex-1"
+              class="admin-modal-control"
               :placeholder="t('adminPages.jenkinsJobs.labelNamePlaceholder')"
             />
             <BaseButton @click="saveResourceLabel">
@@ -777,15 +745,15 @@
                   }}
                 </p>
               </div>
-              <div class="flex flex-wrap gap-3 text-sm font-semibold">
+              <div class="admin-row-actions">
                 <button
-                  class="text-sky-700 hover:text-sky-900"
+                  class="admin-row-action admin-row-action--primary"
                   @click="startEditLabel(label)"
                 >
                   {{ t('common.edit') }}
                 </button>
                 <button
-                  class="text-rose-700 hover:text-rose-900"
+                  class="admin-row-action admin-row-action--danger"
                   @click="deleteResourceLabel(label)"
                 >
                   {{ t('common.delete') }}

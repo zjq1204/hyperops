@@ -10,7 +10,7 @@
         <BaseButton variant="secondary" :loading="loadingRuns" @click="loadRuns">{{ t('actions.runs.refresh') }}</BaseButton>
       </template>
 
-      <section class="surface-panel-strong p-6">
+      <section class="workspace-panel workspace-panel--padded">
         <div class="section-heading">
           <div>
             <h2 class="section-title">{{ t('actions.runs.allRecords') }}</h2>
@@ -22,8 +22,8 @@
           {{ t('actions.runs.loading') }}
         </div>
 
-        <div v-else-if="runs.length" class="action-runs-list">
-          <div class="action-runs-list__head">
+        <div v-else-if="runs.length" class="workspace-list workspace-list--runs">
+          <div class="workspace-list__head workspace-list__head--runs">
             <span>{{ t('actions.runs.table.template') }}</span>
             <span>{{ t('actions.runs.table.status') }}</span>
             <span>{{ t('actions.runs.table.currentStep') }}</span>
@@ -35,10 +35,10 @@
             v-for="run in runs"
             :key="run.id"
             type="button"
-            class="action-run-row"
+            class="workspace-list-row workspace-list-row--runs"
             @click="openRunDetail(run)"
           >
-            <span class="action-run-row__main">
+            <span class="workspace-list-row__main">
               <strong>{{ run.template_name }}</strong>
               <small>#{{ run.id }} · {{ run.triggered_by_name || '-' }}</small>
             </span>
@@ -47,13 +47,13 @@
                 {{ runStatusText(run.status) }}
               </span>
             </span>
-            <span class="action-run-row__muted">
+            <span class="workspace-list-row__muted">
               {{ run.current_step_name || '-' }}
             </span>
-            <span class="action-run-row__muted">
+            <span class="workspace-list-row__muted">
               {{ formatDate(run.created_at) }}
             </span>
-            <span class="action-run-row__actions">
+            <span class="workspace-list-row__actions">
               {{ t('actions.runs.table.viewDetail') }}
             </span>
           </button>
@@ -73,7 +73,7 @@
         @close="closeDetailModal"
       >
         <div v-if="selectedRun" class="space-y-5">
-          <section class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <section class="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 class="text-base font-semibold text-slate-900">
@@ -97,7 +97,7 @@
             <article
               v-for="stepRun in selectedRun.step_runs"
               :key="stepRun.id"
-              class="rounded-2xl border border-slate-200 bg-white p-4"
+              class="rounded-lg border border-slate-200 bg-white p-4"
             >
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -127,7 +127,7 @@
 
           <section
             v-if="selectedRun.status === 'waiting_approval'"
-            class="rounded-2xl border border-amber-200 bg-amber-50 p-4"
+            class="rounded-lg border border-amber-200 bg-amber-50 p-4"
           >
             <h3 class="text-sm font-semibold text-amber-900">{{ t('actions.runs.detail.waitingApproval') }}</h3>
             <textarea
@@ -169,7 +169,7 @@
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-5 right-5 z-[90] rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl',
+          'fixed bottom-5 right-5 z-[90] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
           toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
         ]"
       >
@@ -362,111 +362,3 @@ onMounted(async () => {
   await openRunFromQuery()
 })
 </script>
-
-<style scoped>
-.action-runs-list {
-  margin-top: 1rem;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 1.25rem;
-  background: #fff;
-}
-
-.action-runs-list__head,
-.action-run-row {
-  display: grid;
-  grid-template-columns: minmax(16rem, 1fr) minmax(7rem, auto) minmax(10rem, 0.8fr) minmax(12rem, auto) auto;
-  align-items: center;
-  gap: 1rem;
-}
-
-.action-runs-list__head {
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #64748b;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.action-run-row {
-  width: 100%;
-  padding: 1rem;
-  text-align: left;
-  transition: background 0.18s ease, box-shadow 0.18s ease;
-}
-
-.action-run-row + .action-run-row {
-  border-top: 1px solid #eef2f7;
-}
-
-.action-run-row:hover {
-  background: #fbfdff;
-  box-shadow: inset 3px 0 0 #0f766e;
-}
-
-.action-run-row__main {
-  min-width: 0;
-}
-
-.action-run-row__main strong,
-.action-run-row__main small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-run-row__main strong {
-  color: #0f172a;
-  font-size: 0.95rem;
-  font-weight: 800;
-}
-
-.action-run-row__main small,
-.action-run-row__muted {
-  color: #64748b;
-  font-size: 0.82rem;
-}
-
-.action-run-row__main small {
-  margin-top: 0.3rem;
-}
-
-.action-run-row__actions {
-  justify-self: end;
-  color: #0f766e;
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-@media (max-width: 900px) {
-  .action-runs-list__head {
-    display: none;
-  }
-
-  .action-runs-list {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-
-  .action-run-row {
-    grid-template-columns: 1fr;
-    border: 1px solid #e2e8f0;
-    border-radius: 1.1rem;
-    background: #fff;
-  }
-
-  .action-run-row + .action-run-row {
-    margin-top: 0.75rem;
-    border-top: 1px solid #e2e8f0;
-  }
-
-  .action-run-row__actions {
-    justify-self: start;
-  }
-}
-</style>

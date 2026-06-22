@@ -6,23 +6,23 @@
       :subtitle="t('dashboard.subtitle')"
       variant="soft"
     >
-      <div class="mx-auto grid max-w-5xl gap-5">
-        <section class="surface-panel-strong overflow-hidden">
-          <div class="border-b border-slate-200/70 px-6 py-5">
+      <div class="workspace-page-grid">
+        <section class="workspace-panel">
+          <div class="workspace-panel__header">
             <h2 class="section-title">{{ t('dashboard.sections.workspaceTitle') }}</h2>
             <p class="section-copy">{{ t('dashboard.sections.workspaceSubtitle') }}</p>
           </div>
-          <div class="divide-y divide-slate-200/70">
+          <div class="workspace-entry-list">
             <router-link
               v-for="entry in workspaceEntries"
               :key="entry.title"
               :to="entry.to"
-              class="group flex items-center justify-between gap-4 px-6 py-5 transition-colors duration-150 hover:bg-slate-50/80"
+              class="workspace-entry-row group"
             >
-              <div class="flex min-w-0 items-center gap-4">
+              <div class="workspace-entry-row__main">
                 <div
                   :class="entry.iconClass"
-                  class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-slate-700"
+                  class="workspace-entry-row__icon"
                 >
                   <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -33,20 +33,14 @@
                     />
                   </svg>
                 </div>
-                <div class="min-w-0">
-                  <h3 class="text-sm font-semibold text-slate-900">
-                    {{ entry.title }}
-                  </h3>
-                  <p class="mt-1 text-sm leading-6 text-slate-500">
-                    {{ entry.description }}
-                  </p>
+                <div class="workspace-entry-row__body">
+                  <h3>{{ entry.title }}</h3>
+                  <p>{{ entry.description }}</p>
                 </div>
               </div>
 
-              <div class="flex items-center gap-3 text-slate-400 transition-colors duration-150 group-hover:text-slate-600">
-                <span class="hidden text-sm font-medium text-slate-400 md:inline">
-                  {{ t('dashboard.open') }}
-                </span>
+              <div class="workspace-entry-row__action">
+                <span>{{ t('dashboard.open') }}</span>
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
@@ -57,23 +51,23 @@
 
         <section
           v-if="adminEntries.length"
-          class="surface-panel-strong overflow-hidden"
+          class="workspace-panel"
         >
-          <div class="border-b border-slate-200/70 px-6 py-5">
+          <div class="workspace-panel__header">
             <h2 class="section-title">{{ t('dashboard.sections.adminTitle') }}</h2>
             <p class="section-copy">{{ t('dashboard.sections.adminSubtitle') }}</p>
           </div>
-          <div class="divide-y divide-slate-200/70">
+          <div class="workspace-entry-list">
             <router-link
               v-for="entry in adminEntries"
               :key="entry.title"
               :to="entry.to"
-              class="group flex items-center justify-between gap-4 px-6 py-5 transition-colors duration-150 hover:bg-slate-50/80"
+              class="workspace-entry-row group"
             >
-              <div class="flex min-w-0 items-center gap-4">
+              <div class="workspace-entry-row__main">
                 <div
                   :class="entry.iconClass"
-                  class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-slate-700"
+                  class="workspace-entry-row__icon"
                 >
                   <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -84,20 +78,14 @@
                     />
                   </svg>
                 </div>
-                <div class="min-w-0">
-                  <h3 class="text-sm font-semibold text-slate-900">
-                    {{ entry.title }}
-                  </h3>
-                  <p class="mt-1 text-sm leading-6 text-slate-500">
-                    {{ entry.description }}
-                  </p>
+                <div class="workspace-entry-row__body">
+                  <h3>{{ entry.title }}</h3>
+                  <p>{{ entry.description }}</p>
                 </div>
               </div>
 
-              <div class="flex items-center gap-3 text-slate-400 transition-colors duration-150 group-hover:text-slate-600">
-                <span class="hidden text-sm font-medium text-slate-400 md:inline">
-                  {{ t('dashboard.open') }}
-                </span>
+              <div class="workspace-entry-row__action">
+                <span>{{ t('dashboard.open') }}</span>
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
