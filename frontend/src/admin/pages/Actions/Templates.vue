@@ -2477,6 +2477,20 @@
                   preserveAspectRatio="none"
                   aria-hidden="true"
                 >
+                  <defs>
+                    <marker
+                      id="action-flow-conditional-arrow"
+                      class="action-flow-conditional-arrow"
+                      viewBox="0 0 10 10"
+                      refX="9"
+                      refY="5"
+                      markerWidth="6"
+                      markerHeight="6"
+                      orient="auto"
+                    >
+                      <path d="M 0 0 L 10 5 L 0 10 z" />
+                    </marker>
+                  </defs>
                   <circle
                     class="action-flow-conditional-origin"
                     cx="10"
@@ -2489,6 +2503,7 @@
                     )"
                     :key="`curve-${branch.id || branch.client_id || branchIndex}`"
                     class="action-flow-conditional-curve"
+                    marker-end="url(#action-flow-conditional-arrow)"
                     :d="
                       previewConnectorCurve(
                         branchIndex,
@@ -4244,6 +4259,10 @@ onMounted(() => {
   stroke: rgba(79, 70, 229, 0.34);
   stroke-linecap: round;
   stroke-width: 2.5px;
+}
+
+.action-flow-conditional-arrow path {
+  fill: rgba(79, 70, 229, 0.5);
 }
 
 .action-flow-conditional-connector {
