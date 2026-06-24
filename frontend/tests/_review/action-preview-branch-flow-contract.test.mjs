@@ -35,8 +35,11 @@ assert(
 assert(
   source.includes('action-flow-conditional-connectors') &&
     source.includes('action-flow-conditional-label') &&
+    source.includes('action-flow-conditional-curves') &&
+    source.includes('action-flow-conditional-origin') &&
+    source.includes('previewConnectorCurve(') &&
     source.includes('previewNextStep(index)'),
-  'the connector into a conditional branch should render labelled condition lines'
+  'the connector into a conditional branch should render labelled curved lines from one origin point'
 )
 
 assert(

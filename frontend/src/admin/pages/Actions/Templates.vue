@@ -2474,6 +2474,32 @@
                 "
                 class="action-flow-conditional-connectors"
               >
+                <svg
+                  class="action-flow-conditional-curves"
+                  :viewBox="`0 0 180 ${previewConnectorHeight(previewNextStep(index))}`"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    class="action-flow-conditional-origin"
+                    cx="10"
+                    :cy="previewConnectorOriginY(previewNextStep(index))"
+                    r="4"
+                  />
+                  <path
+                    v-for="(branch, branchIndex) in previewBranchCases(
+                      previewNextStep(index)
+                    )"
+                    :key="`curve-${branch.id || branch.client_id || branchIndex}`"
+                    class="action-flow-conditional-curve"
+                    :d="
+                      previewConnectorCurve(
+                        branchIndex,
+                        previewBranchCases(previewNextStep(index)).length
+                      )
+                    "
+                  />
+                </svg>
                 <div
                   v-for="(branch, branchIndex) in previewBranchCases(
                     previewNextStep(index)
@@ -2484,10 +2510,6 @@
                   <span class="action-flow-conditional-label">{{
                     branchConditionText(branch)
                   }}</span>
-                  <span
-                    class="action-flow-conditional-line"
-                    aria-hidden="true"
-                  />
                 </div>
               </div>
               <div
@@ -3565,6 +3587,31 @@ function previewNextStep(index) {
   return previewSteps.value[index + 1]
 }
 
+const connectorRowHeight = 48
+const connectorRowGap = 14
+
+function previewConnectorHeight(step) {
+  const count = Math.max(previewBranchCases(step).length, 1)
+  return count * connectorRowHeight + (count - 1) * connectorRowGap
+}
+
+function previewConnectorOriginY(step) {
+  return previewConnectorHeight(step) / 2
+}
+
+function previewConnectorTargetY(index) {
+  return index * (connectorRowHeight + connectorRowGap) + connectorRowHeight / 2
+}
+
+function previewConnectorCurve(index, count) {
+  const originY =
+    (Math.max(count, 1) * connectorRowHeight +
+      (Math.max(count, 1) - 1) * connectorRowGap) /
+    2
+  const targetY = previewConnectorTargetY(index)
+  return `M 10 ${originY} C 48 ${originY}, 58 ${targetY}, 92 ${targetY}`
+}
+
 function cleanConditionalBranchConfig(config, stepIndex) {
   return {
     match_mode: 'first',
@@ -4171,17 +4218,43 @@ onMounted(() => {
 }
 
 .action-flow-conditional-connectors {
+  position: relative;
   display: grid;
-  width: 180px;
-  flex: 0 0 180px;
+  width: 210px;
+  flex: 0 0 210px;
   gap: 14px;
   align-self: center;
-  padding: 4px 0;
+  padding: 4px 0 4px 90px;
+}
+
+.action-flow-conditional-curves {
+  position: absolute;
+  inset: 4px 0 4px 0;
+  width: 100%;
+  height: calc(100% - 8px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.action-flow-conditional-origin {
+  fill: #4f46e5;
+  stroke: #ffffff;
+  stroke-width: 3px;
+}
+
+.action-flow-conditional-curve {
+  fill: none;
+  stroke: rgba(79, 70, 229, 0.34);
+  stroke-linecap: round;
+  stroke-width: 2.5px;
 }
 
 .action-flow-conditional-connector {
+  position: relative;
   display: grid;
   gap: 5px;
+  min-height: 48px;
+  align-content: center;
 }
 
 .action-flow-conditional-label {
@@ -4198,36 +4271,6 @@ onMounted(() => {
   overflow-wrap: anywhere;
   padding: 5px 8px;
   box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
-}
-
-.action-flow-conditional-line {
-  position: relative;
-  display: block;
-  height: 12px;
-}
-
-.action-flow-conditional-line::before {
-  position: absolute;
-  top: 50%;
-  right: 7px;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.32);
-  content: '';
-  transform: translateY(-50%);
-}
-
-.action-flow-conditional-line::after {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  width: 7px;
-  height: 7px;
-  border-top: 2px solid rgba(99, 102, 241, 0.42);
-  border-right: 2px solid rgba(99, 102, 241, 0.42);
-  content: '';
-  transform: translateY(-50%) rotate(45deg);
 }
 
 .action-flow-node--jenkins_trigger .action-flow-node-index {
