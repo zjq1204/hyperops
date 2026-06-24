@@ -850,3 +850,94 @@ def test_admin_template_update_archives_referenced_steps(admin_user):
     active_steps = list(template.steps.filter(is_archived=False).order_by("order"))
     assert [step.name for step in active_steps] == ["New Jenkins", "New approval"]
     assert run.step_runs.filter(step=first_step).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"branches": [], "default_behavior": "skip"},
+        {
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "missing_param",
+                        "operator": "equals",
+                        "value": "b",
+                    },
+                    "steps": [],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+        {
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "starts_with",
+                        "value": "b",
+                    },
+                    "steps": [],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+        {
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "equals",
+                        "value": "b",
+                    },
+                    "steps": [
+                        {
+                            "name": "Nested branch",
+                            "action_type": ActionStep.TYPE_CONDITIONAL_BRANCH,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"branches": []},
+                        }
+                    ],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+    ],
+)
+def test_admin_template_rejects_invalid_conditional_branch_config(admin_user, config):
+    client = APIClient()
+    client.force_authenticate(user=admin_user)
+
+    response = client.post(
+        "/api/v1/actions/templates/",
+        {
+            "name": "Invalid conditional",
+            "description": "",
+            "scope": ActionTemplate.SCOPE_ADMIN,
+            "is_active": True,
+            "parameter_schema": [
+                {"name": "package_type", "label": "Package type", "required": False}
+            ],
+            "visible_user_ids": [],
+            "visible_group_ids": [],
+            "steps": [
+                {
+                    "name": "Invalid branch",
+                    "order": 1,
+                    "action_type": ActionStep.TYPE_CONDITIONAL_BRANCH,
+                    "failure_policy": ActionStep.FAILURE_STOP,
+                    "config": config,
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
