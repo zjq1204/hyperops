@@ -1277,9 +1277,6 @@
                                     }
                                   )
                                 }}</strong>
-                                <small class="action-branch-case-meta">{{
-                                  branchConditionText(branch)
-                                }}</small>
                                 <small class="action-branch-case-steps">{{
                                   branchNestedStepNames(branch)
                                 }}</small>
@@ -4512,18 +4509,6 @@ onMounted(() => {
   font-weight: 900;
 }
 
-.action-branch-case-meta {
-  display: block;
-  max-width: 64ch;
-  overflow: hidden;
-  color: #475569;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .action-branch-case-steps {
   display: block;
   max-width: 64ch;
@@ -4745,7 +4730,6 @@ onMounted(() => {
   }
 
   .action-branch-rule-card-head strong,
-  .action-branch-case-meta,
   .action-branch-case-steps {
     width: 100%;
     text-align: left;

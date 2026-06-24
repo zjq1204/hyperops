@@ -9,8 +9,18 @@ const source = readFileSync(
 )
 
 assert(
-  source.includes('action-branch-case-meta'),
-  'branch cases should expose a compact condition summary in the header'
+  !source.includes('action-branch-case-meta'),
+  'branch case headers should not duplicate the condition summary'
+)
+
+assert(
+  source.includes('action-branch-case-steps'),
+  'branch case headers should keep a compact nested-step summary'
+)
+
+assert(
+  source.includes('action-branch-case-preview'),
+  'collapsed branch cases should show the condition only in the preview row'
 )
 
 assert(
