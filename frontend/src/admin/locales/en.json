@@ -1016,12 +1016,14 @@
           "jenkins": "Jenkins",
           "gitlab": "GitLab",
           "approval": "Manual approval",
+          "conditional": "Conditional branch",
           "jenkinsTrigger": "Trigger Jenkins",
           "gitlabBranchCreate": "Create GitLab branch",
           "gitlabBranchOperation": "GitLab branch operation",
           "gitlabTagOperation": "GitLab tag operation",
           "gitlabWebhookOperation": "GitLab webhook operation",
           "manualApproval": "Manual approval",
+          "conditionalBranch": "Conditional branch",
           "unknown": "Unrecognized action"
         },
         "step": "Step {count}"
@@ -1099,6 +1101,33 @@
         "users": "Approver users",
         "groups": "Approver groups"
       },
+      "branch": {
+        "title": "Branch cases",
+        "caseCount": "{count} branch case(s)",
+        "addCase": "Add case",
+        "caseTitle": "Case {count}",
+        "label": "Case label",
+        "labelPlaceholder": "e.g. Package B",
+        "param": "Global parameter",
+        "selectParam": "Select parameter",
+        "operator": "Operator",
+        "value": "Value",
+        "valuePlaceholder": "Expected value",
+        "steps": "Nested steps",
+        "addNestedStep": "Add nested step",
+        "nestedStepTitle": "Nested step {count}",
+        "configJson": "Step config JSON",
+        "defaultSkip": "No match -> skip",
+        "conditionMissing": "Condition not set",
+        "noNestedSteps": "No nested steps",
+        "operators": {
+          "equals": "equals",
+          "notEquals": "does not equal",
+          "contains": "contains",
+          "isEmpty": "is empty",
+          "isNotEmpty": "is not empty"
+        }
+      },
       "auth": {
         "title": "Authorization scope",
         "hint": "Admin templates are visible only to authorized users or groups; personal templates are visible to the creator by default.",
@@ -1124,6 +1153,8 @@
         "approverGroupLabel": "Groups",
         "approverUserLabel": "Users",
         "branchNameMissing": "Branch name not set",
+        "branches": "Branches",
+        "default": "Default",
         "projectsLabel": "Projects",
         "tagNameMissing": "Tag name not set",
         "unknown": "Unrecognized"
@@ -1145,6 +1176,7 @@
         "tagCreateSummary": "Create tag: {tag}, based on {ref}, {count} fixed project(s)",
         "webhookCreateSummary": "Create webhook: {url}, {count} fixed project(s)",
         "approvalSummary": "Approver users {users}, approver groups {groups}",
+        "branchCaseSummary": "{condition} -> {steps}",
         "unknown": "Unrecognized action",
         "basedOn": "based on {ref}"
       },
@@ -1161,7 +1193,8 @@
         "nameRequired": "Please enter a template name",
         "paramDuplicate": "Global parameter names must be unique",
         "paramJsonInvalid": "Step {index} parameters are not valid JSON",
-        "jenkinsJsonInvalid": "Jenkins parameters are not valid JSON"
+        "jenkinsJsonInvalid": "Jenkins parameters are not valid JSON",
+        "branchNestedJsonInvalid": "Step {index}, branch {branch}, nested step {nested} config is not valid JSON"
       }
     }
   },

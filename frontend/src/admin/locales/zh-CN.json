@@ -1068,12 +1068,14 @@
           "jenkins": "Jenkins",
           "gitlab": "GitLab",
           "approval": "人工确认",
+          "conditional": "条件分支",
           "jenkinsTrigger": "触发 Jenkins",
           "gitlabBranchCreate": "新增 GitLab 分支",
           "gitlabBranchOperation": "GitLab 分支操作",
           "gitlabTagOperation": "GitLab 标签操作",
           "gitlabWebhookOperation": "GitLab Webhook 操作",
           "manualApproval": "人工确认",
+          "conditionalBranch": "条件分支",
           "unknown": "未识别动作"
         },
         "step": "步骤 {count}"
@@ -1151,6 +1153,33 @@
         "users": "确认用户",
         "groups": "确认群组"
       },
+      "branch": {
+        "title": "分支条件",
+        "caseCount": "{count} 条分支",
+        "addCase": "添加分支",
+        "caseTitle": "分支 {count}",
+        "label": "分支名称",
+        "labelPlaceholder": "例如：Package B",
+        "param": "全局参数",
+        "selectParam": "请选择参数",
+        "operator": "判断方式",
+        "value": "目标值",
+        "valuePlaceholder": "期望值",
+        "steps": "分支内步骤",
+        "addNestedStep": "添加子步骤",
+        "nestedStepTitle": "子步骤 {count}",
+        "configJson": "步骤配置 JSON",
+        "defaultSkip": "未命中 -> 跳过",
+        "conditionMissing": "未设置条件",
+        "noNestedSteps": "暂无子步骤",
+        "operators": {
+          "equals": "等于",
+          "notEquals": "不等于",
+          "contains": "包含",
+          "isEmpty": "为空",
+          "isNotEmpty": "不为空"
+        }
+      },
       "auth": {
         "title": "授权范围",
         "hint": "管理员模板只对授权用户或群组可见；个人模板默认只有创建人可见。",
@@ -1176,6 +1205,8 @@
         "approverGroupLabel": "确认群组",
         "approverUserLabel": "确认用户",
         "branchNameMissing": "未设置分支名",
+        "branches": "分支",
+        "default": "默认",
         "projectsLabel": "项目",
         "tagNameMissing": "未设置标签名",
         "unknown": "未识别"
@@ -1197,6 +1228,7 @@
         "tagCreateSummary": "新增标签：{tag}，基于 {ref}，固定项目 {count} 个",
         "webhookCreateSummary": "新增 Webhook：{url}，固定项目 {count} 个",
         "approvalSummary": "确认用户 {users} 个，确认群组 {groups} 个",
+        "branchCaseSummary": "{condition} -> {steps}",
         "unknown": "未识别动作",
         "basedOn": "，基于 {ref}"
       },
@@ -1213,7 +1245,8 @@
         "nameRequired": "请填写模板名称",
         "paramDuplicate": "全局参数名不能重复",
         "paramJsonInvalid": "步骤 {index} 参数不是合法 JSON",
-        "jenkinsJsonInvalid": "Jenkins 参数不是合法 JSON"
+        "jenkinsJsonInvalid": "Jenkins 参数不是合法 JSON",
+        "branchNestedJsonInvalid": "步骤 {index}，分支 {branch}，子步骤 {nested} 的配置不是合法 JSON"
       }
     }
   },

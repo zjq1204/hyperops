@@ -1800,7 +1800,8 @@
         "gitlab_branch_operation": "Manage GitLab branch",
         "gitlab_tag_operation": "Manage GitLab tag",
         "gitlab_webhook_operation": "Manage GitLab webhook",
-        "manual_approval": "Manual approval"
+        "manual_approval": "Manual approval",
+        "conditional_branch": "Conditional branch"
       },
       "toast": {
         "loadFailed": "Failed to load runs: {message}",
@@ -1876,6 +1877,10 @@
         "webhookCreate": "Create webhook at {url}",
         "urlMissing": "URL not set",
         "approverSummary": "{userCount} user approver(s) and {groupCount} group approver(s)",
+        "conditionalBranch": "{count} branch case(s): {cases}",
+        "branchCase": "{condition} -> {steps}",
+        "branchDefaultSkip": "No match -> skip",
+        "conditionMissing": "condition not set",
         "unknown": "Unknown action",
         "policyContinue": "Continue on failure",
         "policyStop": "Stop on failure"

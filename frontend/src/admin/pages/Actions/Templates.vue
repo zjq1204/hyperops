@@ -642,6 +642,13 @@
                               )
                             }}
                           </option>
+                          <option value="conditional">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.steps.types.conditional'
+                              )
+                            }}
+                          </option>
                         </select>
                       </label>
                       <label
@@ -1216,7 +1223,250 @@
                       </section>
                     </div>
 
-                    <div v-else class="action-step-config">
+                    <div
+                      v-else-if="
+                        selectedStep.action_type === 'conditional_branch'
+                      "
+                      class="action-step-config action-branch-config"
+                    >
+                      <section class="action-branch-section">
+                        <div class="action-gitlab-section-head">
+                          <div>
+                            <strong>{{
+                              t('adminPages.actionTemplates.branch.title')
+                            }}</strong>
+                            <small>{{
+                              t(
+                                'adminPages.actionTemplates.branch.caseCount',
+                                {
+                                  count:
+                                    selectedStep.config.branches?.length || 0
+                                }
+                              )
+                            }}</small>
+                          </div>
+                          <BaseButton
+                            variant="secondary"
+                            size="sm"
+                            @click="addBranchCase(selectedStep)"
+                          >
+                            {{ t('adminPages.actionTemplates.branch.addCase') }}
+                          </BaseButton>
+                        </div>
+
+                        <div
+                          v-for="(branch, branchIndex) in selectedStep.config
+                            .branches"
+                          :key="branch.client_id || branch.id"
+                          class="action-branch-case"
+                        >
+                          <div class="action-branch-case-head">
+                            <strong>{{
+                              branch.label ||
+                              t('adminPages.actionTemplates.branch.caseTitle', {
+                                count: branchIndex + 1
+                              })
+                            }}</strong>
+                            <button
+                              type="button"
+                              class="action-link-button"
+                              :disabled="
+                                selectedStep.config.branches.length <= 1
+                              "
+                              @click="removeBranchCase(selectedStep, branchIndex)"
+                            >
+                              {{
+                                t('adminPages.actionTemplates.actions.remove')
+                              }}
+                            </button>
+                          </div>
+
+                          <div class="action-branch-condition-grid">
+                            <label class="action-field">
+                              <span>{{
+                                t('adminPages.actionTemplates.branch.label')
+                              }}</span>
+                              <input
+                                v-model="branch.label"
+                                :placeholder="
+                                  t(
+                                    'adminPages.actionTemplates.branch.labelPlaceholder'
+                                  )
+                                "
+                              />
+                            </label>
+                            <label class="action-field">
+                              <span>{{
+                                t('adminPages.actionTemplates.branch.param')
+                              }}</span>
+                              <select v-model="branch.condition.param">
+                                <option value="">
+                                  {{
+                                    t(
+                                      'adminPages.actionTemplates.branch.selectParam'
+                                    )
+                                  }}
+                                </option>
+                                <option
+                                  v-for="param in globalParamNames"
+                                  :key="param"
+                                  :value="param"
+                                >
+                                  {{ param }}
+                                </option>
+                              </select>
+                            </label>
+                            <label class="action-field">
+                              <span>{{
+                                t('adminPages.actionTemplates.branch.operator')
+                              }}</span>
+                              <select v-model="branch.condition.operator">
+                                <option
+                                  v-for="operator in branchOperatorOptions"
+                                  :key="operator.value"
+                                  :value="operator.value"
+                                >
+                                  {{ operator.label }}
+                                </option>
+                              </select>
+                            </label>
+                            <label
+                              v-if="branchOperatorNeedsValue(branch.condition.operator)"
+                              class="action-field"
+                            >
+                              <span>{{
+                                t('adminPages.actionTemplates.branch.value')
+                              }}</span>
+                              <input
+                                v-model="branch.condition.value"
+                                :placeholder="
+                                  t(
+                                    'adminPages.actionTemplates.branch.valuePlaceholder'
+                                  )
+                                "
+                              />
+                            </label>
+                          </div>
+
+                          <div class="action-branch-nested-head">
+                            <span>{{
+                              t('adminPages.actionTemplates.branch.steps')
+                            }}</span>
+                            <button
+                              type="button"
+                              class="action-link-button"
+                              @click="addBranchNestedStep(branch)"
+                            >
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.branch.addNestedStep'
+                                )
+                              }}
+                            </button>
+                          </div>
+
+                          <div class="action-branch-nested-list">
+                            <article
+                              v-for="(nestedStep, nestedIndex) in branch.steps"
+                              :key="nestedStep.client_id"
+                              class="action-branch-nested-step"
+                            >
+                              <div class="action-branch-nested-top">
+                                <span>{{ nestedIndex + 1 }}</span>
+                                <input
+                                  v-model="nestedStep.name"
+                                  :placeholder="
+                                    t(
+                                      'adminPages.actionTemplates.steps.editor.namePlaceholder'
+                                    )
+                                  "
+                                />
+                                <button
+                                  type="button"
+                                  class="action-link-button"
+                                  :disabled="branch.steps.length <= 1"
+                                  @click="
+                                    removeBranchNestedStep(
+                                      branch,
+                                      nestedIndex
+                                    )
+                                  "
+                                >
+                                  {{
+                                    t(
+                                      'adminPages.actionTemplates.actions.remove'
+                                    )
+                                  }}
+                                </button>
+                              </div>
+                              <div class="action-branch-nested-grid">
+                                <label class="action-field">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.steps.editor.specificAction'
+                                    )
+                                  }}</span>
+                                  <select
+                                    v-model="nestedStep.action_type"
+                                    @change="
+                                      resetNestedStepConfig(nestedStep)
+                                    "
+                                  >
+                                    <option
+                                      v-for="option in nestedActionTypeOptions"
+                                      :key="option.value"
+                                      :value="option.value"
+                                    >
+                                      {{ option.label }}
+                                    </option>
+                                  </select>
+                                </label>
+                                <label class="action-field">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.steps.policyName'
+                                    )
+                                  }}</span>
+                                  <select v-model="nestedStep.failure_policy">
+                                    <option value="stop">
+                                      {{
+                                        t(
+                                          'adminPages.actionTemplates.steps.policyStop'
+                                        )
+                                      }}
+                                    </option>
+                                    <option value="continue">
+                                      {{
+                                        t(
+                                          'adminPages.actionTemplates.steps.policyContinue'
+                                        )
+                                      }}
+                                    </option>
+                                  </select>
+                                </label>
+                              </div>
+                              <label class="action-field action-field-wide">
+                                <span>{{
+                                  t(
+                                    'adminPages.actionTemplates.branch.configJson'
+                                  )
+                                }}</span>
+                                <textarea
+                                  v-model="nestedStep.configText"
+                                  rows="5"
+                                  spellcheck="false"
+                                ></textarea>
+                              </label>
+                            </article>
+                          </div>
+                        </div>
+                      </section>
+                    </div>
+
+                    <div
+                      v-else-if="selectedStep.action_type === 'manual_approval'"
+                      class="action-step-config"
+                    >
                       <label class="action-field action-field-wide">
                         <span>{{
                           t('adminPages.actionTemplates.approval.message')
@@ -1303,6 +1553,12 @@
                           </label>
                         </div>
                       </div>
+                    </div>
+
+                    <div v-else class="action-empty-box">
+                      <strong>{{
+                        t('adminPages.actionTemplates.summary.unknown')
+                      }}</strong>
                     </div>
                   </article>
 
@@ -1704,6 +1960,52 @@ const gitlabStepOptions = [
   }
 ]
 
+const branchOperatorOptions = computed(() => [
+  {
+    value: 'equals',
+    label: t('adminPages.actionTemplates.branch.operators.equals')
+  },
+  {
+    value: 'not_equals',
+    label: t('adminPages.actionTemplates.branch.operators.notEquals')
+  },
+  {
+    value: 'contains',
+    label: t('adminPages.actionTemplates.branch.operators.contains')
+  },
+  {
+    value: 'is_empty',
+    label: t('adminPages.actionTemplates.branch.operators.isEmpty')
+  },
+  {
+    value: 'is_not_empty',
+    label: t('adminPages.actionTemplates.branch.operators.isNotEmpty')
+  }
+])
+
+const nestedActionTypeOptions = computed(() => [
+  {
+    value: 'jenkins_trigger',
+    label: t('adminPages.actionTemplates.steps.types.jenkinsTrigger')
+  },
+  {
+    value: 'gitlab_branch_operation',
+    label: t('adminPages.actionTemplates.steps.types.gitlabBranchOperation')
+  },
+  {
+    value: 'gitlab_tag_operation',
+    label: t('adminPages.actionTemplates.steps.types.gitlabTagOperation')
+  },
+  {
+    value: 'gitlab_webhook_operation',
+    label: t('adminPages.actionTemplates.steps.types.gitlabWebhookOperation')
+  },
+  {
+    value: 'manual_approval',
+    label: t('adminPages.actionTemplates.steps.types.manualApproval')
+  }
+])
+
 function buildEmptyForm() {
   return {
     name: '',
@@ -1901,6 +2203,13 @@ function defaultConfig(actionType) {
   if (actionType === 'jenkins_trigger') {
     return { entry_id: '', params: {}, wait_for_completion: false }
   }
+  if (actionType === 'conditional_branch') {
+    return {
+      match_mode: 'first',
+      default_behavior: 'skip',
+      branches: [buildDefaultBranchCase(1)]
+    }
+  }
   if (
     actionType === 'gitlab_branch_create' ||
     actionType === 'gitlab_branch_operation'
@@ -1938,6 +2247,76 @@ function defaultConfig(actionType) {
   return { message: '', approver_user_ids: [], approver_group_ids: [] }
 }
 
+function buildDefaultBranchCase(index = 1) {
+  const branchId = `branch-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`
+  return {
+    id: branchId,
+    client_id: branchId,
+    label: t('adminPages.actionTemplates.branch.caseTitle', {
+      count: index
+    }),
+    condition: {
+      param: globalParamNames.value[0] || '',
+      operator: 'equals',
+      value: ''
+    },
+    steps: [buildDefaultNestedStep(1)]
+  }
+}
+
+function buildDefaultNestedStep(index = 1) {
+  const actionType = 'jenkins_trigger'
+  const config = defaultConfig(actionType)
+  return {
+    client_id: `${Date.now()}-${Math.random()}`,
+    name: t('adminPages.actionTemplates.branch.nestedStepTitle', {
+      count: index
+    }),
+    action_type: actionType,
+    failure_policy: 'stop',
+    config,
+    configText: JSON.stringify(config, null, 2)
+  }
+}
+
+function normalizeBranchCase(branch = {}, index = 1) {
+  const fallback = buildDefaultBranchCase(index)
+  return {
+    ...fallback,
+    ...branch,
+    client_id: branch.id || branch.client_id || fallback.client_id,
+    id: branch.id || fallback.id,
+    label: branch.label || fallback.label,
+    condition: {
+      ...fallback.condition,
+      ...(branch.condition || {})
+    },
+    steps: normalizeBranchNestedSteps(branch.steps || fallback.steps)
+  }
+}
+
+function normalizeBranchNestedSteps(steps = []) {
+  const source = Array.isArray(steps) && steps.length ? steps : [buildDefaultNestedStep(1)]
+  return source.map((step, index) => normalizeBranchNestedStep(step, index + 1))
+}
+
+function normalizeBranchNestedStep(step = {}, index = 1) {
+  const actionType = step.action_type || 'jenkins_trigger'
+  const config = { ...defaultConfig(actionType), ...(step.config || {}) }
+  return {
+    client_id: step.client_id || `${Date.now()}-${Math.random()}`,
+    name:
+      step.name ||
+      t('adminPages.actionTemplates.branch.nestedStepTitle', { count: index }),
+    action_type: actionType,
+    failure_policy: step.failure_policy || 'stop',
+    config,
+    configText: step.configText || JSON.stringify(config, null, 2)
+  }
+}
+
 function normalizeStep(step = {}) {
   const actionType =
     step.action_type === 'gitlab_branch_create'
@@ -1946,6 +2325,14 @@ function normalizeStep(step = {}) {
   const config = { ...defaultConfig(actionType), ...(step.config || {}) }
   if (step.action_type === 'gitlab_branch_create') {
     config.operation = 'create'
+  }
+  if (actionType === 'conditional_branch') {
+    config.branches = (config.branches || []).map((branch, index) =>
+      normalizeBranchCase(branch, index + 1)
+    )
+    if (!config.branches.length) {
+      config.branches = [buildDefaultBranchCase(1)]
+    }
   }
   const normalized = {
     client_id: step.id || `${Date.now()}-${Math.random()}`,
@@ -2029,6 +2416,7 @@ function changeStepType(step, actionType) {
 }
 
 function actionCategory(step) {
+  if (step?.action_type === 'conditional_branch') return 'conditional'
   if (isGitLabStep(step)) return 'gitlab'
   if (step?.action_type === 'manual_approval') return 'approval'
   return 'jenkins'
@@ -2044,6 +2432,10 @@ function setActionCategory(step, category) {
   }
   if (category === 'approval') {
     changeStepType(step, 'manual_approval')
+    return
+  }
+  if (category === 'conditional') {
+    changeStepType(step, 'conditional_branch')
     return
   }
   changeStepType(step, 'jenkins_trigger')
@@ -2242,7 +2634,7 @@ async function loadJenkinsStepParams(step) {
     const savedParams = parseJson(
       step.paramsText,
       {},
-      t('adminPages.actionTemplates.jenkins.paramsTitle')
+      t('adminPages.actionTemplates.error.jenkinsJsonInvalid')
     )
     step.paramRows = buildJenkinsParamRows(data.params || [], savedParams)
     syncJenkinsParamsFromRows(step)
@@ -2302,6 +2694,99 @@ function toggleJenkinsAdvanced(step) {
   step.showAdvancedParams = !step.showAdvancedParams
 }
 
+function branchOperatorNeedsValue(operator) {
+  return !['is_empty', 'is_not_empty'].includes(operator)
+}
+
+function addBranchCase(step) {
+  if (!step?.config?.branches) return
+  step.config.branches.push(buildDefaultBranchCase(step.config.branches.length + 1))
+}
+
+function removeBranchCase(step, index) {
+  if (!step?.config?.branches || step.config.branches.length <= 1) return
+  step.config.branches.splice(index, 1)
+}
+
+function addBranchNestedStep(branch) {
+  if (!branch?.steps) return
+  branch.steps.push(buildDefaultNestedStep(branch.steps.length + 1))
+}
+
+function removeBranchNestedStep(branch, index) {
+  if (!branch?.steps || branch.steps.length <= 1) return
+  branch.steps.splice(index, 1)
+}
+
+function resetNestedStepConfig(nestedStep) {
+  const config = defaultConfig(nestedStep.action_type)
+  nestedStep.config = config
+  nestedStep.configText = JSON.stringify(config, null, 2)
+}
+
+function branchConditionText(branch) {
+  const condition = branch?.condition || {}
+  const operator = branchOperatorOptions.value.find(
+    (item) => item.value === condition.operator
+  )
+  if (!condition.param) {
+    return t('adminPages.actionTemplates.branch.conditionMissing')
+  }
+  if (!branchOperatorNeedsValue(condition.operator)) {
+    return `${condition.param} ${operator?.label || condition.operator}`
+  }
+  return `${condition.param} ${operator?.label || condition.operator} ${condition.value || ''}`
+}
+
+function branchNestedStepNames(branch) {
+  const names = (branch?.steps || [])
+    .map((step) => step.name || actionTypeText(step.action_type))
+    .filter(Boolean)
+  return names.length
+    ? names.join(', ')
+    : t('adminPages.actionTemplates.branch.noNestedSteps')
+}
+
+function cleanConditionalBranchConfig(config, stepIndex) {
+  return {
+    match_mode: 'first',
+    default_behavior: 'skip',
+    branches: (config.branches || []).map((branch, branchIndex) => ({
+      id: branch.id || `branch-${branchIndex + 1}`,
+      label:
+        branch.label ||
+        t('adminPages.actionTemplates.branch.caseTitle', {
+          count: branchIndex + 1
+        }),
+      condition: {
+        param: branch.condition?.param || '',
+        operator: branch.condition?.operator || 'equals',
+        value: branchOperatorNeedsValue(branch.condition?.operator)
+          ? branch.condition?.value || ''
+          : ''
+      },
+      steps: (branch.steps || []).map((nestedStep, nestedIndex) => ({
+        name:
+          nestedStep.name ||
+          t('adminPages.actionTemplates.branch.nestedStepTitle', {
+            count: nestedIndex + 1
+          }),
+        action_type: nestedStep.action_type || 'jenkins_trigger',
+        failure_policy: nestedStep.failure_policy || 'stop',
+        config: parseJson(
+          nestedStep.configText,
+          nestedStep.config || {},
+          t('adminPages.actionTemplates.error.branchNestedJsonInvalid', {
+            index: stepIndex,
+            branch: branchIndex + 1,
+            nested: nestedIndex + 1
+          })
+        )
+      }))
+    }))
+  }
+}
+
 function isSelected(list, id) {
   return (list || []).map((item) => Number(item)).includes(Number(id))
 }
@@ -2334,9 +2819,7 @@ function parseJson(text, fallback, label) {
   try {
     return JSON.parse(text || JSON.stringify(fallback))
   } catch {
-    throw new Error(
-      t('adminPages.actionTemplates.error.jenkinsJsonInvalid', { label })
-    )
+    throw new Error(label)
   }
 }
 
@@ -2366,6 +2849,9 @@ function buildPayload() {
         config.project_ids = (config.project_ids || []).map((item) =>
           Number(item)
         )
+      }
+      if (step.action_type === 'conditional_branch') {
+        Object.assign(config, cleanConditionalBranchConfig(config, index + 1))
       }
       return {
         name:
@@ -2451,7 +2937,10 @@ function actionTypeText(type) {
     gitlab_webhook_operation: t(
       'adminPages.actionTemplates.steps.types.gitlabWebhookOperation'
     ),
-    manual_approval: t('adminPages.actionTemplates.steps.types.manualApproval')
+    manual_approval: t('adminPages.actionTemplates.steps.types.manualApproval'),
+    conditional_branch: t(
+      'adminPages.actionTemplates.steps.types.conditionalBranch'
+    )
   }
   return map[type] || t('adminPages.actionTemplates.steps.types.unknown')
 }
@@ -2466,6 +2955,20 @@ function gitlabOperationText(step) {
 
 function stepSummaryItems(step) {
   const config = step.config || {}
+  if (step.action_type === 'conditional_branch') {
+    return [
+      {
+        label: t('adminPages.actionTemplates.summary.branches'),
+        value: t('adminPages.actionTemplates.branch.caseCount', {
+          count: (config.branches || []).length
+        })
+      },
+      {
+        label: t('adminPages.actionTemplates.summary.default'),
+        value: t('adminPages.actionTemplates.branch.defaultSkip')
+      }
+    ]
+  }
   if (step.action_type === 'jenkins_trigger') {
     const entry = jenkinsEntries.value.find(
       (item) => Number(item.id) === Number(config.entry_id)
@@ -2590,6 +3093,17 @@ function stepSummaryItems(step) {
 
 function previewStepSummary(step) {
   const config = step.config || {}
+  if (step.action_type === 'conditional_branch') {
+    const cases = (config.branches || [])
+      .map((branch) =>
+        t('adminPages.actionTemplates.preview.branchCaseSummary', {
+          condition: branchConditionText(branch),
+          steps: branchNestedStepNames(branch)
+        })
+      )
+      .join(' / ')
+    return cases || t('adminPages.actionTemplates.branch.defaultSkip')
+  }
   if (step.action_type === 'jenkins_trigger') {
     const entry = jenkinsEntries.value.find(
       (item) => Number(item.id) === Number(config.entry_id)
@@ -2839,6 +3353,10 @@ onMounted(() => {
 
 .action-flow-node--manual_approval .action-flow-node-index {
   background: #0f766e;
+}
+
+.action-flow-node--conditional_branch .action-flow-node-index {
+  background: #6d5d2e;
 }
 
 .action-editor {
@@ -3178,6 +3696,94 @@ onMounted(() => {
   min-height: 320px;
   font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   line-height: 1.7;
+}
+
+.action-branch-config {
+  grid-template-columns: 1fr;
+}
+
+.action-branch-section {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+}
+
+.action-branch-case {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dbe3ef;
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.action-branch-case-head,
+.action-branch-nested-head,
+.action-branch-nested-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.action-branch-case-head strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.action-branch-condition-grid,
+.action-branch-nested-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.action-branch-nested-head {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.action-branch-nested-list {
+  display: grid;
+  gap: 12px;
+}
+
+.action-branch-nested-step {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.action-branch-nested-top span {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #1f2d3f;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.action-branch-nested-top input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 14px;
+  padding: 10px 12px;
 }
 
 .action-step-list {
