@@ -2910,7 +2910,7 @@ function buildDefaultBranchCase(index = 1) {
       value: ''
     },
     steps: [buildDefaultNestedStep(1)],
-    uiOpen: true
+    uiOpen: false
   }
 }
 
@@ -2929,7 +2929,7 @@ function buildDefaultNestedStep(index = 1) {
     paramRows: buildJenkinsParamRows([], config.params || {}),
     paramsLoading: false,
     showAdvancedParams: false,
-    uiOpen: true
+    uiOpen: false
   }
 }
 
@@ -2946,7 +2946,7 @@ function normalizeBranchCase(branch = {}, index = 1) {
       ...(branch.condition || {})
     },
     steps: normalizeBranchNestedSteps(branch.steps || fallback.steps),
-    uiOpen: branch.uiOpen ?? index === 1
+    uiOpen: branch.uiOpen ?? false
   }
 }
 
@@ -2971,7 +2971,7 @@ function normalizeBranchNestedStep(step = {}, index = 1) {
     paramRows: [],
     paramsLoading: false,
     showAdvancedParams: false,
-    uiOpen: step.uiOpen ?? index === 1
+    uiOpen: step.uiOpen ?? false
   }
   normalized.paramRows = buildJenkinsParamRows([], config.params || {})
   return normalized
@@ -3382,13 +3382,7 @@ function addBranchCase(step) {
 
 function removeBranchCase(step, index) {
   if (!step?.config?.branches || step.config.branches.length <= 1) return
-  const wasOpen = isBranchCaseOpen(step.config.branches[index])
   step.config.branches.splice(index, 1)
-  if (wasOpen && step.config.branches.length) {
-    step.config.branches[
-      Math.min(index, step.config.branches.length - 1)
-    ].uiOpen = true
-  }
 }
 
 function addBranchNestedStep(branch) {
@@ -3403,15 +3397,11 @@ function addBranchNestedStep(branch) {
 
 function removeBranchNestedStep(branch, index) {
   if (!branch?.steps || branch.steps.length <= 1) return
-  const wasOpen = isBranchNestedStepOpen(branch.steps[index])
   branch.steps.splice(index, 1)
-  if (wasOpen && branch.steps.length) {
-    branch.steps[Math.min(index, branch.steps.length - 1)].uiOpen = true
-  }
 }
 
 function isBranchCaseOpen(branch) {
-  return branch?.uiOpen !== false
+  return Boolean(branch?.uiOpen)
 }
 
 function openBranchCase(step, branch) {
@@ -3429,7 +3419,7 @@ function toggleBranchCase(step, branch) {
 }
 
 function isBranchNestedStepOpen(nestedStep) {
-  return nestedStep?.uiOpen !== false
+  return Boolean(nestedStep?.uiOpen)
 }
 
 function toggleBranchNestedStep(branch, nestedStep) {

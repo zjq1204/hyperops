@@ -24,6 +24,16 @@ assert(
 )
 
 assert(
+  source.includes('uiOpen: false'),
+  'branch cases and nested steps should be collapsed when the editor opens'
+)
+
+assert(
+  !source.includes('uiOpen: true'),
+  'initial branch editor state should not force the first branch open'
+)
+
+assert(
   source.includes('isBranchCaseOpen(branch)'),
   'branch cases should be rendered through an explicit open-state helper'
 )
