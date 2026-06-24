@@ -366,7 +366,8 @@ function actionTypeText(type) {
     gitlab_branch_operation: t('actions.runs.actionTypes.gitlab_branch_operation'),
     gitlab_tag_operation: t('actions.runs.actionTypes.gitlab_tag_operation'),
     gitlab_webhook_operation: t('actions.runs.actionTypes.gitlab_webhook_operation'),
-    manual_approval: t('actions.runs.actionTypes.manual_approval')
+    manual_approval: t('actions.runs.actionTypes.manual_approval'),
+    conditional_branch: t('actions.runs.actionTypes.conditional_branch')
   }
   return map[type] || type
 }
@@ -387,6 +388,20 @@ function gitlabOperationText(step) {
 
 function previewStepSummary(step) {
   const config = step.config || {}
+  if (step.action_type === 'conditional_branch') {
+    const cases = (config.branches || [])
+      .map((branch) =>
+        t('actions.workspace.stepSummary.branchCase', {
+          condition: branchConditionText(branch),
+          steps: branchNestedStepNames(branch)
+        })
+      )
+      .join(' / ')
+    return t('actions.workspace.stepSummary.conditionalBranch', {
+      count: (config.branches || []).length,
+      cases: cases || t('actions.workspace.stepSummary.branchDefaultSkip')
+    })
+  }
   if (step.action_type === 'jenkins_trigger') {
     return config.wait_for_completion ? t('actions.workspace.stepSummary.jenkinsWait') : t('actions.workspace.stepSummary.jenkinsNoWait')
   }
@@ -413,6 +428,26 @@ function previewStepSummary(step) {
     return t('actions.workspace.stepSummary.approverSummary', { userCount, groupCount })
   }
   return t('actions.workspace.stepSummary.unknown')
+}
+
+function branchConditionText(branch) {
+  const condition = branch?.condition || {}
+  if (!condition.param) return t('actions.workspace.stepSummary.conditionMissing')
+  if (condition.operator === 'is_empty') return `${condition.param} is empty`
+  if (condition.operator === 'is_not_empty') return `${condition.param} is not empty`
+  const operatorText = {
+    equals: '=',
+    not_equals: '!=',
+    contains: 'contains'
+  }[condition.operator || 'equals'] || condition.operator
+  return `${condition.param} ${operatorText} ${condition.value || ''}`
+}
+
+function branchNestedStepNames(branch) {
+  const names = (branch?.steps || [])
+    .map((nestedStep) => nestedStep.name || actionTypeText(nestedStep.action_type))
+    .filter(Boolean)
+  return names.length ? names.join(', ') : t('actions.workspace.stepSummary.unknown')
 }
 
 onMounted(() => {

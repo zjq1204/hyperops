@@ -1812,7 +1812,8 @@
         "gitlab_branch_operation": "GitLab 分支操作",
         "gitlab_tag_operation": "GitLab 标签操作",
         "gitlab_webhook_operation": "GitLab Webhook 操作",
-        "manual_approval": "人工确认"
+        "manual_approval": "人工确认",
+        "conditional_branch": "条件分支"
       },
       "toast": {
         "loadFailed": "加载执行记录失败: {message}",
@@ -1888,6 +1889,10 @@
         "webhookCreate": "新增 Webhook：{url}",
         "urlMissing": "未设置 URL",
         "approverSummary": "确认用户 {userCount} 个，确认群组 {groupCount} 个",
+        "conditionalBranch": "{count} 条分支：{cases}",
+        "branchCase": "{condition} -> {steps}",
+        "branchDefaultSkip": "未命中 -> 跳过",
+        "conditionMissing": "未设置条件",
         "unknown": "未识别动作",
         "policyContinue": "失败继续",
         "policyStop": "失败停止"

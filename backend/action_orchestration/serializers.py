@@ -11,6 +11,16 @@ from action_orchestration.models import (
 
 User = get_user_model()
 
+CONDITIONAL_OPERATORS = {"equals", "not_equals", "contains", "is_empty", "is_not_empty"}
+NESTED_ACTION_TYPES = {
+    ActionStep.TYPE_JENKINS_TRIGGER,
+    ActionStep.TYPE_GITLAB_BRANCH_CREATE,
+    ActionStep.TYPE_GITLAB_BRANCH_OPERATION,
+    ActionStep.TYPE_GITLAB_TAG_OPERATION,
+    ActionStep.TYPE_GITLAB_WEBHOOK_OPERATION,
+    ActionStep.TYPE_MANUAL_APPROVAL,
+}
+
 
 class ActionStepSerializer(serializers.ModelSerializer):
     class Meta:
@@ -80,6 +90,31 @@ class ActionTemplateSerializer(serializers.ModelSerializer):
             {"id": group.id, "name": group.name}
             for group in obj.visible_groups.all()
         ]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        steps = attrs.get("steps")
+        if steps is None:
+            return attrs
+
+        parameter_schema = attrs.get("parameter_schema")
+        if parameter_schema is None and self.instance is not None:
+            parameter_schema = self.instance.parameter_schema
+        parameter_names = {
+            item.get("name")
+            for item in (parameter_schema or [])
+            if isinstance(item, dict) and item.get("name")
+        }
+
+        for index, step in enumerate(steps, start=1):
+            if step.get("action_type") != ActionStep.TYPE_CONDITIONAL_BRANCH:
+                continue
+            self._validate_conditional_branch_config(
+                step.get("config") or {},
+                parameter_names,
+                index,
+            )
+        return attrs
 
     def create(self, validated_data):
         steps = validated_data.pop("steps", [])
@@ -165,6 +200,70 @@ class ActionTemplateSerializer(serializers.ModelSerializer):
                 failure_policy=step.get("failure_policy") or ActionStep.FAILURE_STOP,
                 is_archived=False,
             )
+
+    def _validate_conditional_branch_config(self, config, parameter_names, step_index):
+        branches = config.get("branches")
+        if not isinstance(branches, list) or not branches:
+            raise serializers.ValidationError({
+                "steps": f"Step {step_index} conditional branch requires branches."
+            })
+
+        seen_branch_ids = set()
+        for branch_index, branch in enumerate(branches, start=1):
+            if not isinstance(branch, dict):
+                raise serializers.ValidationError({
+                    "steps": f"Step {step_index} branch {branch_index} must be an object."
+                })
+            branch_id = str(branch.get("id") or "").strip()
+            if not branch_id:
+                raise serializers.ValidationError({
+                    "steps": f"Step {step_index} branch {branch_index} requires an id."
+                })
+            if branch_id in seen_branch_ids:
+                raise serializers.ValidationError({
+                    "steps": f"Step {step_index} branch id {branch_id} is duplicated."
+                })
+            seen_branch_ids.add(branch_id)
+
+            condition = branch.get("condition") or {}
+            param = condition.get("param")
+            operator = condition.get("operator") or "equals"
+            if param not in parameter_names:
+                raise serializers.ValidationError({
+                    "steps": (
+                        f"Step {step_index} branch {branch_id} references unknown "
+                        f"parameter {param}."
+                    )
+                })
+            if operator not in CONDITIONAL_OPERATORS:
+                raise serializers.ValidationError({
+                    "steps": (
+                        f"Step {step_index} branch {branch_id} uses unsupported "
+                        f"operator {operator}."
+                    )
+                })
+
+            nested_steps = branch.get("steps")
+            if not isinstance(nested_steps, list) or not nested_steps:
+                raise serializers.ValidationError({
+                    "steps": f"Step {step_index} branch {branch_id} requires nested steps."
+                })
+            for nested_index, nested_step in enumerate(nested_steps, start=1):
+                action_type = nested_step.get("action_type")
+                if action_type == ActionStep.TYPE_CONDITIONAL_BRANCH:
+                    raise serializers.ValidationError({
+                        "steps": (
+                            f"Step {step_index} branch {branch_id} nested step "
+                            f"{nested_index} cannot be a conditional branch."
+                        )
+                    })
+                if action_type not in NESTED_ACTION_TYPES:
+                    raise serializers.ValidationError({
+                        "steps": (
+                            f"Step {step_index} branch {branch_id} nested step "
+                            f"{nested_index} has unsupported action type {action_type}."
+                        )
+                    })
 
 
 class ActionStepRunSerializer(serializers.ModelSerializer):

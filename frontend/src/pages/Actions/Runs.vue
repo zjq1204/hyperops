@@ -299,7 +299,8 @@ function actionTypeText(type) {
     gitlab_branch_operation: t('actions.runs.actionTypes.gitlab_branch_operation'),
     gitlab_tag_operation: t('actions.runs.actionTypes.gitlab_tag_operation'),
     gitlab_webhook_operation: t('actions.runs.actionTypes.gitlab_webhook_operation'),
-    manual_approval: t('actions.runs.actionTypes.manual_approval')
+    manual_approval: t('actions.runs.actionTypes.manual_approval'),
+    conditional_branch: t('actions.runs.actionTypes.conditional_branch')
   }
   return map[type] || type
 }

@@ -532,6 +532,169 @@ def test_jenkins_wait_step_uses_shared_record_refresh(actions_user):
 
 
 @pytest.mark.django_db
+def test_conditional_branch_runs_first_matching_nested_path(actions_user, admin_user):
+    template = ActionTemplate.objects.create(
+        name="Conditional Flow",
+        scope=ActionTemplate.SCOPE_PERSONAL,
+        owner=actions_user,
+        is_active=True,
+        parameter_schema=[{"name": "package_type", "label": "Package type"}],
+    )
+    first = ActionStep.objects.create(
+        template=template,
+        name="A",
+        order=1,
+        action_type=ActionStep.TYPE_MANUAL_APPROVAL,
+        config={"approver_user_ids": [admin_user.id]},
+    )
+    branch = ActionStep.objects.create(
+        template=template,
+        name="Package branch",
+        order=2,
+        action_type=ActionStep.TYPE_CONDITIONAL_BRANCH,
+        config={
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "equals",
+                        "value": "b",
+                    },
+                    "steps": [
+                        {
+                            "name": "B",
+                            "action_type": ActionStep.TYPE_MANUAL_APPROVAL,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"approver_user_ids": [admin_user.id]},
+                        },
+                        {
+                            "name": "D",
+                            "action_type": ActionStep.TYPE_MANUAL_APPROVAL,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"approver_user_ids": [admin_user.id]},
+                        },
+                    ],
+                },
+                {
+                    "id": "branch-c",
+                    "label": "Package C",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "equals",
+                        "value": "c",
+                    },
+                    "steps": [
+                        {
+                            "name": "C",
+                            "action_type": ActionStep.TYPE_MANUAL_APPROVAL,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"approver_user_ids": [admin_user.id]},
+                        },
+                        {
+                            "name": "E",
+                            "action_type": ActionStep.TYPE_MANUAL_APPROVAL,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"approver_user_ids": [admin_user.id]},
+                        },
+                    ],
+                },
+            ],
+            "default_behavior": "skip",
+        },
+    )
+    final = ActionStep.objects.create(
+        template=template,
+        name="F",
+        order=3,
+        action_type=ActionStep.TYPE_MANUAL_APPROVAL,
+        config={"approver_user_ids": [admin_user.id]},
+    )
+    run = create_action_run(template, actions_user, {"package_type": "b"})
+
+    execute_action_run(run.id)
+    run.refresh_from_db()
+    assert run.current_step == first
+
+    approve_action_run(run, admin_user)
+    execute_action_run(run.id)
+    approve_action_run(ActionRun.objects.get(id=run.id), admin_user)
+    execute_action_run(run.id)
+    approve_action_run(ActionRun.objects.get(id=run.id), admin_user)
+    execute_action_run(run.id)
+
+    run.refresh_from_db()
+    branch_run = run.step_runs.get(step=branch)
+    assert run.status == ActionRun.STATUS_WAITING_APPROVAL
+    assert run.current_step == final
+    assert branch_run.status == ActionStepRun.STATUS_SUCCESS
+    assert branch_run.output["matched"] is True
+    assert branch_run.output["branch_id"] == "branch-b"
+    assert [item["name"] for item in branch_run.output["nested_steps"]] == ["B", "D"]
+    assert all(
+        item["status"] == ActionStepRun.STATUS_SUCCESS
+        for item in branch_run.output["nested_steps"]
+    )
+
+
+@pytest.mark.django_db
+def test_conditional_branch_skips_when_no_condition_matches(actions_user, admin_user):
+    template = ActionTemplate.objects.create(
+        name="Conditional Skip Flow",
+        scope=ActionTemplate.SCOPE_PERSONAL,
+        owner=actions_user,
+        is_active=True,
+        parameter_schema=[{"name": "package_type", "label": "Package type"}],
+    )
+    branch = ActionStep.objects.create(
+        template=template,
+        name="Package branch",
+        order=1,
+        action_type=ActionStep.TYPE_CONDITIONAL_BRANCH,
+        config={
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "equals",
+                        "value": "b",
+                    },
+                    "steps": [
+                        {
+                            "name": "B",
+                            "action_type": ActionStep.TYPE_MANUAL_APPROVAL,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"approver_user_ids": [admin_user.id]},
+                        }
+                    ],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+    )
+    final = ActionStep.objects.create(
+        template=template,
+        name="F",
+        order=2,
+        action_type=ActionStep.TYPE_MANUAL_APPROVAL,
+        config={"approver_user_ids": [admin_user.id]},
+    )
+    run = create_action_run(template, actions_user, {"package_type": "other"})
+
+    execute_action_run(run.id)
+
+    run.refresh_from_db()
+    branch_run = run.step_runs.get(step=branch)
+    assert branch_run.status == ActionStepRun.STATUS_SKIPPED
+    assert branch_run.output == {"matched": False, "reason": "no_condition_matched"}
+    assert run.status == ActionRun.STATUS_WAITING_APPROVAL
+    assert run.current_step == final
+
+
+@pytest.mark.django_db
 def test_workspace_templates_api_only_returns_accessible_templates(actions_user):
     visible = ActionTemplate.objects.create(
         name="Visible",
@@ -687,3 +850,94 @@ def test_admin_template_update_archives_referenced_steps(admin_user):
     active_steps = list(template.steps.filter(is_archived=False).order_by("order"))
     assert [step.name for step in active_steps] == ["New Jenkins", "New approval"]
     assert run.step_runs.filter(step=first_step).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"branches": [], "default_behavior": "skip"},
+        {
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "missing_param",
+                        "operator": "equals",
+                        "value": "b",
+                    },
+                    "steps": [],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+        {
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "starts_with",
+                        "value": "b",
+                    },
+                    "steps": [],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+        {
+            "branches": [
+                {
+                    "id": "branch-b",
+                    "label": "Package B",
+                    "condition": {
+                        "param": "package_type",
+                        "operator": "equals",
+                        "value": "b",
+                    },
+                    "steps": [
+                        {
+                            "name": "Nested branch",
+                            "action_type": ActionStep.TYPE_CONDITIONAL_BRANCH,
+                            "failure_policy": ActionStep.FAILURE_STOP,
+                            "config": {"branches": []},
+                        }
+                    ],
+                }
+            ],
+            "default_behavior": "skip",
+        },
+    ],
+)
+def test_admin_template_rejects_invalid_conditional_branch_config(admin_user, config):
+    client = APIClient()
+    client.force_authenticate(user=admin_user)
+
+    response = client.post(
+        "/api/v1/actions/templates/",
+        {
+            "name": "Invalid conditional",
+            "description": "",
+            "scope": ActionTemplate.SCOPE_ADMIN,
+            "is_active": True,
+            "parameter_schema": [
+                {"name": "package_type", "label": "Package type", "required": False}
+            ],
+            "visible_user_ids": [],
+            "visible_group_ids": [],
+            "steps": [
+                {
+                    "name": "Invalid branch",
+                    "order": 1,
+                    "action_type": ActionStep.TYPE_CONDITIONAL_BRANCH,
+                    "failure_policy": ActionStep.FAILURE_STOP,
+                    "config": config,
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400

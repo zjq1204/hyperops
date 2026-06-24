@@ -59,6 +59,7 @@ class ActionStep(models.Model):
     TYPE_GITLAB_TAG_OPERATION = "gitlab_tag_operation"
     TYPE_GITLAB_WEBHOOK_OPERATION = "gitlab_webhook_operation"
     TYPE_MANUAL_APPROVAL = "manual_approval"
+    TYPE_CONDITIONAL_BRANCH = "conditional_branch"
     TYPE_CHOICES = [
         (TYPE_JENKINS_TRIGGER, "Jenkins trigger"),
         (TYPE_GITLAB_BRANCH_CREATE, "GitLab branch create"),
@@ -66,6 +67,7 @@ class ActionStep(models.Model):
         (TYPE_GITLAB_TAG_OPERATION, "GitLab tag operation"),
         (TYPE_GITLAB_WEBHOOK_OPERATION, "GitLab webhook operation"),
         (TYPE_MANUAL_APPROVAL, "Manual approval"),
+        (TYPE_CONDITIONAL_BRANCH, "Conditional branch"),
     ]
 
     FAILURE_STOP = "stop"
