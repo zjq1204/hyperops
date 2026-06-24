@@ -155,9 +155,6 @@
                     : t('adminPages.actionTemplates.modal.personalTag')
                 }}</em>
               </div>
-              <small>{{
-                form.description || t('adminPages.actionTemplates.basic.hint')
-              }}</small>
             </div>
 
             <div class="action-editor-topbar-actions">
@@ -211,7 +208,6 @@
                   <h3>
                     {{ t('adminPages.actionTemplates.tabs.basic.label') }}
                   </h3>
-                  <p>{{ t('adminPages.actionTemplates.basic.hint') }}</p>
                 </div>
                 <div class="action-field-grid">
                   <label class="action-field">
@@ -262,7 +258,6 @@
                 <div class="action-pane-heading action-pane-heading-row">
                   <div>
                     <h3>{{ t('adminPages.actionTemplates.params.title') }}</h3>
-                    <p>{{ t('adminPages.actionTemplates.params.hint') }}</p>
                   </div>
                   <div class="flex gap-2">
                     <BaseButton
@@ -370,7 +365,6 @@
                   <div class="action-pane-heading action-pane-heading-row">
                     <div>
                       <h3>{{ t('adminPages.actionTemplates.steps.title') }}</h3>
-                      <p>{{ t('adminPages.actionTemplates.steps.hint') }}</p>
                     </div>
                     <BaseButton
                       variant="secondary"
@@ -2202,7 +2196,6 @@
               <section v-else class="action-pane">
                 <div class="action-pane-heading">
                   <h3>{{ t('adminPages.actionTemplates.auth.title') }}</h3>
-                  <p>{{ t('adminPages.actionTemplates.auth.hint') }}</p>
                 </div>
                 <div class="action-auth-grid">
                   <div class="action-field">
@@ -2302,9 +2295,6 @@
         <div v-if="previewTemplate" class="action-preview">
           <section class="action-preview-summary">
             <div>
-              <p class="action-editor-eyebrow">
-                {{ t('adminPages.actionTemplates.preview.kicker') }}
-              </p>
               <h3>{{ previewTemplate.name }}</h3>
               <p>
                 {{
@@ -2473,26 +2463,22 @@ const editorTabs = computed(() => [
   {
     key: 'basic',
     index: '01',
-    label: t('adminPages.actionTemplates.tabs.basic.label'),
-    hint: t('adminPages.actionTemplates.tabs.basic.hint')
+    label: t('adminPages.actionTemplates.tabs.basic.label')
   },
   {
     key: 'params',
     index: '02',
-    label: t('adminPages.actionTemplates.tabs.params.label'),
-    hint: t('adminPages.actionTemplates.tabs.params.hint')
+    label: t('adminPages.actionTemplates.tabs.params.label')
   },
   {
     key: 'steps',
     index: '03',
-    label: t('adminPages.actionTemplates.tabs.steps.label'),
-    hint: t('adminPages.actionTemplates.tabs.steps.hint')
+    label: t('adminPages.actionTemplates.tabs.steps.label')
   },
   {
     key: 'auth',
     index: '04',
-    label: t('adminPages.actionTemplates.tabs.auth.label'),
-    hint: t('adminPages.actionTemplates.tabs.auth.hint')
+    label: t('adminPages.actionTemplates.tabs.auth.label')
   }
 ])
 
@@ -4129,23 +4115,6 @@ onMounted(() => {
   font-style: normal;
   font-weight: 800;
   padding: 5px 9px;
-}
-
-.action-editor-topbar-main small {
-  overflow: hidden;
-  color: var(--action-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-editor-eyebrow {
-  margin: 0 0 8px;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .action-editor-title-input,
