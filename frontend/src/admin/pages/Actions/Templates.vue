@@ -1277,8 +1277,8 @@
                                     }
                                   )
                                 }}</strong>
-                                <small class="action-branch-case-steps">{{
-                                  branchNestedStepNames(branch)
+                                <small class="action-branch-case-detail">{{
+                                  branchConditionText(branch)
                                 }}</small>
                               </div>
                             </div>
@@ -1314,16 +1314,6 @@
                               </button>
                             </div>
                           </div>
-
-                          <button
-                            v-if="!isBranchCaseOpen(branch)"
-                            type="button"
-                            class="action-branch-case-preview"
-                            @click="openBranchCase(selectedStep, branch)"
-                          >
-                            <span>{{ branchConditionText(branch) }}</span>
-                            <strong>{{ branch.steps?.length || 0 }}</strong>
-                          </button>
 
                           <div
                             v-if="isBranchCaseOpen(branch)"
@@ -4509,7 +4499,7 @@ onMounted(() => {
   font-weight: 900;
 }
 
-.action-branch-case-steps {
+.action-branch-case-detail {
   display: block;
   max-width: 64ch;
   overflow: hidden;
@@ -4519,47 +4509,6 @@ onMounted(() => {
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.action-branch-case-preview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  border: 0;
-  border-top: 1px solid #edf2f7;
-  background: transparent;
-  color: #475569;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  padding-top: 10px;
-  text-align: left;
-}
-
-.action-branch-case-preview:hover {
-  color: #0f172a;
-}
-
-.action-branch-case-preview span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-branch-case-preview strong {
-  display: inline-flex;
-  min-width: 26px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: #e2e8f0;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 900;
 }
 
 .action-branch-rule-card {
@@ -4730,7 +4679,7 @@ onMounted(() => {
   }
 
   .action-branch-rule-card-head strong,
-  .action-branch-case-steps {
+  .action-branch-case-detail {
     width: 100%;
     text-align: left;
     white-space: normal;

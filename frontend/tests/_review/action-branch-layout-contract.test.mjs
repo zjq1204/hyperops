@@ -14,13 +14,13 @@ assert(
 )
 
 assert(
-  source.includes('action-branch-case-steps'),
-  'branch case headers should keep a compact nested-step summary'
+  source.includes('action-branch-case-detail'),
+  'branch case headers should keep one compact condition detail line'
 )
 
 assert(
-  source.includes('action-branch-case-preview'),
-  'collapsed branch cases should show the condition only in the preview row'
+  !source.includes('action-branch-case-preview'),
+  'collapsed branch cases should not render a second condition preview row'
 )
 
 assert(
