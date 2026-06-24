@@ -2477,20 +2477,6 @@
                   preserveAspectRatio="none"
                   aria-hidden="true"
                 >
-                  <defs>
-                    <marker
-                      id="action-flow-conditional-arrow"
-                      class="action-flow-conditional-arrow"
-                      viewBox="0 0 10 10"
-                      refX="9"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" />
-                    </marker>
-                  </defs>
                   <circle
                     class="action-flow-conditional-origin"
                     cx="10"
@@ -2503,7 +2489,6 @@
                     )"
                     :key="`curve-${branch.id || branch.client_id || branchIndex}`"
                     class="action-flow-conditional-curve"
-                    marker-end="url(#action-flow-conditional-arrow)"
                     :d="
                       previewConnectorCurve(
                         branchIndex,
@@ -2522,6 +2507,10 @@
                   <span class="action-flow-conditional-label">{{
                     branchConditionText(branch)
                   }}</span>
+                  <span
+                    class="action-flow-conditional-arrow-line"
+                    aria-hidden="true"
+                  />
                 </div>
               </div>
               <div
@@ -4261,16 +4250,12 @@ onMounted(() => {
   stroke-width: 2.5px;
 }
 
-.action-flow-conditional-arrow path {
-  fill: rgba(79, 70, 229, 0.5);
-}
-
 .action-flow-conditional-connector {
   position: relative;
-  display: grid;
-  gap: 5px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
   min-height: 48px;
-  align-content: center;
 }
 
 .action-flow-conditional-label {
@@ -4287,6 +4272,38 @@ onMounted(() => {
   overflow-wrap: anywhere;
   padding: 5px 8px;
   box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
+}
+
+.action-flow-conditional-arrow-line {
+  position: relative;
+  display: inline-flex;
+  min-width: 28px;
+  flex: 1 1 28px;
+  height: 12px;
+}
+
+.action-flow-conditional-arrow-line::before {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.34);
+  content: '';
+  transform: translateY(-50%);
+}
+
+.action-flow-conditional-arrow-line::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid rgba(79, 70, 229, 0.5);
+  border-right: 2px solid rgba(79, 70, 229, 0.5);
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .action-flow-node--jenkins_trigger .action-flow-node-index {

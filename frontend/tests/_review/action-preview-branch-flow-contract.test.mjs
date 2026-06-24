@@ -37,11 +37,15 @@ assert(
     source.includes('action-flow-conditional-label') &&
     source.includes('action-flow-conditional-curves') &&
     source.includes('action-flow-conditional-origin') &&
-    source.includes('action-flow-conditional-arrow') &&
-    source.includes('marker-end="url(#action-flow-conditional-arrow)"') &&
+    source.includes('action-flow-conditional-arrow-line') &&
     source.includes('previewConnectorCurve(') &&
     source.includes('previewNextStep(index)'),
   'the connector into a conditional branch should render labelled curved arrows from one origin point'
+)
+
+assert(
+  !source.includes('marker-end="url(#action-flow-conditional-arrow)"'),
+  'conditional arrow heads should remain visible after the label instead of being hidden under the label'
 )
 
 assert(
