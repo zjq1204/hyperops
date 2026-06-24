@@ -141,7 +141,7 @@
         "
         @close="closeModal"
       >
-        <div class="action-editor action-editor-redesigned">
+        <div class="action-editor action-editor-redesigned action-editor--flat">
           <section class="action-editor-topbar">
             <div class="action-editor-topbar-main">
               <span class="action-editor-kicker">
@@ -5526,6 +5526,108 @@ onMounted(() => {
   display: flex;
   gap: 10px;
   margin-left: auto;
+}
+
+.action-editor--flat {
+  gap: 0;
+}
+
+.action-editor--flat .action-editor-topbar {
+  border: 0;
+  border-bottom: 1px solid var(--action-line);
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 0 14px;
+}
+
+.action-editor--flat .action-editor-title-line em {
+  background: #f8fafc;
+}
+
+.action-editor--flat .action-editor-body {
+  gap: 0;
+}
+
+.action-editor--flat .action-editor-nav {
+  border: 0;
+  border-bottom: 1px solid var(--action-line);
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 0;
+}
+
+.action-editor--flat .action-editor-nav-item {
+  border-radius: 10px;
+  padding-block: 8px;
+}
+
+.action-editor--flat .action-editor-nav-item.active {
+  box-shadow: none;
+}
+
+.action-editor--flat .action-pane {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 18px 0 0;
+}
+
+.action-editor--flat .action-step-detail {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.action-editor--flat .action-step-detail--page {
+  box-shadow: none;
+}
+
+.action-editor--flat .action-step-detail-head {
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+}
+
+.action-editor--flat .action-step-config {
+  border-top-color: #edf2f7;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.action-editor--flat .action-branch-section {
+  gap: 12px;
+}
+
+.action-editor--flat .action-branch-case {
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.action-editor--flat .action-branch-case--active {
+  background: #ffffff;
+}
+
+.action-editor--flat .action-branch-rule-card {
+  border: 0;
+  border-top: 1px solid #edf2f7;
+  border-radius: 0;
+  padding: 12px 0 0;
+}
+
+.action-editor--flat .action-branch-nested-step {
+  border: 0;
+  border-top: 1px solid #edf2f7;
+  border-radius: 0;
+  padding-inline: 0;
+}
+
+.action-editor--flat .action-branch-nested-step--active {
+  background: transparent;
+}
+
+.action-editor--flat .action-branch-nested-config {
+  border-top-color: #edf2f7;
 }
 
 @media (max-width: 900px) {
