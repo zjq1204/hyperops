@@ -24,12 +24,38 @@ assert(
   'conditional branch preview should show split and merge structure'
 )
 
+const canvasBlock = source.match(/\.action-flow-canvas\s*\{[\s\S]*?\n\}/)?.[0]
+assert(canvasBlock, 'action flow canvas styles should be defined')
+
+assert(
+  canvasBlock.includes('align-items: center'),
+  'preview flow nodes should be vertically centered in the canvas'
+)
+
 assert(
   source.includes('action-flow-conditional-connectors') &&
     source.includes('action-flow-conditional-label') &&
-    source.includes('action-flow-conditional-fan') &&
     source.includes('previewNextStep(index)'),
-  'the connector into a conditional branch should render one labelled line per condition'
+  'the connector into a conditional branch should render labelled condition lines'
+)
+
+assert(
+  !source.includes('action-flow-conditional-fan'),
+  'conditional branch connectors should not use overlapping fan lines'
+)
+
+const conditionalConnectorBlock = source.match(
+  /\.action-flow-conditional-connectors\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(
+  conditionalConnectorBlock,
+  'conditional connector container styles should be defined'
+)
+
+assert(
+  !conditionalConnectorBlock.includes('margin-left: -') &&
+    !conditionalConnectorBlock.includes('margin-right: -'),
+  'conditional connector spacing should not rely on negative margins'
 )
 
 const conditionalLabelBlock = source.match(

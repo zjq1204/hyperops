@@ -2474,7 +2474,6 @@
                 "
                 class="action-flow-conditional-connectors"
               >
-                <span class="action-flow-conditional-fan" aria-hidden="true" />
                 <div
                   v-for="(branch, branchIndex) in previewBranchCases(
                     previewNextStep(index)
@@ -4082,6 +4081,7 @@ onMounted(() => {
 
 .action-flow-canvas {
   display: flex;
+  align-items: center;
   gap: 18px;
   overflow-x: auto;
   border: 1px solid #e8edf5;
@@ -4171,54 +4171,15 @@ onMounted(() => {
 }
 
 .action-flow-conditional-connectors {
-  position: relative;
   display: grid;
-  width: 190px;
-  flex: 0 0 190px;
-  gap: 18px;
+  width: 180px;
+  flex: 0 0 180px;
+  gap: 14px;
   align-self: center;
-  margin-left: -10px;
-  margin-right: -8px;
-  padding: 4px 0 4px 26px;
-}
-
-.action-flow-conditional-fan {
-  position: absolute;
-  top: 50%;
-  bottom: 12px;
-  left: 0;
-  width: 58px;
-  border-top: 2px solid rgba(99, 102, 241, 0.42);
-  border-left: 2px solid rgba(99, 102, 241, 0.42);
-  border-bottom: 2px solid rgba(99, 102, 241, 0.42);
-  border-radius: 0 0 0 36px;
-  transform: translateY(-50%);
-}
-
-.action-flow-conditional-fan::before {
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  width: 52px;
-  border-top: 2px solid rgba(99, 102, 241, 0.24);
-  content: '';
-  transform: translateY(-18px) rotate(-16deg);
-  transform-origin: left center;
-}
-
-.action-flow-conditional-fan::after {
-  position: absolute;
-  bottom: -2px;
-  left: -2px;
-  width: 52px;
-  border-top: 2px solid rgba(99, 102, 241, 0.24);
-  content: '';
-  transform: translateY(18px) rotate(16deg);
-  transform-origin: left center;
+  padding: 4px 0;
 }
 
 .action-flow-conditional-connector {
-  position: relative;
   display: grid;
   gap: 5px;
 }
