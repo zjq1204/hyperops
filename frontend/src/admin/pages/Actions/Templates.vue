@@ -2387,9 +2387,6 @@
                               branch.label || branchConditionText(branch)
                             }}</strong>
                           </div>
-                          <span class="action-flow-branch-condition-pill">{{
-                            branchConditionText(branch)
-                          }}</span>
                         </div>
                         <div class="action-flow-branch-step-list">
                           <div
@@ -4394,9 +4391,7 @@ onMounted(() => {
 .action-flow-branch-condition {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   min-width: 0;
-  gap: 14px;
 }
 
 .action-flow-branch-title {
@@ -4427,24 +4422,6 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 900;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-flow-branch-condition-pill {
-  display: inline-flex;
-  max-width: 220px;
-  flex: 0 1 auto;
-  align-items: center;
-  overflow: hidden;
-  border-radius: 6px;
-  background: #e8edf4;
-  color: #334155;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.45;
-  padding: 4px 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

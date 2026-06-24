@@ -85,14 +85,14 @@ assert(
 assert(
   source.includes('action-flow-branch-condition') &&
     source.includes('action-flow-branch-step-list') &&
-    source.includes('action-flow-branch-condition-pill') &&
     source.includes('action-flow-branch-title'),
-  'branch preview should separate condition and nested steps into distinct blocks'
+  'branch preview should separate branch title and nested steps into distinct blocks'
 )
 
 assert(
-  !source.includes('<small>{{ branchConditionText(branch) }}</small>'),
-  'branch condition should be shown as a pill instead of repeated helper text under the branch name'
+  !source.includes('action-flow-branch-condition-pill') &&
+    !source.includes('<small>{{ branchConditionText(branch) }}</small>'),
+  'branch condition should only appear on incoming connector labels'
 )
 
 assert(
