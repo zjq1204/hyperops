@@ -144,13 +144,6 @@
         <div class="action-editor action-editor-redesigned action-editor--flat">
           <section class="action-editor-topbar">
             <div class="action-editor-topbar-main">
-              <span class="action-editor-kicker">
-                {{
-                  editingTemplate
-                    ? t('adminPages.actionTemplates.modal.kickerEdit')
-                    : t('adminPages.actionTemplates.modal.kickerNew')
-                }}
-              </span>
               <div class="action-editor-title-line">
                 <strong>{{
                   form.name ||
@@ -527,11 +520,6 @@
                 <template v-else>
                   <div class="action-pane-heading action-pane-heading-row">
                     <div>
-                      <p class="action-editor-eyebrow">
-                        {{
-                          t('adminPages.actionTemplates.steps.editor.kicker')
-                        }}
-                      </p>
                       <h3>
                         {{ t('adminPages.actionTemplates.steps.editor.title') }}
                       </h3>
@@ -4115,14 +4103,6 @@ onMounted(() => {
   display: grid;
   min-width: 0;
   gap: 4px;
-}
-
-.action-editor-kicker {
-  color: var(--action-muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .action-editor-title-line {
