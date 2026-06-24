@@ -2378,8 +2378,10 @@
                         :key="branch.id || branch.client_id || branchIndex"
                         class="action-flow-branch-lane"
                       >
-                        <div class="action-flow-branch-rule">
-                          <span>{{ branchIndex + 1 }}</span>
+                        <div class="action-flow-branch-condition">
+                          <span class="action-flow-branch-number">{{
+                            branchIndex + 1
+                          }}</span>
                           <div>
                             <strong>{{
                               branch.label || branchConditionText(branch)
@@ -2387,7 +2389,7 @@
                             <small>{{ branchConditionText(branch) }}</small>
                           </div>
                         </div>
-                        <div class="action-flow-branch-steps">
+                        <div class="action-flow-branch-step-list">
                           <span
                             v-for="(
                               nestedStep, nestedIndex
@@ -4226,12 +4228,11 @@ onMounted(() => {
 .action-flow-branch-lane {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(180px, 0.9fr) minmax(190px, 1.1fr);
-  gap: 12px;
-  align-items: stretch;
+  gap: 8px;
+  align-items: start;
   border-radius: 12px;
   background: rgba(248, 250, 252, 0.72);
-  padding: 9px 10px;
+  padding: 10px;
 }
 
 .action-flow-branch-lane::before,
@@ -4254,14 +4255,14 @@ onMounted(() => {
   right: -9px;
 }
 
-.action-flow-branch-rule {
+.action-flow-branch-condition {
   display: flex;
   min-width: 0;
   gap: 10px;
   align-items: flex-start;
 }
 
-.action-flow-branch-rule > span {
+.action-flow-branch-number {
   display: inline-flex;
   width: 22px;
   height: 22px;
@@ -4275,38 +4276,39 @@ onMounted(() => {
   font-weight: 900;
 }
 
-.action-flow-branch-rule div {
+.action-flow-branch-condition div {
   min-width: 0;
 }
 
-.action-flow-branch-rule strong {
+.action-flow-branch-condition strong {
   display: block;
-  overflow: hidden;
   color: #172033;
   font-size: 13px;
   font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
 }
 
-.action-flow-branch-rule small {
+.action-flow-branch-condition small {
   display: block;
-  overflow: hidden;
   margin-top: 4px;
-  color: #64748b;
-  font-size: 12px;
+  color: #334155;
+  font-size: 13px;
   font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
-.action-flow-branch-steps {
+.action-flow-branch-step-list {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
   gap: 6px;
   align-content: flex-start;
   align-items: flex-start;
+  margin-left: 32px;
+  border-radius: 10px;
+  background: rgba(234, 242, 251, 0.72);
+  padding: 7px;
 }
 
 .action-flow-branch-step {

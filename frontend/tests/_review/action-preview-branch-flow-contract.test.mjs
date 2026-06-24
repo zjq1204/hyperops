@@ -34,6 +34,23 @@ assert(
   'conditional branch preview should expose nested branch steps inside each lane'
 )
 
+assert(
+  source.includes('action-flow-branch-condition') &&
+    source.includes('action-flow-branch-step-list'),
+  'branch preview should separate condition and nested steps into distinct blocks'
+)
+
+const branchConditionBlock = source.match(
+  /\.action-flow-branch-condition\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(branchConditionBlock, 'branch condition styles should be defined')
+
+assert(
+  !branchConditionBlock.includes('white-space: nowrap') &&
+    !branchConditionBlock.includes('text-overflow: ellipsis'),
+  'branch conditions should remain readable instead of truncating'
+)
+
 const branchLaneBlock = source.match(
   /\.action-flow-branch-lane\s*\{[\s\S]*?\n\}/
 )?.[0]
