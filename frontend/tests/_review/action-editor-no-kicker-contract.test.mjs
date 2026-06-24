@@ -24,4 +24,9 @@ assert(
   'step editor heading should not render a redundant uppercase kicker'
 )
 
+assert(
+  !source.includes("t('adminPages.actionTemplates.steps.editor.hint')"),
+  'step editor heading should not render explanatory helper copy'
+)
+
 console.log('action editor no kicker contract ok')

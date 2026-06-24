@@ -523,9 +523,6 @@
                       <h3>
                         {{ t('adminPages.actionTemplates.steps.editor.title') }}
                       </h3>
-                      <p>
-                        {{ t('adminPages.actionTemplates.steps.editor.hint') }}
-                      </p>
                     </div>
                     <BaseButton
                       variant="secondary"
