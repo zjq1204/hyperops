@@ -2466,7 +2466,30 @@
                 </template>
               </div>
               <div
-                v-if="index < previewSteps.length - 1"
+                v-if="
+                  index < previewSteps.length - 1 &&
+                  previewNextStep(index)?.action_type === 'conditional_branch'
+                "
+                class="action-flow-conditional-connectors"
+              >
+                <div
+                  v-for="(branch, branchIndex) in previewBranchCases(
+                    previewNextStep(index)
+                  )"
+                  :key="branch.id || branch.client_id || branchIndex"
+                  class="action-flow-conditional-connector"
+                >
+                  <span class="action-flow-conditional-label">{{
+                    branchConditionText(branch)
+                  }}</span>
+                  <span
+                    class="action-flow-conditional-line"
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
+              <div
+                v-else-if="index < previewSteps.length - 1"
                 class="action-flow-arrow"
               >
                 →
@@ -3536,6 +3559,10 @@ function previewBranchNestedSteps(branch) {
   return branch?.steps || []
 }
 
+function previewNextStep(index) {
+  return previewSteps.value[index + 1]
+}
+
 function cleanConditionalBranchConfig(config, stepIndex) {
   return {
     match_mode: 'first',
@@ -4138,6 +4165,60 @@ onMounted(() => {
   font-size: 28px;
   font-weight: 900;
   margin-left: -2px;
+}
+
+.action-flow-conditional-connectors {
+  display: grid;
+  width: 160px;
+  flex: 0 0 160px;
+  gap: 12px;
+  align-self: center;
+  margin-left: -4px;
+  margin-right: -4px;
+}
+
+.action-flow-conditional-connector {
+  display: grid;
+  gap: 4px;
+}
+
+.action-flow-conditional-label {
+  display: block;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.action-flow-conditional-line {
+  position: relative;
+  display: block;
+  height: 12px;
+}
+
+.action-flow-conditional-line::before {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  left: 0;
+  height: 1px;
+  border-radius: 999px;
+  background: #9fb1c7;
+  content: '';
+  transform: translateY(-50%);
+}
+
+.action-flow-conditional-line::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-top: 1px solid #9fb1c7;
+  border-right: 1px solid #9fb1c7;
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .action-flow-node--jenkins_trigger .action-flow-node-index {

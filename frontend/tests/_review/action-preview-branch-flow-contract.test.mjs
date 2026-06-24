@@ -25,6 +25,24 @@ assert(
 )
 
 assert(
+  source.includes('action-flow-conditional-connectors') &&
+    source.includes('action-flow-conditional-label') &&
+    source.includes('previewNextStep(index)'),
+  'the connector into a conditional branch should render one labelled line per condition'
+)
+
+const conditionalLabelBlock = source.match(
+  /\.action-flow-conditional-label\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(conditionalLabelBlock, 'conditional connector label styles should be defined')
+
+assert(
+  !conditionalLabelBlock.includes('white-space: nowrap') &&
+    !conditionalLabelBlock.includes('text-overflow: ellipsis'),
+  'conditional connector labels should stay readable instead of truncating'
+)
+
+assert(
   source.includes('previewBranchCases(step)'),
   'conditional branch preview should iterate branch cases instead of flattening everything into one summary line'
 )
