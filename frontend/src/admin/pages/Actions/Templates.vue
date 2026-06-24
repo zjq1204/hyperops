@@ -4040,12 +4040,12 @@ onMounted(() => {
   display: flex;
   gap: 18px;
   overflow-x: auto;
-  border: 1px solid #e2e8f0;
-  border-radius: 28px;
+  border: 1px solid #e8edf5;
+  border-radius: 20px;
   background:
-    linear-gradient(#f8fafc 1px, transparent 1px),
-    linear-gradient(90deg, #f8fafc 1px, transparent 1px), #ffffff;
-  background-size: 24px 24px;
+    linear-gradient(#f1f5f9 1px, transparent 1px),
+    linear-gradient(90deg, #f1f5f9 1px, transparent 1px), #fbfdff;
+  background-size: 28px 28px;
   padding: 24px;
 }
 
@@ -4073,10 +4073,10 @@ onMounted(() => {
 .action-flow-node-body {
   min-height: 168px;
   flex: 1;
-  border: 1px solid #dbe3ef;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e1e8f2;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
   padding: 16px;
 }
 
@@ -4155,10 +4155,11 @@ onMounted(() => {
 }
 
 .action-flow-node--branch-preview {
-  min-width: 560px;
+  min-width: 520px;
 }
 
 .action-flow-node--branch-preview .action-flow-node-body {
+  border-color: #dfe7f1;
   min-height: 0;
   padding: 18px;
 }
@@ -4172,8 +4173,8 @@ onMounted(() => {
 
 .action-flow-branch-diagram {
   display: grid;
-  grid-template-columns: 28px minmax(320px, 1fr) 28px;
-  gap: 10px;
+  grid-template-columns: 22px minmax(300px, 1fr) 22px;
+  gap: 8px;
   align-items: stretch;
   margin-top: 16px;
 }
@@ -4190,9 +4191,9 @@ onMounted(() => {
   top: 24px;
   bottom: 24px;
   left: 50%;
-  width: 2px;
+  width: 1px;
   border-radius: 999px;
-  background: #cbd5e1;
+  background: #b8c7d9;
   content: '';
   transform: translateX(-50%);
 }
@@ -4201,10 +4202,10 @@ onMounted(() => {
 .action-flow-branch-merge::after {
   position: absolute;
   top: 50%;
-  width: 18px;
-  height: 2px;
+  width: 14px;
+  height: 1px;
   border-radius: 999px;
-  background: #cbd5e1;
+  background: #b8c7d9;
   content: '';
   transform: translateY(-50%);
 }
@@ -4219,7 +4220,7 @@ onMounted(() => {
 
 .action-flow-branch-lanes {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .action-flow-branch-lane {
@@ -4228,30 +4229,29 @@ onMounted(() => {
   grid-template-columns: minmax(180px, 0.9fr) minmax(190px, 1.1fr);
   gap: 12px;
   align-items: stretch;
-  border: 1px solid #dbe3ef;
-  border-radius: 14px;
-  background: #f8fafc;
-  padding: 10px;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.72);
+  padding: 9px 10px;
 }
 
 .action-flow-branch-lane::before,
 .action-flow-branch-lane::after {
   position: absolute;
   top: 50%;
-  width: 11px;
-  height: 2px;
+  width: 9px;
+  height: 1px;
   border-radius: 999px;
-  background: #cbd5e1;
+  background: #b8c7d9;
   content: '';
   transform: translateY(-50%);
 }
 
 .action-flow-branch-lane::before {
-  left: -11px;
+  left: -9px;
 }
 
 .action-flow-branch-lane::after {
-  right: -11px;
+  right: -9px;
 }
 
 .action-flow-branch-rule {
@@ -4263,14 +4263,14 @@ onMounted(() => {
 
 .action-flow-branch-rule > span {
   display: inline-flex;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: #eaf2ff;
+  color: #1d4ed8;
   font-size: 12px;
   font-weight: 900;
 }
@@ -4313,9 +4313,8 @@ onMounted(() => {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
-  border: 1px solid #dbe3ef;
   border-radius: 999px;
-  background: #ffffff;
+  background: #eaf2fb;
   color: #334155;
   font-size: 12px;
   font-weight: 800;
@@ -4324,7 +4323,7 @@ onMounted(() => {
 }
 
 .action-flow-branch-step--empty {
-  border-style: dashed;
+  background: #f1f5f9;
   color: #64748b;
 }
 

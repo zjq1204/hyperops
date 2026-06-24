@@ -34,4 +34,20 @@ assert(
   'conditional branch preview should expose nested branch steps inside each lane'
 )
 
+const branchLaneBlock = source.match(
+  /\.action-flow-branch-lane\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(branchLaneBlock, 'branch lane styles should be defined')
+
+assert(
+  !branchLaneBlock.includes('border: 1px solid'),
+  'branch lanes should not render as heavy nested bordered boxes'
+)
+
+assert(
+  source.includes('box-shadow: 0 6px 16px') &&
+    !source.includes('box-shadow: 0 18px 36px'),
+  'preview step cards should use a lighter shadow treatment'
+)
+
 console.log('action preview branch flow contract ok')
