@@ -40,6 +40,19 @@ assert(
   'branch preview should separate condition and nested steps into distinct blocks'
 )
 
+assert(
+  source.includes('action-flow-branch-step-item') &&
+    source.includes('action-flow-branch-step-arrow'),
+  'branch nested steps should render as an ordered mini flow instead of loose chips'
+)
+
+assert(
+  /nestedIndex\s*<\s*previewBranchNestedSteps\(branch\)\.length\s*-\s*1/.test(
+    source
+  ),
+  'branch nested step flow should connect each child step to the next one'
+)
+
 const branchConditionBlock = source.match(
   /\.action-flow-branch-condition\s*\{[\s\S]*?\n\}/
 )?.[0]

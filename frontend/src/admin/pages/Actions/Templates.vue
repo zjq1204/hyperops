@@ -2390,7 +2390,7 @@
                           </div>
                         </div>
                         <div class="action-flow-branch-step-list">
-                          <span
+                          <div
                             v-for="(
                               nestedStep, nestedIndex
                             ) in previewBranchNestedSteps(branch)"
@@ -2399,13 +2399,25 @@
                               nestedStep.client_id ||
                               nestedIndex
                             "
-                            class="action-flow-branch-step"
+                            class="action-flow-branch-step-item"
                           >
-                            {{
-                              nestedStep.name ||
-                              actionTypeText(nestedStep.action_type)
-                            }}
-                          </span>
+                            <span class="action-flow-branch-step">
+                              {{
+                                nestedStep.name ||
+                                actionTypeText(nestedStep.action_type)
+                              }}
+                            </span>
+                            <span
+                              v-if="
+                                nestedIndex <
+                                previewBranchNestedSteps(branch).length - 1
+                              "
+                              class="action-flow-branch-step-arrow"
+                              aria-hidden="true"
+                            >
+                              →
+                            </span>
+                          </div>
                           <span
                             v-if="!previewBranchNestedSteps(branch).length"
                             class="action-flow-branch-step action-flow-branch-step--empty"
@@ -4301,27 +4313,47 @@ onMounted(() => {
 .action-flow-branch-step-list {
   display: flex;
   min-width: 0;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-content: flex-start;
-  align-items: flex-start;
+  gap: 0;
+  align-items: center;
   margin-left: 32px;
+  overflow-x: auto;
   border-radius: 10px;
   background: rgba(234, 242, 251, 0.72);
   padding: 7px;
+  scrollbar-width: thin;
+}
+
+.action-flow-branch-step-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
 }
 
 .action-flow-branch-step {
   display: inline-flex;
-  max-width: 100%;
+  max-width: 150px;
   align-items: center;
-  border-radius: 999px;
-  background: #eaf2fb;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #ffffff;
   color: #334155;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.3;
-  padding: 5px 8px;
+  padding: 6px 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-branch-step-arrow {
+  display: inline-flex;
+  width: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .action-flow-branch-step--empty {
