@@ -27,6 +27,7 @@ assert(
 assert(
   source.includes('action-flow-conditional-connectors') &&
     source.includes('action-flow-conditional-label') &&
+    source.includes('action-flow-conditional-fan') &&
     source.includes('previewNextStep(index)'),
   'the connector into a conditional branch should render one labelled line per condition'
 )
@@ -54,8 +55,15 @@ assert(
 
 assert(
   source.includes('action-flow-branch-condition') &&
-    source.includes('action-flow-branch-step-list'),
+    source.includes('action-flow-branch-step-list') &&
+    source.includes('action-flow-branch-condition-pill') &&
+    source.includes('action-flow-branch-title'),
   'branch preview should separate condition and nested steps into distinct blocks'
+)
+
+assert(
+  !source.includes('<small>{{ branchConditionText(branch) }}</small>'),
+  'branch condition should be shown as a pill instead of repeated helper text under the branch name'
 )
 
 assert(
@@ -88,8 +96,9 @@ const branchLaneBlock = source.match(
 assert(branchLaneBlock, 'branch lane styles should be defined')
 
 assert(
-  !branchLaneBlock.includes('border: 1px solid'),
-  'branch lanes should not render as heavy nested bordered boxes'
+  branchLaneBlock.includes('border: 1px solid #d8e2ef') &&
+    branchLaneBlock.includes('box-shadow: 0 3px 10px'),
+  'branch lanes should use light bordered cards like the preview reference'
 )
 
 assert(

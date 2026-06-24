@@ -2379,15 +2379,17 @@
                         class="action-flow-branch-lane"
                       >
                         <div class="action-flow-branch-condition">
-                          <span class="action-flow-branch-number">{{
-                            branchIndex + 1
-                          }}</span>
-                          <div>
+                          <div class="action-flow-branch-title">
+                            <span class="action-flow-branch-number">{{
+                              branchIndex + 1
+                            }}</span>
                             <strong>{{
                               branch.label || branchConditionText(branch)
                             }}</strong>
-                            <small>{{ branchConditionText(branch) }}</small>
                           </div>
+                          <span class="action-flow-branch-condition-pill">{{
+                            branchConditionText(branch)
+                          }}</span>
                         </div>
                         <div class="action-flow-branch-step-list">
                           <div
@@ -2472,6 +2474,7 @@
                 "
                 class="action-flow-conditional-connectors"
               >
+                <span class="action-flow-conditional-fan" aria-hidden="true" />
                 <div
                   v-for="(branch, branchIndex) in previewBranchCases(
                     previewNextStep(index)
@@ -4168,27 +4171,72 @@ onMounted(() => {
 }
 
 .action-flow-conditional-connectors {
+  position: relative;
   display: grid;
-  width: 160px;
-  flex: 0 0 160px;
-  gap: 12px;
+  width: 190px;
+  flex: 0 0 190px;
+  gap: 18px;
   align-self: center;
-  margin-left: -4px;
-  margin-right: -4px;
+  margin-left: -10px;
+  margin-right: -8px;
+  padding: 4px 0 4px 26px;
+}
+
+.action-flow-conditional-fan {
+  position: absolute;
+  top: 50%;
+  bottom: 12px;
+  left: 0;
+  width: 58px;
+  border-top: 2px solid rgba(99, 102, 241, 0.42);
+  border-left: 2px solid rgba(99, 102, 241, 0.42);
+  border-bottom: 2px solid rgba(99, 102, 241, 0.42);
+  border-radius: 0 0 0 36px;
+  transform: translateY(-50%);
+}
+
+.action-flow-conditional-fan::before {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 52px;
+  border-top: 2px solid rgba(99, 102, 241, 0.24);
+  content: '';
+  transform: translateY(-18px) rotate(-16deg);
+  transform-origin: left center;
+}
+
+.action-flow-conditional-fan::after {
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
+  width: 52px;
+  border-top: 2px solid rgba(99, 102, 241, 0.24);
+  content: '';
+  transform: translateY(18px) rotate(16deg);
+  transform-origin: left center;
 }
 
 .action-flow-conditional-connector {
+  position: relative;
   display: grid;
-  gap: 4px;
+  gap: 5px;
 }
 
 .action-flow-conditional-label {
-  display: block;
-  color: #334155;
-  font-size: 11px;
-  font-weight: 800;
+  display: inline-flex;
+  width: fit-content;
+  max-width: 164px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 900;
   line-height: 1.35;
   overflow-wrap: anywhere;
+  padding: 5px 8px;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
 }
 
 .action-flow-conditional-line {
@@ -4202,9 +4250,9 @@ onMounted(() => {
   top: 50%;
   right: 7px;
   left: 0;
-  height: 1px;
+  height: 2px;
   border-radius: 999px;
-  background: #9fb1c7;
+  background: rgba(99, 102, 241, 0.32);
   content: '';
   transform: translateY(-50%);
 }
@@ -4215,8 +4263,8 @@ onMounted(() => {
   right: 0;
   width: 7px;
   height: 7px;
-  border-top: 1px solid #9fb1c7;
-  border-right: 1px solid #9fb1c7;
+  border-top: 2px solid rgba(99, 102, 241, 0.42);
+  border-right: 2px solid rgba(99, 102, 241, 0.42);
   content: '';
   transform: translateY(-50%) rotate(45deg);
 }
@@ -4250,7 +4298,7 @@ onMounted(() => {
 }
 
 .action-flow-node--branch-preview {
-  min-width: 520px;
+  min-width: 560px;
 }
 
 .action-flow-node--branch-preview .action-flow-node-body {
@@ -4267,17 +4315,13 @@ onMounted(() => {
 }
 
 .action-flow-branch-diagram {
-  display: grid;
-  grid-template-columns: 22px minmax(300px, 1fr) 22px;
-  gap: 8px;
-  align-items: stretch;
+  display: block;
   margin-top: 16px;
 }
 
 .action-flow-branch-split,
 .action-flow-branch-merge {
-  position: relative;
-  min-height: 100%;
+  display: none;
 }
 
 .action-flow-branch-split::before,
@@ -4315,29 +4359,24 @@ onMounted(() => {
 
 .action-flow-branch-lanes {
   display: grid;
-  gap: 8px;
+  gap: 14px;
 }
 
 .action-flow-branch-lane {
   position: relative;
   display: grid;
-  gap: 8px;
+  gap: 14px;
   align-items: start;
-  border-radius: 12px;
-  background: rgba(248, 250, 252, 0.72);
-  padding: 10px;
+  border: 1px solid #d8e2ef;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.86);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+  padding: 14px;
 }
 
 .action-flow-branch-lane::before,
 .action-flow-branch-lane::after {
-  position: absolute;
-  top: 50%;
-  width: 9px;
-  height: 1px;
-  border-radius: 999px;
-  background: #b8c7d9;
-  content: '';
-  transform: translateY(-50%);
+  display: none;
 }
 
 .action-flow-branch-lane::before {
@@ -4350,9 +4389,17 @@ onMounted(() => {
 
 .action-flow-branch-condition {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 14px;
+}
+
+.action-flow-branch-title {
+  display: inline-flex;
   min-width: 0;
   gap: 10px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .action-flow-branch-number {
@@ -4369,26 +4416,33 @@ onMounted(() => {
   font-weight: 900;
 }
 
-.action-flow-branch-condition div {
-  min-width: 0;
-}
-
-.action-flow-branch-condition strong {
+.action-flow-branch-title strong {
   display: block;
+  overflow: hidden;
   color: #172033;
   font-size: 13px;
   font-weight: 900;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.action-flow-branch-condition small {
-  display: block;
-  margin-top: 4px;
+.action-flow-branch-condition-pill {
+  display: inline-flex;
+  max-width: 220px;
+  flex: 0 1 auto;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e8edf4;
   color: #334155;
-  font-size: 13px;
-  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-flow-branch-step-list {
