@@ -1445,18 +1445,494 @@
                                   </select>
                                 </label>
                               </div>
-                              <label class="action-field action-field-wide">
-                                <span>{{
-                                  t(
-                                    'adminPages.actionTemplates.branch.configJson'
-                                  )
-                                }}</span>
-                                <textarea
-                                  v-model="nestedStep.configText"
-                                  rows="5"
-                                  spellcheck="false"
-                                ></textarea>
-                              </label>
+                              <div
+                                v-if="
+                                  nestedStep.action_type === 'jenkins_trigger'
+                                "
+                                class="action-branch-nested-config"
+                              >
+                                <label class="action-field">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.jenkins.entry'
+                                    )
+                                  }}</span>
+                                  <select
+                                    v-model.number="nestedStep.config.entry_id"
+                                    @change="loadJenkinsStepParams(nestedStep)"
+                                  >
+                                    <option value="">
+                                      {{
+                                        t(
+                                          'adminPages.actionTemplates.jenkins.selectEntry'
+                                        )
+                                      }}
+                                    </option>
+                                    <option
+                                      v-for="entry in jenkinsEntries"
+                                      :key="entry.id"
+                                      :value="entry.id"
+                                    >
+                                      {{ entry.name }}
+                                    </option>
+                                  </select>
+                                </label>
+                                <label class="action-checkbox-line">
+                                  <input
+                                    v-model="
+                                      nestedStep.config.wait_for_completion
+                                    "
+                                    type="checkbox"
+                                  />
+                                  {{
+                                    t(
+                                      'adminPages.actionTemplates.jenkins.waitForCompletion'
+                                    )
+                                  }}
+                                </label>
+                                <div class="action-field action-field-wide">
+                                  <div class="action-param-head">
+                                    <span>{{
+                                      t(
+                                        'adminPages.actionTemplates.jenkins.paramsTitle'
+                                      )
+                                    }}</span>
+                                    <button
+                                      type="button"
+                                      class="action-link-button"
+                                      :disabled="!nestedStep.config.entry_id"
+                                      @click="loadJenkinsStepParams(nestedStep)"
+                                    >
+                                      {{
+                                        t(
+                                          'adminPages.actionTemplates.jenkins.refresh'
+                                        )
+                                      }}
+                                    </button>
+                                  </div>
+                                  <div
+                                    v-if="nestedStep.paramsLoading"
+                                    class="action-param-empty"
+                                  >
+                                    {{
+                                      t(
+                                        'adminPages.actionTemplates.jenkins.loading'
+                                      )
+                                    }}
+                                  </div>
+                                  <div
+                                    v-else-if="nestedStep.paramRows?.length"
+                                    class="action-param-table"
+                                  >
+                                    <div class="action-param-table-head">
+                                      <span>{{
+                                        t(
+                                          'adminPages.actionTemplates.jenkins.tableHead.param'
+                                        )
+                                      }}</span>
+                                      <span>{{
+                                        t(
+                                          'adminPages.actionTemplates.jenkins.tableHead.source'
+                                        )
+                                      }}</span>
+                                      <span>{{
+                                        t(
+                                          'adminPages.actionTemplates.jenkins.tableHead.value'
+                                        )
+                                      }}</span>
+                                    </div>
+                                    <div
+                                      v-for="row in nestedStep.paramRows"
+                                      :key="row.name"
+                                      class="action-param-row"
+                                    >
+                                      <div class="action-param-name">
+                                        <strong>{{ row.name }}</strong>
+                                        <small>{{
+                                          row.description ||
+                                          row.type ||
+                                          'String'
+                                        }}</small>
+                                      </div>
+                                      <div
+                                        v-if="row.mode === 'readonly'"
+                                        class="action-param-readonly-mode"
+                                      >
+                                        {{
+                                          t(
+                                            'adminPages.actionTemplates.jenkins.entry'
+                                          )
+                                        }}
+                                      </div>
+                                      <select
+                                        v-else
+                                        v-model="row.source"
+                                        @change="
+                                          syncJenkinsParamsFromRows(nestedStep)
+                                        "
+                                      >
+                                        <option value="default">
+                                          {{
+                                            t(
+                                              'adminPages.actionTemplates.jenkins.source.default'
+                                            )
+                                          }}
+                                        </option>
+                                        <option value="fixed">
+                                          {{
+                                            t(
+                                              'adminPages.actionTemplates.jenkins.source.fixed'
+                                            )
+                                          }}
+                                        </option>
+                                        <option value="param">
+                                          {{
+                                            t(
+                                              'adminPages.actionTemplates.jenkins.source.param'
+                                            )
+                                          }}
+                                        </option>
+                                      </select>
+                                      <select
+                                        v-if="row.source === 'param'"
+                                        v-model="row.value"
+                                        :disabled="row.mode === 'readonly'"
+                                        @change="
+                                          syncJenkinsParamsFromRows(nestedStep)
+                                        "
+                                      >
+                                        <option value="">
+                                          {{
+                                            t(
+                                              'adminPages.actionTemplates.jenkins.selectParam'
+                                            )
+                                          }}
+                                        </option>
+                                        <option
+                                          v-for="param in globalParamNames"
+                                          :key="param"
+                                          :value="param"
+                                        >
+                                          {{ param }}
+                                        </option>
+                                      </select>
+                                      <select
+                                        v-else-if="row.choices?.length"
+                                        v-model="row.value"
+                                        :disabled="
+                                          row.source === 'default' ||
+                                          row.mode === 'readonly'
+                                        "
+                                        @change="
+                                          syncJenkinsParamsFromRows(nestedStep)
+                                        "
+                                      >
+                                        <option
+                                          v-for="choice in row.choices"
+                                          :key="choice"
+                                          :value="choice"
+                                        >
+                                          {{ choice }}
+                                        </option>
+                                      </select>
+                                      <input
+                                        v-else
+                                        v-model="row.value"
+                                        :disabled="
+                                          row.source === 'default' ||
+                                          row.mode === 'readonly'
+                                        "
+                                        :placeholder="
+                                          t(
+                                            'adminPages.actionTemplates.jenkins.valuePlaceholder'
+                                          )
+                                        "
+                                        @input="
+                                          syncJenkinsParamsFromRows(nestedStep)
+                                        "
+                                      />
+                                    </div>
+                                  </div>
+                                  <div v-else class="action-param-empty">
+                                    {{
+                                      t(
+                                        'adminPages.actionTemplates.jenkins.empty'
+                                      )
+                                    }}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div
+                                v-else-if="isGitLabStep(nestedStep)"
+                                class="action-branch-nested-config"
+                              >
+                                <label class="action-field">
+                                  <span>{{
+                                    gitlabPrimaryFieldLabel(nestedStep)
+                                  }}</span>
+                                  <input
+                                    v-model="
+                                      nestedStep.config[
+                                        gitlabPrimaryFieldKey(nestedStep)
+                                      ]
+                                    "
+                                    :placeholder="
+                                      gitlabPrimaryFieldPlaceholder(nestedStep)
+                                    "
+                                  />
+                                </label>
+                                <label
+                                  v-if="gitlabNeedsRef(nestedStep)"
+                                  class="action-field"
+                                >
+                                  <span>{{
+                                    t('adminPages.actionTemplates.gitlab.ref')
+                                  }}</span>
+                                  <input
+                                    v-model="nestedStep.config.ref"
+                                    :placeholder="
+                                      t(
+                                        'adminPages.actionTemplates.gitlab.refPlaceholder'
+                                      )
+                                    "
+                                  />
+                                </label>
+                                <template
+                                  v-if="
+                                    nestedStep.action_type ===
+                                    'gitlab_webhook_operation'
+                                  "
+                                >
+                                  <label class="action-field">
+                                    <span>{{
+                                      t(
+                                        'adminPages.actionTemplates.gitlab.branchFilter'
+                                      )
+                                    }}</span>
+                                    <input
+                                      v-model="
+                                        nestedStep.config
+                                          .push_events_branch_filter
+                                      "
+                                      :placeholder="
+                                        t(
+                                          'adminPages.actionTemplates.gitlab.branchFilterPlaceholder'
+                                        )
+                                      "
+                                    />
+                                  </label>
+                                  <div class="action-field action-field-wide">
+                                    <span>{{
+                                      t(
+                                        'adminPages.actionTemplates.gitlab.triggerEvents'
+                                      )
+                                    }}</span>
+                                    <div class="action-toggle-row">
+                                      <label class="action-checkbox-line">
+                                        <input
+                                          v-model="
+                                            nestedStep.config.push_events
+                                          "
+                                          type="checkbox"
+                                        />
+                                        {{
+                                          t(
+                                            'adminPages.actionTemplates.gitlab.push'
+                                          )
+                                        }}
+                                      </label>
+                                      <label class="action-checkbox-line">
+                                        <input
+                                          v-model="
+                                            nestedStep.config.tag_push_events
+                                          "
+                                          type="checkbox"
+                                        />
+                                        {{
+                                          t(
+                                            'adminPages.actionTemplates.gitlab.tagPush'
+                                          )
+                                        }}
+                                      </label>
+                                      <label class="action-checkbox-line">
+                                        <input
+                                          v-model="
+                                            nestedStep.config
+                                              .merge_requests_events
+                                          "
+                                          type="checkbox"
+                                        />
+                                        {{
+                                          t(
+                                            'adminPages.actionTemplates.gitlab.mergeRequest'
+                                          )
+                                        }}
+                                      </label>
+                                      <label class="action-checkbox-line">
+                                        <input
+                                          v-model="
+                                            nestedStep.config
+                                              .enable_ssl_verification
+                                          "
+                                          type="checkbox"
+                                        />
+                                        {{
+                                          t(
+                                            'adminPages.actionTemplates.gitlab.sslVerify'
+                                          )
+                                        }}
+                                      </label>
+                                    </div>
+                                  </div>
+                                </template>
+                                <div class="action-field action-field-wide">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.gitlab.fixedProjects'
+                                    )
+                                  }}</span>
+                                  <div class="action-project-grid compact">
+                                    <label
+                                      v-for="project in gitlabProjects"
+                                      :key="project.id"
+                                      class="action-project-card"
+                                      :class="{
+                                        selected: isSelected(
+                                          nestedStep.config.project_ids,
+                                          project.id
+                                        )
+                                      }"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        :checked="
+                                          isSelected(
+                                            nestedStep.config.project_ids,
+                                            project.id
+                                          )
+                                        "
+                                        @change="
+                                          toggleSelection(
+                                            nestedStep.config.project_ids,
+                                            project.id
+                                          )
+                                        "
+                                      />
+                                      <div class="action-project-card-copy">
+                                        <strong>{{ project.name }}</strong>
+                                        <span>{{
+                                          project.path || project.name
+                                        }}</span>
+                                      </div>
+                                    </label>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div
+                                v-else-if="
+                                  nestedStep.action_type === 'manual_approval'
+                                "
+                                class="action-branch-nested-config"
+                              >
+                                <label class="action-field action-field-wide">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.approval.message'
+                                    )
+                                  }}</span>
+                                  <textarea
+                                    v-model="nestedStep.config.message"
+                                    rows="3"
+                                    :placeholder="
+                                      t(
+                                        'adminPages.actionTemplates.approval.messagePlaceholder'
+                                      )
+                                    "
+                                  ></textarea>
+                                </label>
+                                <div class="action-field">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.approval.users'
+                                    )
+                                  }}</span>
+                                  <div class="action-option-grid compact">
+                                    <label
+                                      v-for="user in users"
+                                      :key="user.id"
+                                      class="action-option"
+                                      :class="{
+                                        selected: isSelected(
+                                          nestedStep.config.approver_user_ids,
+                                          user.id
+                                        )
+                                      }"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        :checked="
+                                          isSelected(
+                                            nestedStep.config
+                                              .approver_user_ids,
+                                            user.id
+                                          )
+                                        "
+                                        @change="
+                                          toggleSelection(
+                                            nestedStep.config
+                                              .approver_user_ids,
+                                            user.id
+                                          )
+                                        "
+                                      />
+                                      <span>{{
+                                        user.display_name || user.username
+                                      }}</span>
+                                    </label>
+                                  </div>
+                                </div>
+                                <div class="action-field">
+                                  <span>{{
+                                    t(
+                                      'adminPages.actionTemplates.approval.groups'
+                                    )
+                                  }}</span>
+                                  <div class="action-option-grid compact">
+                                    <label
+                                      v-for="group in groups"
+                                      :key="group.id"
+                                      class="action-option"
+                                      :class="{
+                                        selected: isSelected(
+                                          nestedStep.config.approver_group_ids,
+                                          group.id
+                                        )
+                                      }"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        :checked="
+                                          isSelected(
+                                            nestedStep.config
+                                              .approver_group_ids,
+                                            group.id
+                                          )
+                                        "
+                                        @change="
+                                          toggleSelection(
+                                            nestedStep.config
+                                              .approver_group_ids,
+                                            group.id
+                                          )
+                                        "
+                                      />
+                                      <span>{{ group.name }}</span>
+                                    </label>
+                                  </div>
+                                </div>
+                              </div>
                             </article>
                           </div>
                         </div>
@@ -2277,7 +2753,10 @@ function buildDefaultNestedStep(index = 1) {
     action_type: actionType,
     failure_policy: 'stop',
     config,
-    configText: JSON.stringify(config, null, 2)
+    paramsText: JSON.stringify(config.params || {}, null, 2),
+    paramRows: buildJenkinsParamRows([], config.params || {}),
+    paramsLoading: false,
+    showAdvancedParams: false
   }
 }
 
@@ -2305,7 +2784,7 @@ function normalizeBranchNestedSteps(steps = []) {
 function normalizeBranchNestedStep(step = {}, index = 1) {
   const actionType = step.action_type || 'jenkins_trigger'
   const config = { ...defaultConfig(actionType), ...(step.config || {}) }
-  return {
+  const normalized = {
     client_id: step.client_id || `${Date.now()}-${Math.random()}`,
     name:
       step.name ||
@@ -2313,8 +2792,13 @@ function normalizeBranchNestedStep(step = {}, index = 1) {
     action_type: actionType,
     failure_policy: step.failure_policy || 'stop',
     config,
-    configText: step.configText || JSON.stringify(config, null, 2)
+    paramsText: JSON.stringify(config.params || {}, null, 2),
+    paramRows: [],
+    paramsLoading: false,
+    showAdvancedParams: false
   }
+  normalized.paramRows = buildJenkinsParamRows([], config.params || {})
+  return normalized
 }
 
 function normalizeStep(step = {}) {
@@ -2655,6 +3139,18 @@ function hydrateJenkinsStepParams(steps) {
     if (step.action_type === 'jenkins_trigger' && step.config?.entry_id) {
       loadJenkinsStepParams(step)
     }
+    if (step.action_type === 'conditional_branch') {
+      ;(step.config?.branches || []).forEach((branch) => {
+        ;(branch.steps || []).forEach((nestedStep) => {
+          if (
+            nestedStep.action_type === 'jenkins_trigger' &&
+            nestedStep.config?.entry_id
+          ) {
+            loadJenkinsStepParams(nestedStep)
+          }
+        })
+      })
+    }
   })
 }
 
@@ -2721,7 +3217,10 @@ function removeBranchNestedStep(branch, index) {
 function resetNestedStepConfig(nestedStep) {
   const config = defaultConfig(nestedStep.action_type)
   nestedStep.config = config
-  nestedStep.configText = JSON.stringify(config, null, 2)
+  nestedStep.paramsText = JSON.stringify(config.params || {}, null, 2)
+  nestedStep.paramRows = buildJenkinsParamRows([], config.params || {})
+  nestedStep.paramsLoading = false
+  nestedStep.showAdvancedParams = false
 }
 
 function branchConditionText(branch) {
@@ -2773,18 +3272,33 @@ function cleanConditionalBranchConfig(config, stepIndex) {
           }),
         action_type: nestedStep.action_type || 'jenkins_trigger',
         failure_policy: nestedStep.failure_policy || 'stop',
-        config: parseJson(
-          nestedStep.configText,
-          nestedStep.config || {},
-          t('adminPages.actionTemplates.error.branchNestedJsonInvalid', {
-            index: stepIndex,
-            branch: branchIndex + 1,
-            nested: nestedIndex + 1
-          })
+        config: cleanNestedStepConfig(
+          nestedStep,
+          stepIndex,
+          branchIndex + 1,
+          nestedIndex + 1
         )
       }))
     }))
   }
+}
+
+function cleanNestedStepConfig(nestedStep, stepIndex, branchIndex, nestedIndex) {
+  const config = { ...(nestedStep.config || {}) }
+  if (nestedStep.action_type === 'jenkins_trigger') {
+    config.params = parseJson(
+      nestedStep.paramsText,
+      {},
+      t('adminPages.actionTemplates.error.paramJsonInvalid', {
+        index: `${stepIndex}.${branchIndex}.${nestedIndex}`
+      })
+    )
+  }
+  if (isGitLabActionType(nestedStep.action_type)) {
+    config.operation = config.operation || 'create'
+    config.project_ids = (config.project_ids || []).map((item) => Number(item))
+  }
+  return config
 }
 
 function isSelected(list, id) {
