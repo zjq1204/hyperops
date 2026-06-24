@@ -1257,6 +1257,10 @@
                             .branches"
                           :key="branch.client_id || branch.id"
                           class="action-branch-case"
+                          :class="{
+                            'action-branch-case--active':
+                              isBranchCaseOpen(branch)
+                          }"
                         >
                           <div class="action-branch-case-head">
                             <div class="action-branch-case-title">
@@ -1276,25 +1280,58 @@
                                 <small class="action-branch-case-meta">{{
                                   branchConditionText(branch)
                                 }}</small>
+                                <small class="action-branch-case-steps">{{
+                                  branchNestedStepNames(branch)
+                                }}</small>
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              class="action-link-button"
-                              :disabled="
-                                selectedStep.config.branches.length <= 1
-                              "
-                              @click="
-                                removeBranchCase(selectedStep, branchIndex)
-                              "
-                            >
-                              {{
-                                t('adminPages.actionTemplates.actions.remove')
-                              }}
-                            </button>
+                            <div class="action-branch-case-actions">
+                              <button
+                                type="button"
+                                class="action-link-button"
+                                @click="toggleBranchCase(selectedStep, branch)"
+                              >
+                                {{
+                                  isBranchCaseOpen(branch)
+                                    ? t(
+                                        'adminPages.actionTemplates.actions.close'
+                                      )
+                                    : t(
+                                        'adminPages.actionTemplates.actions.edit'
+                                      )
+                                }}
+                              </button>
+                              <button
+                                type="button"
+                                class="action-link-button"
+                                :disabled="
+                                  selectedStep.config.branches.length <= 1
+                                "
+                                @click="
+                                  removeBranchCase(selectedStep, branchIndex)
+                                "
+                              >
+                                {{
+                                  t('adminPages.actionTemplates.actions.remove')
+                                }}
+                              </button>
+                            </div>
                           </div>
 
-                          <div class="action-branch-rule-card">
+                          <button
+                            v-if="!isBranchCaseOpen(branch)"
+                            type="button"
+                            class="action-branch-case-preview"
+                            @click="openBranchCase(selectedStep, branch)"
+                          >
+                            <span>{{ branchConditionText(branch) }}</span>
+                            <strong>{{ branch.steps?.length || 0 }}</strong>
+                          </button>
+
+                          <div
+                            v-if="isBranchCaseOpen(branch)"
+                            class="action-branch-rule-card"
+                          >
                             <div class="action-branch-rule-card-head">
                               <span>{{
                                 t('adminPages.actionTemplates.branch.title')
@@ -1375,7 +1412,10 @@
                             </div>
                           </div>
 
-                          <div class="action-branch-nested-head">
+                          <div
+                            v-if="isBranchCaseOpen(branch)"
+                            class="action-branch-nested-head"
+                          >
                             <span>{{
                               t('adminPages.actionTemplates.branch.steps')
                             }}</span>
@@ -1392,11 +1432,18 @@
                             </button>
                           </div>
 
-                          <div class="action-branch-nested-list">
+                          <div
+                            v-if="isBranchCaseOpen(branch)"
+                            class="action-branch-nested-list"
+                          >
                             <article
                               v-for="(nestedStep, nestedIndex) in branch.steps"
                               :key="nestedStep.client_id"
                               class="action-branch-nested-step"
+                              :class="{
+                                'action-branch-nested-step--active':
+                                  isBranchNestedStepOpen(nestedStep)
+                              }"
                             >
                               <div
                                 class="action-branch-flow-rail"
@@ -1405,7 +1452,59 @@
                                 <span>{{ nestedIndex + 1 }}</span>
                               </div>
                               <div class="action-branch-nested-body">
-                                <div class="action-branch-nested-top">
+                                <div
+                                  v-if="!isBranchNestedStepOpen(nestedStep)"
+                                  class="action-branch-nested-summary"
+                                >
+                                  <div>
+                                    <strong>{{
+                                      nestedStep.name ||
+                                      actionTypeText(nestedStep.action_type)
+                                    }}</strong>
+                                    <small>{{
+                                      actionTypeText(nestedStep.action_type)
+                                    }}</small>
+                                  </div>
+                                  <div class="action-branch-nested-actions">
+                                    <button
+                                      type="button"
+                                      class="action-link-button"
+                                      @click="
+                                        toggleBranchNestedStep(
+                                          branch,
+                                          nestedStep
+                                        )
+                                      "
+                                    >
+                                      {{
+                                        t(
+                                          'adminPages.actionTemplates.actions.edit'
+                                        )
+                                      }}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="action-link-button"
+                                      :disabled="branch.steps.length <= 1"
+                                      @click="
+                                        removeBranchNestedStep(
+                                          branch,
+                                          nestedIndex
+                                        )
+                                      "
+                                    >
+                                      {{
+                                        t(
+                                          'adminPages.actionTemplates.actions.remove'
+                                        )
+                                      }}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div
+                                  v-if="isBranchNestedStepOpen(nestedStep)"
+                                  class="action-branch-nested-top"
+                                >
                                   <input
                                     v-model="nestedStep.name"
                                     :placeholder="
@@ -1414,6 +1513,19 @@
                                       )
                                     "
                                   />
+                                  <button
+                                    type="button"
+                                    class="action-link-button"
+                                    @click="
+                                      toggleBranchNestedStep(branch, nestedStep)
+                                    "
+                                  >
+                                    {{
+                                      t(
+                                        'adminPages.actionTemplates.actions.close'
+                                      )
+                                    }}
+                                  </button>
                                   <button
                                     type="button"
                                     class="action-link-button"
@@ -1432,7 +1544,10 @@
                                     }}
                                   </button>
                                 </div>
-                                <div class="action-branch-nested-grid">
+                                <div
+                                  v-if="isBranchNestedStepOpen(nestedStep)"
+                                  class="action-branch-nested-grid"
+                                >
                                   <label class="action-field">
                                     <span>{{
                                       t(
@@ -1480,6 +1595,7 @@
                                 </div>
                                 <div
                                   v-if="
+                                    isBranchNestedStepOpen(nestedStep) &&
                                     nestedStep.action_type === 'jenkins_trigger'
                                   "
                                   class="action-branch-nested-config"
@@ -1711,7 +1827,10 @@
                                 </div>
 
                                 <div
-                                  v-else-if="isGitLabStep(nestedStep)"
+                                  v-else-if="
+                                    isBranchNestedStepOpen(nestedStep) &&
+                                    isGitLabStep(nestedStep)
+                                  "
                                   class="action-branch-nested-config"
                                 >
                                   <label class="action-field">
@@ -1881,6 +2000,7 @@
 
                                 <div
                                   v-else-if="
+                                    isBranchNestedStepOpen(nestedStep) &&
                                     nestedStep.action_type === 'manual_approval'
                                   "
                                   class="action-branch-nested-config"
@@ -2789,7 +2909,8 @@ function buildDefaultBranchCase(index = 1) {
       operator: 'equals',
       value: ''
     },
-    steps: [buildDefaultNestedStep(1)]
+    steps: [buildDefaultNestedStep(1)],
+    uiOpen: true
   }
 }
 
@@ -2807,7 +2928,8 @@ function buildDefaultNestedStep(index = 1) {
     paramsText: JSON.stringify(config.params || {}, null, 2),
     paramRows: buildJenkinsParamRows([], config.params || {}),
     paramsLoading: false,
-    showAdvancedParams: false
+    showAdvancedParams: false,
+    uiOpen: true
   }
 }
 
@@ -2823,7 +2945,8 @@ function normalizeBranchCase(branch = {}, index = 1) {
       ...fallback.condition,
       ...(branch.condition || {})
     },
-    steps: normalizeBranchNestedSteps(branch.steps || fallback.steps)
+    steps: normalizeBranchNestedSteps(branch.steps || fallback.steps),
+    uiOpen: branch.uiOpen ?? index === 1
   }
 }
 
@@ -2847,7 +2970,8 @@ function normalizeBranchNestedStep(step = {}, index = 1) {
     paramsText: JSON.stringify(config.params || {}, null, 2),
     paramRows: [],
     paramsLoading: false,
-    showAdvancedParams: false
+    showAdvancedParams: false,
+    uiOpen: step.uiOpen ?? index === 1
   }
   normalized.paramRows = buildJenkinsParamRows([], config.params || {})
   return normalized
@@ -3248,24 +3372,74 @@ function branchOperatorNeedsValue(operator) {
 
 function addBranchCase(step) {
   if (!step?.config?.branches) return
-  step.config.branches.push(
-    buildDefaultBranchCase(step.config.branches.length + 1)
-  )
+  step.config.branches.forEach((branch) => {
+    branch.uiOpen = false
+  })
+  const branch = buildDefaultBranchCase(step.config.branches.length + 1)
+  branch.uiOpen = true
+  step.config.branches.push(branch)
 }
 
 function removeBranchCase(step, index) {
   if (!step?.config?.branches || step.config.branches.length <= 1) return
+  const wasOpen = isBranchCaseOpen(step.config.branches[index])
   step.config.branches.splice(index, 1)
+  if (wasOpen && step.config.branches.length) {
+    step.config.branches[
+      Math.min(index, step.config.branches.length - 1)
+    ].uiOpen = true
+  }
 }
 
 function addBranchNestedStep(branch) {
   if (!branch?.steps) return
-  branch.steps.push(buildDefaultNestedStep(branch.steps.length + 1))
+  branch.steps.forEach((nestedStep) => {
+    nestedStep.uiOpen = false
+  })
+  const nestedStep = buildDefaultNestedStep(branch.steps.length + 1)
+  nestedStep.uiOpen = true
+  branch.steps.push(nestedStep)
 }
 
 function removeBranchNestedStep(branch, index) {
   if (!branch?.steps || branch.steps.length <= 1) return
+  const wasOpen = isBranchNestedStepOpen(branch.steps[index])
   branch.steps.splice(index, 1)
+  if (wasOpen && branch.steps.length) {
+    branch.steps[Math.min(index, branch.steps.length - 1)].uiOpen = true
+  }
+}
+
+function isBranchCaseOpen(branch) {
+  return branch?.uiOpen !== false
+}
+
+function openBranchCase(step, branch) {
+  ;(step?.config?.branches || []).forEach((item) => {
+    item.uiOpen = item === branch
+  })
+}
+
+function toggleBranchCase(step, branch) {
+  if (isBranchCaseOpen(branch)) {
+    branch.uiOpen = false
+    return
+  }
+  openBranchCase(step, branch)
+}
+
+function isBranchNestedStepOpen(nestedStep) {
+  return nestedStep?.uiOpen !== false
+}
+
+function toggleBranchNestedStep(branch, nestedStep) {
+  if (isBranchNestedStepOpen(nestedStep)) {
+    nestedStep.uiOpen = false
+    return
+  }
+  ;(branch?.steps || []).forEach((item) => {
+    item.uiOpen = item === nestedStep
+  })
 }
 
 function resetNestedStepConfig(nestedStep) {
@@ -4290,7 +4464,16 @@ onMounted(() => {
   gap: 16px;
   border: 1px solid #d7e0ec;
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: #ffffff;
+  padding: 12px 14px;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.action-branch-case--active {
+  border-color: #b7c4d6;
+  background: #f8fafc;
   padding: 16px;
 }
 
@@ -4301,6 +4484,14 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.action-branch-case-actions,
+.action-branch-nested-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .action-branch-case-title {
@@ -4341,6 +4532,59 @@ onMounted(() => {
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.action-branch-case-steps {
+  display: block;
+  max-width: 64ch;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-branch-case-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid #edf2f7;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding-top: 10px;
+  text-align: left;
+}
+
+.action-branch-case-preview:hover {
+  color: #0f172a;
+}
+
+.action-branch-case-preview span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-branch-case-preview strong {
+  display: inline-flex;
+  min-width: 26px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .action-branch-rule-card {
@@ -4401,9 +4645,15 @@ onMounted(() => {
 .action-branch-nested-step {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
   border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.action-branch-nested-step--active {
+  border-color: #cbd5e1;
   background: #ffffff;
   padding: 14px;
 }
@@ -4449,6 +4699,32 @@ onMounted(() => {
   gap: 12px;
 }
 
+.action-branch-nested-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+}
+
+.action-branch-nested-summary strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-branch-nested-summary small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .action-branch-nested-top input {
   min-width: 0;
   flex: 1;
@@ -4479,7 +4755,8 @@ onMounted(() => {
   }
 
   .action-branch-rule-card-head strong,
-  .action-branch-case-meta {
+  .action-branch-case-meta,
+  .action-branch-case-steps {
     width: 100%;
     text-align: left;
     white-space: normal;
@@ -4497,7 +4774,8 @@ onMounted(() => {
   }
 
   .action-branch-case-head,
-  .action-branch-nested-top {
+  .action-branch-nested-top,
+  .action-branch-nested-summary {
     align-items: stretch;
     flex-direction: column;
   }

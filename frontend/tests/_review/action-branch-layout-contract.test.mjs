@@ -19,8 +19,29 @@ assert(
 )
 
 assert(
+  source.includes('action-branch-case--active'),
+  'only the active branch case should expand into the full editor'
+)
+
+assert(
+  source.includes('isBranchCaseOpen(branch)'),
+  'branch cases should be rendered through an explicit open-state helper'
+)
+
+assert(
   source.includes('action-branch-flow-rail'),
   'nested branch steps should use a visual rail to separate flow from form fields'
+)
+
+assert(
+  source.includes('isBranchNestedStepOpen(nestedStep)'),
+  'nested steps should collapse their heavy action configuration until selected'
+)
+
+assert(
+  source.includes('function toggleBranchNestedStep') &&
+    source.includes('toggleBranchNestedStep('),
+  'nested branch steps should have a direct edit/collapse affordance'
 )
 
 assert(
