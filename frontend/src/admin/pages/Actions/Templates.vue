@@ -2329,35 +2329,127 @@
               v-for="(step, index) in previewSteps"
               :key="step.id || `${step.order}-${index}`"
               class="action-flow-node"
-              :class="`action-flow-node--${step.action_type}`"
+              :class="[
+                `action-flow-node--${step.action_type}`,
+                {
+                  'action-flow-node--branch-preview':
+                    step.action_type === 'conditional_branch'
+                }
+              ]"
             >
               <div class="action-flow-node-index">{{ index + 1 }}</div>
               <div class="action-flow-node-body">
-                <div class="action-flow-node-type">
-                  {{ actionTypeText(step.action_type) }}
-                </div>
-                <h4>
-                  {{
-                    step.name ||
-                    t('adminPages.actionTemplates.steps.step', {
-                      count: index + 1
-                    })
-                  }}
-                </h4>
-                <p>{{ previewStepSummary(step) }}</p>
-                <span
-                  :class="
-                    step.failure_policy === 'continue'
-                      ? 'action-flow-policy action-flow-policy--continue'
-                      : 'action-flow-policy'
-                  "
-                >
-                  {{
-                    step.failure_policy === 'continue'
-                      ? t('adminPages.actionTemplates.steps.policyContinue')
-                      : t('adminPages.actionTemplates.steps.policyStop')
-                  }}
-                </span>
+                <template v-if="step.action_type === 'conditional_branch'">
+                  <div class="action-flow-branch-top">
+                    <div>
+                      <div class="action-flow-node-type">
+                        {{ actionTypeText(step.action_type) }}
+                      </div>
+                      <h4>
+                        {{
+                          step.name ||
+                          t('adminPages.actionTemplates.steps.step', {
+                            count: index + 1
+                          })
+                        }}
+                      </h4>
+                    </div>
+                    <span
+                      :class="
+                        step.failure_policy === 'continue'
+                          ? 'action-flow-policy action-flow-policy--continue'
+                          : 'action-flow-policy'
+                      "
+                    >
+                      {{
+                        step.failure_policy === 'continue'
+                          ? t('adminPages.actionTemplates.steps.policyContinue')
+                          : t('adminPages.actionTemplates.steps.policyStop')
+                      }}
+                    </span>
+                  </div>
+                  <div class="action-flow-branch-diagram">
+                    <div class="action-flow-branch-split" aria-hidden="true" />
+                    <div class="action-flow-branch-lanes">
+                      <div
+                        v-for="(branch, branchIndex) in previewBranchCases(
+                          step
+                        )"
+                        :key="branch.id || branch.client_id || branchIndex"
+                        class="action-flow-branch-lane"
+                      >
+                        <div class="action-flow-branch-rule">
+                          <span>{{ branchIndex + 1 }}</span>
+                          <div>
+                            <strong>{{
+                              branch.label || branchConditionText(branch)
+                            }}</strong>
+                            <small>{{ branchConditionText(branch) }}</small>
+                          </div>
+                        </div>
+                        <div class="action-flow-branch-steps">
+                          <span
+                            v-for="(
+                              nestedStep, nestedIndex
+                            ) in previewBranchNestedSteps(branch)"
+                            :key="
+                              nestedStep.id ||
+                              nestedStep.client_id ||
+                              nestedIndex
+                            "
+                            class="action-flow-branch-step"
+                          >
+                            {{
+                              nestedStep.name ||
+                              actionTypeText(nestedStep.action_type)
+                            }}
+                          </span>
+                          <span
+                            v-if="!previewBranchNestedSteps(branch).length"
+                            class="action-flow-branch-step action-flow-branch-step--empty"
+                          >
+                            {{
+                              t(
+                                'adminPages.actionTemplates.branch.noNestedSteps'
+                              )
+                            }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="action-flow-branch-merge" aria-hidden="true" />
+                  </div>
+                  <div class="action-flow-branch-default">
+                    {{ t('adminPages.actionTemplates.branch.defaultSkip') }}
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="action-flow-node-type">
+                    {{ actionTypeText(step.action_type) }}
+                  </div>
+                  <h4>
+                    {{
+                      step.name ||
+                      t('adminPages.actionTemplates.steps.step', {
+                        count: index + 1
+                      })
+                    }}
+                  </h4>
+                  <p>{{ previewStepSummary(step) }}</p>
+                  <span
+                    :class="
+                      step.failure_policy === 'continue'
+                        ? 'action-flow-policy action-flow-policy--continue'
+                        : 'action-flow-policy'
+                    "
+                  >
+                    {{
+                      step.failure_policy === 'continue'
+                        ? t('adminPages.actionTemplates.steps.policyContinue')
+                        : t('adminPages.actionTemplates.steps.policyStop')
+                    }}
+                  </span>
+                </template>
               </div>
               <div
                 v-if="index < previewSteps.length - 1"
@@ -3422,6 +3514,14 @@ function branchNestedStepNames(branch) {
     : t('adminPages.actionTemplates.branch.noNestedSteps')
 }
 
+function previewBranchCases(step) {
+  return step?.config?.branches || []
+}
+
+function previewBranchNestedSteps(branch) {
+  return branch?.steps || []
+}
+
 function cleanConditionalBranchConfig(config, stepIndex) {
   return {
     match_mode: 'first',
@@ -4052,6 +4152,192 @@ onMounted(() => {
 
 .action-flow-node--conditional_branch .action-flow-node-index {
   background: #6d5d2e;
+}
+
+.action-flow-node--branch-preview {
+  min-width: 560px;
+}
+
+.action-flow-node--branch-preview .action-flow-node-body {
+  min-height: 0;
+  padding: 18px;
+}
+
+.action-flow-branch-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.action-flow-branch-diagram {
+  display: grid;
+  grid-template-columns: 28px minmax(320px, 1fr) 28px;
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.action-flow-branch-split,
+.action-flow-branch-merge {
+  position: relative;
+  min-height: 100%;
+}
+
+.action-flow-branch-split::before,
+.action-flow-branch-merge::before {
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  left: 50%;
+  width: 2px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  content: '';
+  transform: translateX(-50%);
+}
+
+.action-flow-branch-split::after,
+.action-flow-branch-merge::after {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  content: '';
+  transform: translateY(-50%);
+}
+
+.action-flow-branch-split::after {
+  right: 0;
+}
+
+.action-flow-branch-merge::after {
+  left: 0;
+}
+
+.action-flow-branch-lanes {
+  display: grid;
+  gap: 10px;
+}
+
+.action-flow-branch-lane {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(190px, 1.1fr);
+  gap: 12px;
+  align-items: stretch;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.action-flow-branch-lane::before,
+.action-flow-branch-lane::after {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 2px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  content: '';
+  transform: translateY(-50%);
+}
+
+.action-flow-branch-lane::before {
+  left: -11px;
+}
+
+.action-flow-branch-lane::after {
+  right: -11px;
+}
+
+.action-flow-branch-rule {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.action-flow-branch-rule > span {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.action-flow-branch-rule div {
+  min-width: 0;
+}
+
+.action-flow-branch-rule strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-branch-rule small {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-branch-steps {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+  align-items: flex-start;
+}
+
+.action-flow-branch-step {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  padding: 5px 8px;
+}
+
+.action-flow-branch-step--empty {
+  border-style: dashed;
+  color: #64748b;
+}
+
+.action-flow-branch-default {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 9px;
 }
 
 .action-editor {
