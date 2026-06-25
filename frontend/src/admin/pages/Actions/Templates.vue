@@ -2337,7 +2337,9 @@
                 }
               ]"
             >
-              <div class="action-flow-node-index">{{ index + 1 }}</div>
+              <div class="action-flow-node-index">
+                {{ previewStepIndex(index) }}
+              </div>
               <div class="action-flow-node-body">
                 <template v-if="step.action_type === 'conditional_branch'">
                   <div class="action-flow-branch-top">
@@ -2405,7 +2407,7 @@
                           class="action-flow-conditional-connector"
                         >
                           <span class="action-flow-conditional-label">{{
-                            branchConditionText(branch)
+                            previewBranchConditionText(branch)
                           }}</span>
                           <span
                             class="action-flow-conditional-arrow-line"
@@ -2428,9 +2430,12 @@
                               branchIndex + 1
                             }}</span>
                             <strong>{{
-                              branch.label || branchConditionText(branch)
+                              branch.label || previewBranchConditionText(branch)
                             }}</strong>
                           </div>
+                          <code class="action-flow-branch-rule-chip">{{
+                            previewBranchConditionText(branch)
+                          }}</code>
                         </div>
                         <div class="action-flow-branch-step-list">
                           <div
@@ -2473,6 +2478,33 @@
                           </span>
                         </div>
                       </div>
+                    </div>
+                    <div class="action-flow-branch-output" aria-hidden="true">
+                      <svg
+                        class="action-flow-branch-output-curves"
+                        :viewBox="`0 0 190 ${previewConnectorHeight(step)}`"
+                        preserveAspectRatio="none"
+                      >
+                        <path
+                          v-for="(branch, branchIndex) in previewBranchCases(
+                            step
+                          )"
+                          :key="`out-${branch.id || branch.client_id || branchIndex}`"
+                          class="action-flow-branch-output-curve"
+                          :d="
+                            previewOutputConnectorCurve(
+                              branchIndex,
+                              previewBranchCases(step).length
+                            )
+                          "
+                        />
+                        <circle
+                          class="action-flow-branch-output-origin"
+                          cx="176"
+                          :cy="previewConnectorOriginY(step)"
+                          r="3"
+                        />
+                      </svg>
                     </div>
                     <div class="action-flow-branch-merge" aria-hidden="true" />
                   </div>
@@ -3562,6 +3594,28 @@ function branchConditionText(branch) {
   return `${condition.param} ${operator?.label || condition.operator} ${condition.value || ''}`
 }
 
+function previewBranchConditionText(branch) {
+  const condition = branch?.condition || {}
+  if (!condition.param) {
+    return t('adminPages.actionTemplates.branch.conditionMissing')
+  }
+
+  const operatorSymbols = {
+    equals: '=',
+    not_equals: '!=',
+    contains: 'contains',
+    is_empty: 'is empty',
+    is_not_empty: 'is not empty'
+  }
+  const operator = operatorSymbols[condition.operator] || condition.operator
+
+  if (!branchOperatorNeedsValue(condition.operator)) {
+    return `${condition.param} ${operator}`
+  }
+
+  return `${condition.param} ${operator} "${condition.value || ''}"`
+}
+
 function branchNestedStepNames(branch) {
   const names = (branch?.steps || [])
     .map((step) => step.name || actionTypeText(step.action_type))
@@ -3579,8 +3633,12 @@ function previewBranchNestedSteps(branch) {
   return branch?.steps || []
 }
 
-const connectorRowHeight = 86
-const connectorRowGap = 12
+function previewStepIndex(index) {
+  return String(index + 1).padStart(2, '0')
+}
+
+const connectorRowHeight = 96
+const connectorRowGap = 14
 
 function previewConnectorHeight(step) {
   const count = Math.max(previewBranchCases(step).length, 1)
@@ -3601,7 +3659,16 @@ function previewConnectorCurve(index, count) {
       (Math.max(count, 1) - 1) * connectorRowGap) /
     2
   const targetY = previewConnectorTargetY(index)
-  return `M 10 ${originY} C 32 ${originY}, 42 ${targetY}, 58 ${targetY}`
+  return `M 10 ${originY} C 34 ${originY}, 42 ${targetY}, 62 ${targetY}`
+}
+
+function previewOutputConnectorCurve(index, count) {
+  const originY =
+    (Math.max(count, 1) * connectorRowHeight +
+      (Math.max(count, 1) - 1) * connectorRowGap) /
+    2
+  const targetY = previewConnectorTargetY(index)
+  return `M 12 ${targetY} C 78 ${targetY}, 98 ${originY}, 176 ${originY}`
 }
 
 function cleanConditionalBranchConfig(config, stepIndex) {
@@ -4080,7 +4147,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 20px;
+  gap: 18px;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   background: #ffffff;
@@ -4121,7 +4188,7 @@ onMounted(() => {
 .action-flow-canvas {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
   overflow-x: auto;
   border: 1px solid #e8edf5;
   border-radius: 16px;
@@ -4133,52 +4200,84 @@ onMounted(() => {
     ),
     #fbfdff;
   background-size: 28px 28px;
-  padding: 24px;
+  padding: 54px 42px 52px;
 }
 
 .action-flow-node {
   position: relative;
   display: flex;
-  min-width: 260px;
-  gap: 14px;
-  align-items: flex-start;
+  min-width: 250px;
+  gap: 0;
+  align-items: center;
 }
 
 .action-flow-node-index {
+  position: absolute;
+  top: 0;
+  left: 28px;
+  z-index: 4;
   display: inline-flex;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  min-width: 46px;
+  height: 26px;
   align-items: center;
   justify-content: center;
-  border-radius: 16px;
-  background: #1f2d3f;
+  border-radius: 999px;
+  background: #101827;
   color: #ffffff;
+  font-size: 12px;
   font-weight: 900;
+  letter-spacing: 0.12em;
+  transform: translateY(-50%);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
 }
 
 .action-flow-node-body {
+  position: relative;
   min-height: 168px;
   flex: 1;
   border: 1px solid #e1e8f2;
-  border-radius: 12px;
+  border-radius: 16px;
   background: #ffffff;
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
-  padding: 16px;
+  padding: 22px 20px;
+}
+
+.action-flow-node-body::after {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #10b981;
+  border-radius: 999px;
+  color: #10b981;
+  content: '✓';
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .action-flow-node-type {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  background: #f1f5f9;
   color: #64748b;
   font-size: 12px;
   font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 6px 10px;
+  text-transform: none;
 }
 
 .action-flow-node-body h4 {
-  margin: 8px 0 0;
+  margin: 14px 0 0;
   color: #0f172a;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 900;
 }
 
@@ -4213,47 +4312,52 @@ onMounted(() => {
   margin-left: -2px;
 }
 
+.action-flow-node:has(+ .action-flow-node--branch-preview) .action-flow-arrow,
+.action-flow-node--branch-preview .action-flow-arrow {
+  display: none;
+}
+
 .action-flow-conditional-connectors {
   position: relative;
   display: grid;
   width: 100%;
-  gap: 12px;
+  gap: 14px;
   align-self: center;
-  padding: 2px 0 2px 58px;
+  padding: 0 0 0 56px;
 }
 
 .action-flow-conditional-connectors::before {
   position: absolute;
   top: 50%;
-  left: 0;
-  width: 14px;
+  left: -104px;
+  width: 116px;
   height: 2px;
   border-radius: 999px;
-  background: rgba(79, 70, 229, 0.32);
+  background: rgba(203, 213, 225, 0.72);
   content: '';
   transform: translateY(-50%);
 }
 
 .action-flow-conditional-curves {
   position: absolute;
-  inset: 2px 0 2px 0;
+  inset: 0;
   width: 100%;
-  height: calc(100% - 4px);
+  height: 100%;
   overflow: visible;
   pointer-events: none;
 }
 
 .action-flow-conditional-origin {
-  fill: #4f46e5;
+  fill: #10b981;
   stroke: #ffffff;
   stroke-width: 3px;
 }
 
 .action-flow-conditional-curve {
   fill: none;
-  stroke: rgba(99, 102, 241, 0.34);
+  stroke: rgba(203, 213, 225, 0.72);
   stroke-linecap: round;
-  stroke-width: 2px;
+  stroke-width: 2.25px;
 }
 
 .action-flow-conditional-connector {
@@ -4261,23 +4365,28 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
-  min-height: 86px;
+  min-height: 96px;
 }
 
 .action-flow-conditional-label {
   display: inline-flex;
   width: fit-content;
-  max-width: 158px;
-  border: 1px solid rgba(99, 102, 241, 0.24);
+  max-width: 172px;
+  border: 1px solid #e8eef6;
   border-radius: 8px;
-  background: #ffffff;
-  color: #4338ca;
-  font-size: 11px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #94a3b8;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1.35;
-  overflow-wrap: anywhere;
-  padding: 5px 8px;
-  box-shadow: 0 1px 4px rgba(79, 70, 229, 0.08);
+  overflow: hidden;
+  padding: 7px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: none;
 }
 
 .action-flow-conditional-arrow-line {
@@ -4295,25 +4404,17 @@ onMounted(() => {
   left: 0;
   height: 2px;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.34);
+  background: rgba(203, 213, 225, 0.72);
   content: '';
   transform: translateY(-50%);
 }
 
 .action-flow-conditional-arrow-line::after {
-  position: absolute;
-  top: 50%;
-  right: -17px;
-  width: 7px;
-  height: 7px;
-  border-top: 2px solid rgba(99, 102, 241, 0.5);
-  border-right: 2px solid rgba(99, 102, 241, 0.5);
-  content: '';
-  transform: translateY(-50%) rotate(45deg);
+  display: none;
 }
 
 .action-flow-node--jenkins_trigger .action-flow-node-index {
-  background: #1f2d3f;
+  background: #059669;
 }
 
 .action-flow-node--gitlab_branch_create .action-flow-node-index {
@@ -4333,23 +4434,70 @@ onMounted(() => {
 }
 
 .action-flow-node--manual_approval .action-flow-node-index {
-  background: #0f766e;
+  background: #101827;
 }
 
 .action-flow-node--conditional_branch .action-flow-node-index {
-  background: #6d5d2e;
+  background: #21194f;
 }
 
 .action-flow-node--branch-preview {
-  min-width: 780px;
+  min-width: 880px;
+  justify-content: center;
+  padding: 0 180px;
 }
 
 .action-flow-node--branch-preview .action-flow-node-body {
-  border-color: #dbe4f0;
+  width: 520px;
+  flex: 0 0 520px;
+  border-color: #10b981;
   min-height: 0;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
-  padding: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: none;
+  padding: 30px 34px 26px;
+}
+
+.action-flow-node--branch-preview .action-flow-node-index {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.action-flow-node--branch-preview .action-flow-node-type {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.action-flow-node--branch-preview .action-flow-policy {
+  margin-right: 38px;
+}
+
+.action-flow-node--jenkins_trigger .action-flow-node-body {
+  border-color: #10b981;
+  box-shadow: none;
+}
+
+.action-flow-node--jenkins_trigger .action-flow-node-body::before,
+.action-flow-node--manual_approval .action-flow-node-body::before {
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 0;
+  width: 7px;
+  border-radius: 999px;
+  background: #10b981;
+  content: '';
+}
+
+.action-flow-node--manual_approval .action-flow-node-body::before {
+  background: #cbd5e1;
+}
+
+.action-flow-node--manual_approval .action-flow-node-body::after {
+  display: none;
+}
+
+.action-flow-node--manual_approval .action-flow-node-body {
+  border-color: #dbe5f0;
 }
 
 .action-flow-branch-top {
@@ -4360,15 +4508,20 @@ onMounted(() => {
 }
 
 .action-flow-branch-diagram {
-  display: grid;
-  grid-template-columns: 220px minmax(400px, 1fr);
-  gap: 10px;
-  align-items: start;
-  margin-top: 14px;
+  position: relative;
+  display: block;
+  margin-top: 18px;
 }
 
 .action-flow-branch-inputs {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -204px;
+  z-index: 1;
+  width: 184px;
   min-width: 0;
+  pointer-events: none;
 }
 
 .action-flow-branch-split,
@@ -4411,21 +4564,19 @@ onMounted(() => {
 
 .action-flow-branch-lanes {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .action-flow-branch-lane {
   position: relative;
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  min-height: 86px;
-  border: 1px solid #dbe5f0;
+  gap: 16px;
+  min-height: 96px;
+  border: 1px solid #edf2f7;
   border-radius: 12px;
-  background: rgba(248, 251, 255, 0.78);
+  background: rgba(255, 255, 255, 0.72);
   box-shadow: none;
-  padding: 12px 14px;
+  padding: 16px;
 }
 
 .action-flow-branch-lane::before,
@@ -4436,12 +4587,12 @@ onMounted(() => {
 .action-flow-branch-lane::before {
   position: absolute;
   top: 50%;
-  left: -12px;
+  left: -28px;
   display: block;
-  width: 12px;
+  width: 28px;
   height: 2px;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.34);
+  background: rgba(203, 213, 225, 0.72);
   content: '';
   transform: translateY(-50%);
 }
@@ -4452,6 +4603,8 @@ onMounted(() => {
 
 .action-flow-branch-condition {
   display: flex;
+  justify-content: space-between;
+  gap: 16px;
   align-items: center;
   min-width: 0;
 }
@@ -4471,8 +4624,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: #eaf2ff;
-  color: #1d4ed8;
+  background: #eef2f7;
+  color: #94a3b8;
   font-size: 12px;
   font-weight: 900;
 }
@@ -4481,10 +4634,27 @@ onMounted(() => {
   display: block;
   min-width: 0;
   overflow: hidden;
-  color: #172033;
+  color: #64748b;
   font-size: 13px;
   font-weight: 900;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-branch-rule-chip {
+  display: inline-flex;
+  max-width: 168px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  border: 1px solid #edf2f7;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 5px 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4495,9 +4665,9 @@ onMounted(() => {
   gap: 0;
   align-items: center;
   overflow-x: auto;
-  border-radius: 10px;
-  background: rgba(226, 236, 247, 0.72);
-  padding: 7px;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
   scrollbar-width: thin;
 }
 
@@ -4512,13 +4682,14 @@ onMounted(() => {
   max-width: 140px;
   align-items: center;
   overflow: hidden;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #334155;
+  border: 1px solid #d8f3e8;
+  border-radius: 10px;
+  background: #f0fdf7;
+  color: #047857;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.3;
-  padding: 6px 9px;
+  padding: 8px 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4532,6 +4703,35 @@ onMounted(() => {
   color: #94a3b8;
   font-size: 14px;
   font-weight: 900;
+}
+
+.action-flow-branch-output {
+  position: absolute;
+  top: 0;
+  right: -204px;
+  bottom: 0;
+  z-index: 0;
+  width: 184px;
+  pointer-events: none;
+}
+
+.action-flow-branch-output-curves {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.action-flow-branch-output-curve {
+  fill: none;
+  stroke: rgba(203, 213, 225, 0.72);
+  stroke-linecap: round;
+  stroke-width: 2.25px;
+}
+
+.action-flow-branch-output-origin {
+  fill: #94a3b8;
+  stroke: #ffffff;
+  stroke-width: 3px;
 }
 
 .action-flow-branch-step--empty {

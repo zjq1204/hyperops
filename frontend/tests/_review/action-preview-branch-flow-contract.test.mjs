@@ -39,8 +39,10 @@ assert(
     source.includes('action-flow-conditional-curves') &&
     source.includes('action-flow-conditional-origin') &&
     source.includes('action-flow-conditional-arrow-line') &&
-    source.includes('previewConnectorCurve('),
-  'the connector inside a conditional branch should render labelled curved arrows from one origin point'
+    source.includes('previewConnectorCurve(') &&
+    source.includes('action-flow-branch-output') &&
+    source.includes('previewOutputConnectorCurve('),
+  'conditional branch preview should render outside incoming labels and outgoing merge curves'
 )
 
 assert(
@@ -73,8 +75,9 @@ const branchDiagramBlock = source.match(
 assert(branchDiagramBlock, 'branch diagram layout should be defined')
 
 assert(
-  branchDiagramBlock.includes('grid-template-columns: 220px minmax(400px, 1fr)'),
-  'branch diagram should place condition connectors and branch lanes in aligned columns'
+  branchDiagramBlock.includes('position: relative') &&
+    branchDiagramBlock.includes('display: block'),
+  'branch diagram should anchor outside connectors around the central branch card'
 )
 
 const conditionalConnectorRowBlock = source.match(
@@ -86,7 +89,7 @@ assert(
 )
 
 assert(
-  conditionalConnectorRowBlock.includes('min-height: 86px'),
+  conditionalConnectorRowBlock.includes('min-height: 96px'),
   'conditional connector rows should align with branch lane rows'
 )
 
@@ -96,9 +99,10 @@ const conditionalLabelBlock = source.match(
 assert(conditionalLabelBlock, 'conditional connector label styles should be defined')
 
 assert(
-  !conditionalLabelBlock.includes('white-space: nowrap') &&
-    !conditionalLabelBlock.includes('text-overflow: ellipsis'),
-  'conditional connector labels should stay readable instead of truncating'
+  conditionalLabelBlock.includes('font-family:') &&
+    conditionalLabelBlock.includes('max-width: 172px') &&
+    conditionalLabelBlock.includes('white-space: nowrap'),
+  'conditional connector labels should read like compact rule tags on the line'
 )
 
 assert(
@@ -114,14 +118,15 @@ assert(
 assert(
   source.includes('action-flow-branch-condition') &&
     source.includes('action-flow-branch-step-list') &&
-    source.includes('action-flow-branch-title'),
-  'branch preview should separate branch title and nested steps into distinct blocks'
+    source.includes('action-flow-branch-title') &&
+    source.includes('action-flow-branch-rule-chip'),
+  'branch preview should separate branch title, rule tag, and nested steps'
 )
 
 assert(
   !source.includes('action-flow-branch-condition-pill') &&
     !source.includes('<small>{{ branchConditionText(branch) }}</small>'),
-  'branch condition should only appear on incoming connector labels'
+  'branch condition should use the new rule chip instead of the old meta line'
 )
 
 assert(
@@ -154,11 +159,10 @@ const branchLaneBlock = source.match(
 assert(branchLaneBlock, 'branch lane styles should be defined')
 
 assert(
-  branchLaneBlock.includes('grid-template-columns: 112px minmax(0, 1fr)') &&
-    branchLaneBlock.includes('border: 1px solid #dbe5f0') &&
+  branchLaneBlock.includes('border: 1px solid #edf2f7') &&
     branchLaneBlock.includes('box-shadow: none') &&
-    branchLaneBlock.includes('min-height: 86px'),
-  'branch lanes should use horizontal flow rows with a light bordered treatment'
+    branchLaneBlock.includes('min-height: 96px'),
+  'branch lanes should use airy rows with a light bordered treatment'
 )
 
 const branchLaneEntryBlock = source.match(
@@ -167,7 +171,7 @@ const branchLaneEntryBlock = source.match(
 assert(branchLaneEntryBlock, 'branch lanes should expose an incoming port')
 
 assert(
-  branchLaneEntryBlock.includes('left: -12px') &&
+  branchLaneEntryBlock.includes('left: -28px') &&
     !branchLaneEntryBlock.includes('display: none'),
   'each incoming condition line should visually connect to its branch lane'
 )
@@ -176,6 +180,19 @@ assert(
   source.includes('box-shadow: 0 2px 6px') &&
     !source.includes('box-shadow: 0 18px 36px'),
   'preview step cards should use a lighter shadow treatment'
+)
+
+assert(
+  source.includes('previewStepIndex(index)') &&
+    source.includes("padStart(2, '0')"),
+  'preview nodes should render two-digit step badges like the design reference'
+)
+
+assert(
+  source.includes('previewBranchConditionText(branch)') &&
+    source.includes('operatorSymbols') &&
+    source.includes('condition.value ||'),
+  'preview branch conditions should use compact rule labels like branch_name = "centos9"'
 )
 
 console.log('action preview branch flow contract ok')
