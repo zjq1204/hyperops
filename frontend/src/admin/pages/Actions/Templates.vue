@@ -3588,7 +3588,7 @@ function previewNextStep(index) {
   return previewSteps.value[index + 1]
 }
 
-const connectorRowHeight = 48
+const connectorRowHeight = 112
 const connectorRowGap = 14
 
 function previewConnectorHeight(step) {
@@ -4221,8 +4221,8 @@ onMounted(() => {
 .action-flow-conditional-connectors {
   position: relative;
   display: grid;
-  width: 210px;
-  flex: 0 0 210px;
+  width: 230px;
+  flex: 0 0 230px;
   gap: 14px;
   align-self: center;
   padding: 4px 0 4px 90px;
@@ -4255,7 +4255,7 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
-  min-height: 48px;
+  min-height: 112px;
 }
 
 .action-flow-conditional-label {
@@ -4285,7 +4285,7 @@ onMounted(() => {
 .action-flow-conditional-arrow-line::before {
   position: absolute;
   top: 50%;
-  right: 7px;
+  right: -11px;
   left: 0;
   height: 2px;
   border-radius: 999px;
@@ -4297,7 +4297,7 @@ onMounted(() => {
 .action-flow-conditional-arrow-line::after {
   position: absolute;
   top: 50%;
-  right: 0;
+  right: -18px;
   width: 7px;
   height: 7px;
   border-top: 2px solid rgba(79, 70, 229, 0.5);
@@ -4404,6 +4404,7 @@ onMounted(() => {
   display: grid;
   gap: 14px;
   align-items: start;
+  min-height: 112px;
   border: 1px solid #d8e2ef;
   border-radius: 14px;
   background: rgba(248, 250, 252, 0.86);
@@ -4417,7 +4418,16 @@ onMounted(() => {
 }
 
 .action-flow-branch-lane::before {
-  left: -9px;
+  position: absolute;
+  top: 50%;
+  left: -14px;
+  display: block;
+  width: 14px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.34);
+  content: '';
+  transform: translateY(-50%);
 }
 
 .action-flow-branch-lane::after {

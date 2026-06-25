@@ -67,6 +67,19 @@ assert(
   'conditional connector spacing should not rely on negative margins'
 )
 
+const conditionalConnectorRowBlock = source.match(
+  /\.action-flow-conditional-connector\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(
+  conditionalConnectorRowBlock,
+  'conditional connector row styles should be defined'
+)
+
+assert(
+  conditionalConnectorRowBlock.includes('min-height: 112px'),
+  'conditional connector rows should align with branch lane rows'
+)
+
 const conditionalLabelBlock = source.match(
   /\.action-flow-conditional-label\s*\{[\s\S]*?\n\}/
 )?.[0]
@@ -132,8 +145,20 @@ assert(branchLaneBlock, 'branch lane styles should be defined')
 
 assert(
   branchLaneBlock.includes('border: 1px solid #d8e2ef') &&
-    branchLaneBlock.includes('box-shadow: 0 3px 10px'),
+    branchLaneBlock.includes('box-shadow: 0 3px 10px') &&
+    branchLaneBlock.includes('min-height: 112px'),
   'branch lanes should use light bordered cards like the preview reference'
+)
+
+const branchLaneEntryBlock = source.match(
+  /\.action-flow-branch-lane::before\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(branchLaneEntryBlock, 'branch lanes should expose an incoming port')
+
+assert(
+  branchLaneEntryBlock.includes('left: -14px') &&
+    !branchLaneEntryBlock.includes('display: none'),
+  'each incoming condition line should visually connect to its branch lane'
 )
 
 assert(
