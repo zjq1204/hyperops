@@ -2324,7 +2324,51 @@
             </div>
           </section>
 
-          <div v-if="previewSteps.length" class="action-flow-canvas">
+          <div
+            v-if="previewSteps.length"
+            ref="previewCanvasRef"
+            class="action-flow-canvas"
+            @scroll="schedulePreviewFlowMeasure"
+          >
+            <svg
+              v-if="previewFlowConnections.length"
+              class="action-flow-connection-layer"
+              :viewBox="`0 0 ${previewFlowCanvasSize.width} ${previewFlowCanvasSize.height}`"
+              :style="{
+                width: `${previewFlowCanvasSize.width}px`,
+                height: `${previewFlowCanvasSize.height}px`
+              }"
+              aria-hidden="true"
+            >
+              <path
+                v-for="connection in previewFlowConnections"
+                :key="connection.id"
+                class="action-flow-connection-path"
+                :d="connection.path"
+              />
+            </svg>
+            <div
+              v-if="
+                previewFlowConnections.some((connection) => connection.label)
+              "
+              class="action-flow-connection-labels"
+              :style="{
+                width: `${previewFlowCanvasSize.width}px`,
+                height: `${previewFlowCanvasSize.height}px`
+              }"
+              aria-hidden="true"
+            >
+              <span
+                v-for="connection in previewFlowConnections.filter(
+                  (item) => item.label
+                )"
+                :key="`${connection.id}-label`"
+                class="action-flow-connection-label"
+                :style="connection.labelStyle"
+              >
+                {{ connection.label }}
+              </span>
+            </div>
             <article
               v-for="(step, index) in previewSteps"
               :key="step.id || `${step.order}-${index}`"
@@ -2337,6 +2381,16 @@
                 }
               ]"
             >
+              <span
+                class="action-flow-port action-flow-port--in"
+                :data-flow-port="previewStepPort(index, 'in')"
+                aria-hidden="true"
+              />
+              <span
+                class="action-flow-port action-flow-port--out"
+                :data-flow-port="previewStepPort(index, 'out')"
+                aria-hidden="true"
+              />
               <div class="action-flow-node-index">
                 {{ previewStepIndex(index) }}
               </div>
@@ -2371,51 +2425,6 @@
                     </span>
                   </div>
                   <div class="action-flow-branch-diagram">
-                    <div class="action-flow-branch-inputs">
-                      <div class="action-flow-conditional-connectors">
-                        <svg
-                          class="action-flow-conditional-curves"
-                          :viewBox="`0 0 180 ${previewConnectorHeight(step)}`"
-                          preserveAspectRatio="none"
-                          aria-hidden="true"
-                        >
-                          <circle
-                            class="action-flow-conditional-origin"
-                            cx="10"
-                            :cy="previewConnectorOriginY(step)"
-                            r="4"
-                          />
-                          <path
-                            v-for="(branch, branchIndex) in previewBranchCases(
-                              step
-                            )"
-                            :key="`curve-${branch.id || branch.client_id || branchIndex}`"
-                            class="action-flow-conditional-curve"
-                            :d="
-                              previewConnectorCurve(
-                                branchIndex,
-                                previewBranchCases(step).length
-                              )
-                            "
-                          />
-                        </svg>
-                        <div
-                          v-for="(branch, branchIndex) in previewBranchCases(
-                            step
-                          )"
-                          :key="branch.id || branch.client_id || branchIndex"
-                          class="action-flow-conditional-connector"
-                        >
-                          <span class="action-flow-conditional-label">{{
-                            previewBranchConditionText(branch)
-                          }}</span>
-                          <span
-                            class="action-flow-conditional-arrow-line"
-                            aria-hidden="true"
-                          />
-                        </div>
-                      </div>
-                    </div>
                     <div class="action-flow-branch-lanes">
                       <div
                         v-for="(branch, branchIndex) in previewBranchCases(
@@ -2424,6 +2433,20 @@
                         :key="branch.id || branch.client_id || branchIndex"
                         class="action-flow-branch-lane"
                       >
+                        <span
+                          class="action-flow-port action-flow-port--branch-in"
+                          :data-flow-port="
+                            previewBranchPort(index, branchIndex, 'in')
+                          "
+                          aria-hidden="true"
+                        />
+                        <span
+                          class="action-flow-port action-flow-port--branch-out"
+                          :data-flow-port="
+                            previewBranchPort(index, branchIndex, 'out')
+                          "
+                          aria-hidden="true"
+                        />
                         <div class="action-flow-branch-condition">
                           <div class="action-flow-branch-title">
                             <span class="action-flow-branch-number">{{
@@ -2479,33 +2502,6 @@
                         </div>
                       </div>
                     </div>
-                    <div class="action-flow-branch-output" aria-hidden="true">
-                      <svg
-                        class="action-flow-branch-output-curves"
-                        :viewBox="`0 0 190 ${previewConnectorHeight(step)}`"
-                        preserveAspectRatio="none"
-                      >
-                        <path
-                          v-for="(branch, branchIndex) in previewBranchCases(
-                            step
-                          )"
-                          :key="`out-${branch.id || branch.client_id || branchIndex}`"
-                          class="action-flow-branch-output-curve"
-                          :d="
-                            previewOutputConnectorCurve(
-                              branchIndex,
-                              previewBranchCases(step).length
-                            )
-                          "
-                        />
-                        <circle
-                          class="action-flow-branch-output-origin"
-                          cx="176"
-                          :cy="previewConnectorOriginY(step)"
-                          r="3"
-                        />
-                      </svg>
-                    </div>
                     <div class="action-flow-branch-merge" aria-hidden="true" />
                   </div>
                   <div class="action-flow-branch-default">
@@ -2539,12 +2535,6 @@
                     }}
                   </span>
                 </template>
-              </div>
-              <div
-                v-if="index < previewSteps.length - 1"
-                class="action-flow-arrow"
-              >
-                →
               </div>
             </article>
           </div>
@@ -2584,7 +2574,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
@@ -2610,6 +2600,9 @@ const showModal = ref(false)
 const showPreviewModal = ref(false)
 const editingTemplate = ref(null)
 const previewTemplate = ref(null)
+const previewCanvasRef = ref(null)
+const previewFlowConnections = ref([])
+const previewFlowCanvasSize = ref({ width: 1, height: 1 })
 const saving = ref(false)
 const formError = ref('')
 const parameterSchemaText = ref('[]')
@@ -2621,6 +2614,8 @@ const actionProjectSearch = ref('')
 const actionProjectGroupFilter = ref('')
 const actionProjectSelectedOnly = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
+let previewMeasureTimer = null
+let previewResizeObserver = null
 
 const form = ref(buildEmptyForm())
 
@@ -2915,11 +2910,13 @@ function goNextEditorTab() {
 function openPreviewModal(template) {
   previewTemplate.value = template
   showPreviewModal.value = true
+  schedulePreviewFlowMeasure()
 }
 
 function closePreviewModal() {
   showPreviewModal.value = false
   previewTemplate.value = null
+  previewFlowConnections.value = []
 }
 
 function fillParamExample() {
@@ -3637,38 +3634,141 @@ function previewStepIndex(index) {
   return String(index + 1).padStart(2, '0')
 }
 
-const connectorRowHeight = 96
-const connectorRowGap = 14
-
-function previewConnectorHeight(step) {
-  const count = Math.max(previewBranchCases(step).length, 1)
-  return count * connectorRowHeight + (count - 1) * connectorRowGap
+function previewStepPort(index, side) {
+  return `step-${index}-${side}`
 }
 
-function previewConnectorOriginY(step) {
-  return previewConnectorHeight(step) / 2
+function previewBranchPort(stepIndex, branchIndex, side) {
+  return `step-${stepIndex}-branch-${branchIndex}-${side}`
 }
 
-function previewConnectorTargetY(index) {
-  return index * (connectorRowHeight + connectorRowGap) + connectorRowHeight / 2
+function isPreviewBranchStep(step) {
+  return step?.action_type === 'conditional_branch'
 }
 
-function previewConnectorCurve(index, count) {
-  const originY =
-    (Math.max(count, 1) * connectorRowHeight +
-      (Math.max(count, 1) - 1) * connectorRowGap) /
-    2
-  const targetY = previewConnectorTargetY(index)
-  return `M 10 ${originY} C 34 ${originY}, 42 ${targetY}, 62 ${targetY}`
+function previewConnectionPath(start, end) {
+  const deltaX = end.x - start.x
+  const direction = deltaX >= 0 ? 1 : -1
+  const bend = Math.max(56, Math.min(180, Math.abs(deltaX) * 0.46))
+  const c1x = start.x + bend * direction
+  const c2x = end.x - bend * direction
+  return `M ${start.x} ${start.y} C ${c1x} ${start.y}, ${c2x} ${end.y}, ${end.x} ${end.y}`
 }
 
-function previewOutputConnectorCurve(index, count) {
-  const originY =
-    (Math.max(count, 1) * connectorRowHeight +
-      (Math.max(count, 1) - 1) * connectorRowGap) /
-    2
-  const targetY = previewConnectorTargetY(index)
-  return `M 12 ${targetY} C 78 ${targetY}, 98 ${originY}, 176 ${originY}`
+function previewConnectionLabelStyle(start, end) {
+  const x = start.x + (end.x - start.x) * 0.45
+  const y = start.y + (end.y - start.y) * 0.45
+  return {
+    left: `${x}px`,
+    top: `${y}px`
+  }
+}
+
+function getPreviewPortMap(canvas) {
+  const canvasRect = canvas.getBoundingClientRect()
+  const ports = new Map()
+  canvas.querySelectorAll('[data-flow-port]').forEach((node) => {
+    const rect = node.getBoundingClientRect()
+    ports.set(node.dataset.flowPort, {
+      x: rect.left - canvasRect.left + canvas.scrollLeft + rect.width / 2,
+      y: rect.top - canvasRect.top + canvas.scrollTop + rect.height / 2
+    })
+  })
+  return ports
+}
+
+function getPreviewConnectionDescriptors() {
+  const steps = previewSteps.value
+  const descriptors = []
+
+  steps.slice(0, -1).forEach((step, index) => {
+    const nextStep = steps[index + 1]
+    const currentIsBranch = isPreviewBranchStep(step)
+    const nextIsBranch = isPreviewBranchStep(nextStep)
+
+    if (!currentIsBranch && !nextIsBranch) {
+      descriptors.push({
+        id: `step-${index}-to-step-${index + 1}`,
+        from: previewStepPort(index, 'out'),
+        to: previewStepPort(index + 1, 'in')
+      })
+      return
+    }
+
+    if (!currentIsBranch && nextIsBranch) {
+      previewBranchCases(nextStep).forEach((branch, branchIndex) => {
+        descriptors.push({
+          id: `step-${index}-to-branch-${index + 1}-${branchIndex}`,
+          from: previewStepPort(index, 'out'),
+          to: previewBranchPort(index + 1, branchIndex, 'in'),
+          label: previewBranchConditionText(branch)
+        })
+      })
+      return
+    }
+
+    if (currentIsBranch && !nextIsBranch) {
+      previewBranchCases(step).forEach((branch, branchIndex) => {
+        descriptors.push({
+          id: `branch-${index}-${branchIndex}-to-step-${index + 1}`,
+          from: previewBranchPort(index, branchIndex, 'out'),
+          to: previewStepPort(index + 1, 'in')
+        })
+      })
+      return
+    }
+
+    previewBranchCases(step).forEach((branch, branchIndex) => {
+      previewBranchCases(nextStep).forEach((nextBranch, nextBranchIndex) => {
+        descriptors.push({
+          id: `branch-${index}-${branchIndex}-to-branch-${index + 1}-${nextBranchIndex}`,
+          from: previewBranchPort(index, branchIndex, 'out'),
+          to: previewBranchPort(index + 1, nextBranchIndex, 'in'),
+          label: previewBranchConditionText(nextBranch)
+        })
+      })
+    })
+  })
+
+  return descriptors
+}
+
+function measurePreviewFlowConnections() {
+  const canvas = previewCanvasRef.value
+  if (!canvas || !showPreviewModal.value || !previewSteps.value.length) {
+    previewFlowConnections.value = []
+    return
+  }
+
+  const ports = getPreviewPortMap(canvas)
+  previewFlowCanvasSize.value = {
+    width: Math.max(canvas.scrollWidth, canvas.clientWidth, 1),
+    height: Math.max(canvas.scrollHeight, canvas.clientHeight, 1)
+  }
+  previewFlowConnections.value = getPreviewConnectionDescriptors()
+    .map((descriptor) => {
+      const start = ports.get(descriptor.from)
+      const end = ports.get(descriptor.to)
+      if (!start || !end) return null
+      return {
+        ...descriptor,
+        path: previewConnectionPath(start, end),
+        labelStyle: previewConnectionLabelStyle(start, end)
+      }
+    })
+    .filter(Boolean)
+}
+
+function schedulePreviewFlowMeasure() {
+  if (previewMeasureTimer) {
+    window.clearTimeout(previewMeasureTimer)
+  }
+  previewMeasureTimer = window.setTimeout(() => {
+    previewMeasureTimer = null
+    nextTick(() => {
+      measurePreviewFlowConnections()
+    })
+  }, 24)
 }
 
 function cleanConditionalBranchConfig(config, stepIndex) {
@@ -4123,6 +4223,41 @@ function previewStepSummary(step) {
 onMounted(() => {
   loadTemplates()
   loadOptions()
+  window.addEventListener('resize', schedulePreviewFlowMeasure)
+  previewResizeObserver = new ResizeObserver(() => {
+    schedulePreviewFlowMeasure()
+  })
+  if (previewCanvasRef.value) {
+    previewResizeObserver.observe(previewCanvasRef.value)
+  }
+})
+
+watch(showPreviewModal, (isOpen) => {
+  if (!isOpen) return
+  nextTick(() => {
+    if (previewResizeObserver && previewCanvasRef.value) {
+      previewResizeObserver.observe(previewCanvasRef.value)
+    }
+    schedulePreviewFlowMeasure()
+  })
+})
+
+watch(
+  previewSteps,
+  () => {
+    schedulePreviewFlowMeasure()
+  },
+  { deep: true }
+)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', schedulePreviewFlowMeasure)
+  if (previewResizeObserver) {
+    previewResizeObserver.disconnect()
+  }
+  if (previewMeasureTimer) {
+    window.clearTimeout(previewMeasureTimer)
+  }
 })
 </script>
 
@@ -4186,6 +4321,7 @@ onMounted(() => {
 }
 
 .action-flow-canvas {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -4203,12 +4339,91 @@ onMounted(() => {
   padding: 54px 42px 52px;
 }
 
+.action-flow-connection-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.action-flow-connection-path {
+  fill: none;
+  stroke: rgba(203, 213, 225, 0.78);
+  stroke-linecap: round;
+  stroke-width: 2.25px;
+}
+
+.action-flow-connection-labels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.action-flow-connection-label {
+  position: absolute;
+  display: inline-flex;
+  max-width: 172px;
+  overflow: hidden;
+  border: 1px solid #e8eef6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #94a3b8;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 7px 10px;
+  text-overflow: ellipsis;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
 .action-flow-node {
   position: relative;
+  z-index: 2;
   display: flex;
   min-width: 250px;
   gap: 0;
   align-items: center;
+}
+
+.action-flow-port {
+  position: absolute;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.action-flow-port--in {
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.action-flow-port--out {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+.action-flow-port--branch-in {
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.action-flow-port--branch-out {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
 }
 
 .action-flow-node-index {
@@ -4312,107 +4527,6 @@ onMounted(() => {
   margin-left: -2px;
 }
 
-.action-flow-node:has(+ .action-flow-node--branch-preview) .action-flow-arrow,
-.action-flow-node--branch-preview .action-flow-arrow {
-  display: none;
-}
-
-.action-flow-conditional-connectors {
-  position: relative;
-  display: grid;
-  width: 100%;
-  gap: 14px;
-  align-self: center;
-  padding: 0 0 0 56px;
-}
-
-.action-flow-conditional-connectors::before {
-  position: absolute;
-  top: 50%;
-  left: -104px;
-  width: 116px;
-  height: 2px;
-  border-radius: 999px;
-  background: rgba(203, 213, 225, 0.72);
-  content: '';
-  transform: translateY(-50%);
-}
-
-.action-flow-conditional-curves {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.action-flow-conditional-origin {
-  fill: #10b981;
-  stroke: #ffffff;
-  stroke-width: 3px;
-}
-
-.action-flow-conditional-curve {
-  fill: none;
-  stroke: rgba(203, 213, 225, 0.72);
-  stroke-linecap: round;
-  stroke-width: 2.25px;
-}
-
-.action-flow-conditional-connector {
-  position: relative;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  min-height: 96px;
-}
-
-.action-flow-conditional-label {
-  display: inline-flex;
-  width: fit-content;
-  max-width: 172px;
-  border: 1px solid #e8eef6;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #94a3b8;
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
-    'Courier New', monospace;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.35;
-  overflow: hidden;
-  padding: 7px 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  box-shadow: none;
-}
-
-.action-flow-conditional-arrow-line {
-  position: relative;
-  display: inline-flex;
-  min-width: 28px;
-  flex: 1 1 28px;
-  height: 12px;
-}
-
-.action-flow-conditional-arrow-line::before {
-  position: absolute;
-  top: 50%;
-  right: -10px;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: rgba(203, 213, 225, 0.72);
-  content: '';
-  transform: translateY(-50%);
-}
-
-.action-flow-conditional-arrow-line::after {
-  display: none;
-}
-
 .action-flow-node--jenkins_trigger .action-flow-node-index {
   background: #059669;
 }
@@ -4513,17 +4627,6 @@ onMounted(() => {
   margin-top: 18px;
 }
 
-.action-flow-branch-inputs {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -204px;
-  z-index: 1;
-  width: 184px;
-  min-width: 0;
-  pointer-events: none;
-}
-
 .action-flow-branch-split,
 .action-flow-branch-merge {
   display: none;
@@ -4582,23 +4685,6 @@ onMounted(() => {
 .action-flow-branch-lane::before,
 .action-flow-branch-lane::after {
   display: none;
-}
-
-.action-flow-branch-lane::before {
-  position: absolute;
-  top: 50%;
-  left: -28px;
-  display: block;
-  width: 28px;
-  height: 2px;
-  border-radius: 999px;
-  background: rgba(203, 213, 225, 0.72);
-  content: '';
-  transform: translateY(-50%);
-}
-
-.action-flow-branch-lane::after {
-  right: -9px;
 }
 
 .action-flow-branch-condition {
@@ -4703,35 +4789,6 @@ onMounted(() => {
   color: #94a3b8;
   font-size: 14px;
   font-weight: 900;
-}
-
-.action-flow-branch-output {
-  position: absolute;
-  top: 0;
-  right: -204px;
-  bottom: 0;
-  z-index: 0;
-  width: 184px;
-  pointer-events: none;
-}
-
-.action-flow-branch-output-curves {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.action-flow-branch-output-curve {
-  fill: none;
-  stroke: rgba(203, 213, 225, 0.72);
-  stroke-linecap: round;
-  stroke-width: 2.25px;
-}
-
-.action-flow-branch-output-origin {
-  fill: #94a3b8;
-  stroke: #ffffff;
-  stroke-width: 3px;
 }
 
 .action-flow-branch-step--empty {

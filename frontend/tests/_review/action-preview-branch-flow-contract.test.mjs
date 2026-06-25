@@ -33,21 +33,22 @@ assert(
 )
 
 assert(
-  source.includes('action-flow-conditional-connectors') &&
-    source.includes('action-flow-branch-inputs') &&
-    source.includes('action-flow-conditional-label') &&
-    source.includes('action-flow-conditional-curves') &&
-    source.includes('action-flow-conditional-origin') &&
-    source.includes('action-flow-conditional-arrow-line') &&
-    source.includes('previewConnectorCurve(') &&
-    source.includes('action-flow-branch-output') &&
-    source.includes('previewOutputConnectorCurve('),
-  'conditional branch preview should render outside incoming labels and outgoing merge curves'
+  source.includes('previewCanvasRef') &&
+    source.includes('action-flow-connection-layer') &&
+    source.includes('action-flow-connection-labels') &&
+    source.includes('data-flow-port') &&
+    source.includes('getPreviewConnectionDescriptors') &&
+    source.includes('getBoundingClientRect') &&
+    source.includes('ResizeObserver'),
+  'preview flow connections should use a global anchored SVG projection layer'
 )
 
 assert(
-  !source.includes('marker-end="url(#action-flow-conditional-arrow)"'),
-  'conditional arrow heads should remain visible after the label instead of being hidden under the label'
+  !source.includes('previewConnectorCurve(') &&
+    !source.includes('previewOutputConnectorCurve(') &&
+    !source.includes('action-flow-conditional-curves') &&
+    !source.includes('action-flow-branch-output-curves'),
+  'preview should not use local fixed connector SVGs after switching to global anchoring'
 )
 
 assert(
@@ -56,17 +57,17 @@ assert(
 )
 
 const conditionalConnectorBlock = source.match(
-  /\.action-flow-conditional-connectors\s*\{[\s\S]*?\n\}/
+  /\.action-flow-connection-layer\s*\{[\s\S]*?\n\}/
 )?.[0]
 assert(
   conditionalConnectorBlock,
-  'conditional connector container styles should be defined'
+  'global connection layer styles should be defined'
 )
 
 assert(
-  !conditionalConnectorBlock.includes('margin-left: -') &&
-    !conditionalConnectorBlock.includes('margin-right: -'),
-  'conditional connector spacing should not rely on negative margins'
+  conditionalConnectorBlock.includes('position: absolute') &&
+    conditionalConnectorBlock.includes('pointer-events: none'),
+  'global connection layer should sit over the canvas without intercepting input'
 )
 
 const branchDiagramBlock = source.match(
@@ -81,22 +82,23 @@ assert(
 )
 
 const conditionalConnectorRowBlock = source.match(
-  /\.action-flow-conditional-connector\s*\{[\s\S]*?\n\}/
+  /\.action-flow-port\s*\{[\s\S]*?\n\}/
 )?.[0]
 assert(
   conditionalConnectorRowBlock,
-  'conditional connector row styles should be defined'
+  'hidden port anchor styles should be defined'
 )
 
 assert(
-  conditionalConnectorRowBlock.includes('min-height: 96px'),
-  'conditional connector rows should align with branch lane rows'
+  conditionalConnectorRowBlock.includes('position: absolute') &&
+    conditionalConnectorRowBlock.includes('pointer-events: none'),
+  'port anchors should be absolutely positioned and non-interactive'
 )
 
 const conditionalLabelBlock = source.match(
-  /\.action-flow-conditional-label\s*\{[\s\S]*?\n\}/
+  /\.action-flow-connection-label\s*\{[\s\S]*?\n\}/
 )?.[0]
-assert(conditionalLabelBlock, 'conditional connector label styles should be defined')
+assert(conditionalLabelBlock, 'global connection label styles should be defined')
 
 assert(
   conditionalLabelBlock.includes('font-family:') &&
@@ -108,6 +110,14 @@ assert(
 assert(
   source.includes('previewBranchCases(step)'),
   'conditional branch preview should iterate branch cases instead of flattening everything into one summary line'
+)
+
+assert(
+  source.includes("!currentIsBranch && !nextIsBranch") &&
+    source.includes("!currentIsBranch && nextIsBranch") &&
+    source.includes("currentIsBranch && !nextIsBranch") &&
+    source.includes('previewBranchCases(nextStep).forEach'),
+  'connection topology should cover standard, split, merge, and branch cascade routes'
 )
 
 assert(
@@ -166,13 +176,13 @@ assert(
 )
 
 const branchLaneEntryBlock = source.match(
-  /\.action-flow-branch-lane::before\s*\{[\s\S]*?\n\}/
+  /\.action-flow-port--branch-in\s*\{[\s\S]*?\n\}/
 )?.[0]
 assert(branchLaneEntryBlock, 'branch lanes should expose an incoming port')
 
 assert(
-  branchLaneEntryBlock.includes('left: -28px') &&
-    !branchLaneEntryBlock.includes('display: none'),
+  branchLaneEntryBlock.includes('left: 0') &&
+    branchLaneEntryBlock.includes('transform: translate(-50%, -50%)'),
   'each incoming condition line should visually connect to its branch lane'
 )
 
