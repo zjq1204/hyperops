@@ -73,7 +73,7 @@ const branchDiagramBlock = source.match(
 assert(branchDiagramBlock, 'branch diagram layout should be defined')
 
 assert(
-  branchDiagramBlock.includes('grid-template-columns: 230px minmax(360px, 1fr)'),
+  branchDiagramBlock.includes('grid-template-columns: 220px minmax(400px, 1fr)'),
   'branch diagram should place condition connectors and branch lanes in aligned columns'
 )
 
@@ -86,7 +86,7 @@ assert(
 )
 
 assert(
-  conditionalConnectorRowBlock.includes('min-height: 112px'),
+  conditionalConnectorRowBlock.includes('min-height: 86px'),
   'conditional connector rows should align with branch lane rows'
 )
 
@@ -154,10 +154,11 @@ const branchLaneBlock = source.match(
 assert(branchLaneBlock, 'branch lane styles should be defined')
 
 assert(
-  branchLaneBlock.includes('border: 1px solid #d8e2ef') &&
-    branchLaneBlock.includes('box-shadow: 0 3px 10px') &&
-    branchLaneBlock.includes('min-height: 112px'),
-  'branch lanes should use light bordered cards like the preview reference'
+  branchLaneBlock.includes('grid-template-columns: 112px minmax(0, 1fr)') &&
+    branchLaneBlock.includes('border: 1px solid #dbe5f0') &&
+    branchLaneBlock.includes('box-shadow: none') &&
+    branchLaneBlock.includes('min-height: 86px'),
+  'branch lanes should use horizontal flow rows with a light bordered treatment'
 )
 
 const branchLaneEntryBlock = source.match(
@@ -166,13 +167,13 @@ const branchLaneEntryBlock = source.match(
 assert(branchLaneEntryBlock, 'branch lanes should expose an incoming port')
 
 assert(
-  branchLaneEntryBlock.includes('left: -14px') &&
+  branchLaneEntryBlock.includes('left: -12px') &&
     !branchLaneEntryBlock.includes('display: none'),
   'each incoming condition line should visually connect to its branch lane'
 )
 
 assert(
-  source.includes('box-shadow: 0 6px 16px') &&
+  source.includes('box-shadow: 0 2px 6px') &&
     !source.includes('box-shadow: 0 18px 36px'),
   'preview step cards should use a lighter shadow treatment'
 )

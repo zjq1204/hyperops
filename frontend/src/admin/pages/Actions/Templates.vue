@@ -3579,8 +3579,8 @@ function previewBranchNestedSteps(branch) {
   return branch?.steps || []
 }
 
-const connectorRowHeight = 112
-const connectorRowGap = 14
+const connectorRowHeight = 86
+const connectorRowGap = 12
 
 function previewConnectorHeight(step) {
   const count = Math.max(previewBranchCases(step).length, 1)
@@ -3601,7 +3601,7 @@ function previewConnectorCurve(index, count) {
       (Math.max(count, 1) - 1) * connectorRowGap) /
     2
   const targetY = previewConnectorTargetY(index)
-  return `M 10 ${originY} C 34 ${originY}, 42 ${targetY}, 62 ${targetY}`
+  return `M 10 ${originY} C 32 ${originY}, 42 ${targetY}, 58 ${targetY}`
 }
 
 function cleanConditionalBranchConfig(config, stepIndex) {
@@ -4082,9 +4082,9 @@ onMounted(() => {
   justify-content: space-between;
   gap: 20px;
   border: 1px solid #e2e8f0;
-  border-radius: 26px;
-  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
-  padding: 20px;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 18px 20px;
 }
 
 .action-preview-summary h3 {
@@ -4121,13 +4121,17 @@ onMounted(() => {
 .action-flow-canvas {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
   overflow-x: auto;
   border: 1px solid #e8edf5;
-  border-radius: 20px;
+  border-radius: 16px;
   background:
-    linear-gradient(#f1f5f9 1px, transparent 1px),
-    linear-gradient(90deg, #f1f5f9 1px, transparent 1px), #fbfdff;
+    radial-gradient(
+      circle at 1px 1px,
+      rgba(148, 163, 184, 0.24) 1px,
+      transparent 0
+    ),
+    #fbfdff;
   background-size: 28px 28px;
   padding: 24px;
 }
@@ -4157,9 +4161,9 @@ onMounted(() => {
   min-height: 168px;
   flex: 1;
   border: 1px solid #e1e8f2;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
   padding: 16px;
 }
 
@@ -4213,16 +4217,28 @@ onMounted(() => {
   position: relative;
   display: grid;
   width: 100%;
-  gap: 14px;
+  gap: 12px;
   align-self: center;
-  padding: 4px 0 4px 62px;
+  padding: 2px 0 2px 58px;
+}
+
+.action-flow-conditional-connectors::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 14px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.32);
+  content: '';
+  transform: translateY(-50%);
 }
 
 .action-flow-conditional-curves {
   position: absolute;
-  inset: 4px 0 4px 0;
+  inset: 2px 0 2px 0;
   width: 100%;
-  height: calc(100% - 8px);
+  height: calc(100% - 4px);
   overflow: visible;
   pointer-events: none;
 }
@@ -4235,9 +4251,9 @@ onMounted(() => {
 
 .action-flow-conditional-curve {
   fill: none;
-  stroke: rgba(79, 70, 229, 0.34);
+  stroke: rgba(99, 102, 241, 0.34);
   stroke-linecap: round;
-  stroke-width: 2.5px;
+  stroke-width: 2px;
 }
 
 .action-flow-conditional-connector {
@@ -4245,23 +4261,23 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
-  min-height: 112px;
+  min-height: 86px;
 }
 
 .action-flow-conditional-label {
   display: inline-flex;
   width: fit-content;
-  max-width: 128px;
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  max-width: 158px;
+  border: 1px solid rgba(99, 102, 241, 0.24);
   border-radius: 8px;
   background: #ffffff;
-  color: #4f46e5;
-  font-size: 12px;
-  font-weight: 900;
+  color: #4338ca;
+  font-size: 11px;
+  font-weight: 800;
   line-height: 1.35;
   overflow-wrap: anywhere;
   padding: 5px 8px;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
+  box-shadow: 0 1px 4px rgba(79, 70, 229, 0.08);
 }
 
 .action-flow-conditional-arrow-line {
@@ -4275,11 +4291,11 @@ onMounted(() => {
 .action-flow-conditional-arrow-line::before {
   position: absolute;
   top: 50%;
-  right: -11px;
+  right: -10px;
   left: 0;
   height: 2px;
   border-radius: 999px;
-  background: rgba(79, 70, 229, 0.34);
+  background: rgba(99, 102, 241, 0.34);
   content: '';
   transform: translateY(-50%);
 }
@@ -4287,11 +4303,11 @@ onMounted(() => {
 .action-flow-conditional-arrow-line::after {
   position: absolute;
   top: 50%;
-  right: -18px;
+  right: -17px;
   width: 7px;
   height: 7px;
-  border-top: 2px solid rgba(79, 70, 229, 0.5);
-  border-right: 2px solid rgba(79, 70, 229, 0.5);
+  border-top: 2px solid rgba(99, 102, 241, 0.5);
+  border-right: 2px solid rgba(99, 102, 241, 0.5);
   content: '';
   transform: translateY(-50%) rotate(45deg);
 }
@@ -4325,12 +4341,14 @@ onMounted(() => {
 }
 
 .action-flow-node--branch-preview {
-  min-width: 820px;
+  min-width: 780px;
 }
 
 .action-flow-node--branch-preview .action-flow-node-body {
-  border-color: #dfe7f1;
+  border-color: #dbe4f0;
   min-height: 0;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   padding: 18px;
 }
 
@@ -4343,10 +4361,10 @@ onMounted(() => {
 
 .action-flow-branch-diagram {
   display: grid;
-  grid-template-columns: 230px minmax(360px, 1fr);
-  gap: 14px;
+  grid-template-columns: 220px minmax(400px, 1fr);
+  gap: 10px;
   align-items: start;
-  margin-top: 16px;
+  margin-top: 14px;
 }
 
 .action-flow-branch-inputs {
@@ -4393,20 +4411,21 @@ onMounted(() => {
 
 .action-flow-branch-lanes {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .action-flow-branch-lane {
   position: relative;
   display: grid;
-  gap: 14px;
-  align-items: start;
-  min-height: 112px;
-  border: 1px solid #d8e2ef;
-  border-radius: 14px;
-  background: rgba(248, 250, 252, 0.86);
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
-  padding: 14px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 86px;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: rgba(248, 251, 255, 0.78);
+  box-shadow: none;
+  padding: 12px 14px;
 }
 
 .action-flow-branch-lane::before,
@@ -4417,12 +4436,12 @@ onMounted(() => {
 .action-flow-branch-lane::before {
   position: absolute;
   top: 50%;
-  left: -14px;
+  left: -12px;
   display: block;
-  width: 14px;
+  width: 12px;
   height: 2px;
   border-radius: 999px;
-  background: rgba(79, 70, 229, 0.34);
+  background: rgba(99, 102, 241, 0.34);
   content: '';
   transform: translateY(-50%);
 }
@@ -4433,7 +4452,7 @@ onMounted(() => {
 
 .action-flow-branch-condition {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   min-width: 0;
 }
 
@@ -4460,6 +4479,7 @@ onMounted(() => {
 
 .action-flow-branch-title strong {
   display: block;
+  min-width: 0;
   overflow: hidden;
   color: #172033;
   font-size: 13px;
@@ -4474,10 +4494,9 @@ onMounted(() => {
   min-width: 0;
   gap: 0;
   align-items: center;
-  margin-left: 32px;
   overflow-x: auto;
   border-radius: 10px;
-  background: rgba(234, 242, 251, 0.72);
+  background: rgba(226, 236, 247, 0.72);
   padding: 7px;
   scrollbar-width: thin;
 }
@@ -4490,7 +4509,7 @@ onMounted(() => {
 
 .action-flow-branch-step {
   display: inline-flex;
-  max-width: 150px;
+  max-width: 140px;
   align-items: center;
   overflow: hidden;
   border-radius: 8px;
