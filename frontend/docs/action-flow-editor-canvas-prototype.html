@@ -7,39 +7,55 @@
     <title>动作模板流程画布编辑器设计稿</title>
     <style>
       :root {
+        --bg: #f5f8fb;
+        --canvas: #fbfdff;
+        --surface: #ffffff;
+        --surface-soft: #f8fafc;
+        --surface-blue: #f3f7fc;
         --ink: #0f172a;
+        --text: #334155;
         --muted: #64748b;
-        --soft: #94a3b8;
+        --quiet: #8aa0b8;
         --line: #dbe5f0;
-        --line-soft: #edf2f7;
-        --panel: #ffffff;
-        --page: #f6f9fc;
-        --grid-dot: #dce7f3;
-        --green: #10b981;
-        --green-deep: #059669;
-        --green-soft: #ecfdf5;
-        --red: #f43f5e;
-        --red-soft: #fff1f2;
+        --line-soft: #eaf0f7;
         --blue: #2563eb;
-        --blue-soft: #eff6ff;
-        --navy: #101827;
-        --purple: #2f2872;
-        --shadow: 0 22px 54px rgba(15, 23, 42, 0.14);
+        --blue-soft: #eaf2ff;
+        --green: #10b981;
+        --green-dark: #047857;
+        --green-soft: #ecfdf5;
+        --red: #e11d48;
+        --red-soft: #fff1f2;
+        --amber: #b45309;
+        --amber-soft: #fffbeb;
+        --violet: #4338ca;
+        --violet-soft: #eef2ff;
+        --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+        --shadow-md: 0 8px 18px rgba(15, 23, 42, 0.08);
+        --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.12);
+        --radius: 12px;
+        --radius-lg: 16px;
       }
 
       * {
         box-sizing: border-box;
       }
 
+      html,
+      body {
+        min-height: 100%;
+      }
+
       body {
         margin: 0;
-        min-height: 100vh;
-        background: linear-gradient(180deg, #f8fbfe 0%, #eef4f9 100%);
-        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 251, 0.92)),
+          var(--bg);
+        color: var(--text);
         font-family:
           "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC",
           ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
+        letter-spacing: 0;
       }
 
       button,
@@ -53,29 +69,19 @@
         cursor: pointer;
       }
 
-      .app-shell {
+      .demo-shell {
         min-height: 100vh;
-        padding: 34px;
+        padding: 28px;
       }
 
-      .page-mask {
-        position: fixed;
-        inset: 0;
-        background:
-          linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.66)),
-          radial-gradient(circle at 76% 10%, rgba(37, 99, 235, 0.08), transparent 30%);
-      }
-
-      .template-modal {
-        position: relative;
-        z-index: 1;
+      .template-dialog {
         display: flex;
-        min-height: calc(100vh - 68px);
+        min-height: calc(100vh - 56px);
         overflow: hidden;
-        border: 1px solid rgba(203, 213, 225, 0.78);
+        border: 1px solid rgba(203, 213, 225, 0.85);
         border-radius: 18px;
         background: rgba(255, 255, 255, 0.98);
-        box-shadow: var(--shadow);
+        box-shadow: var(--shadow-lg);
       }
 
       .template-main {
@@ -85,51 +91,44 @@
         flex-direction: column;
       }
 
-      .modal-bar,
-      .modal-footer {
+      .dialog-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 18px;
         border-bottom: 1px solid var(--line);
-        padding: 18px 28px;
+        padding: 18px 26px;
       }
 
-      .modal-footer {
-        justify-content: flex-end;
-        border-top: 1px solid var(--line);
-        border-bottom: 0;
-        background: #f8fafc;
-      }
-
-      .modal-title,
+      .dialog-title,
       .template-title,
-      .pane-title,
+      .section-title,
       .node-title {
         margin: 0;
+        color: var(--ink);
         letter-spacing: 0;
       }
 
-      .modal-title {
+      .dialog-title {
         font-size: 18px;
         font-weight: 800;
       }
 
-      .icon-button {
-        display: inline-grid;
+      .close-btn {
+        display: grid;
         width: 36px;
         height: 36px;
         place-items: center;
         border: 1px solid transparent;
         border-radius: 10px;
         background: transparent;
-        color: var(--soft);
+        color: var(--quiet);
         font-size: 22px;
       }
 
-      .icon-button:hover {
+      .close-btn:hover {
         border-color: var(--line);
-        background: #f8fafc;
+        background: var(--surface-soft);
         color: var(--ink);
       }
 
@@ -137,12 +136,13 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 20px;
-        padding: 28px 28px 20px;
+        gap: 18px;
+        padding: 24px 26px 18px;
       }
 
       .title-row,
-      .button-row {
+      .button-row,
+      .status-row {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -150,113 +150,115 @@
       }
 
       .template-title {
-        font-size: 26px;
+        font-size: 25px;
         font-weight: 900;
       }
 
-      .pill {
+      .tag {
         display: inline-flex;
         align-items: center;
         gap: 7px;
         border: 1px solid var(--line);
         border-radius: 999px;
         background: #fff;
-        color: #334155;
-        font-size: 13px;
+        color: var(--text);
+        font-size: 12px;
         font-weight: 800;
         line-height: 1;
-        padding: 8px 11px;
+        padding: 7px 10px;
         white-space: nowrap;
       }
 
-      .pill.success {
+      .tag.success {
         border-color: #bbf7d0;
         background: var(--green-soft);
-        color: #047857;
+        color: var(--green-dark);
       }
 
-      .switcher {
+      .tag.warning {
+        border-color: #fde68a;
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .scope-switch {
         display: inline-flex;
-        overflow: hidden;
+        gap: 3px;
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: 13px;
         background: #eef3f8;
         padding: 4px;
       }
 
-      .switcher button {
+      .scope-switch button {
+        min-height: 32px;
         border: 0;
-        border-radius: 11px;
+        border-radius: 9px;
         background: transparent;
-        color: #64748b;
+        color: var(--muted);
         font-weight: 800;
-        padding: 10px 16px;
+        padding: 0 13px;
       }
 
-      .switcher button.active {
+      .scope-switch button.active {
         background: #fff;
         color: var(--ink);
-        box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+        box-shadow: var(--shadow-sm);
       }
 
-      .steps-tabs {
+      .step-tabs {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 12px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
         border-top: 1px solid var(--line);
         border-bottom: 1px solid var(--line);
-        margin: 0 28px;
-        padding: 12px 0;
+        margin: 0 26px;
+        padding: 11px 0;
       }
 
       .tab {
         display: flex;
         justify-content: center;
-        gap: 12px;
+        gap: 10px;
         border: 0;
-        border-radius: 12px;
+        border-radius: 11px;
         background: transparent;
-        color: #334155;
-        font-weight: 900;
-        padding: 13px 16px;
+        color: var(--text);
+        font-weight: 850;
+        padding: 12px 14px;
       }
 
       .tab span {
-        color: #64748b;
-        font-size: 13px;
+        color: var(--muted);
+        font-size: 12px;
       }
 
       .tab.active {
-        background: var(--navy);
+        background: #101827;
         color: #fff;
       }
 
       .tab.active span {
-        display: inline-flex;
-        min-width: 30px;
-        justify-content: center;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
+        color: #cbd5e1;
       }
 
-      .step-pane {
+      .step-panel {
         display: flex;
         min-height: 0;
         flex: 1;
         flex-direction: column;
-        padding: 22px 28px 0;
+        padding: 20px 26px 0;
       }
 
-      .pane-head {
+      .panel-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 18px;
+        margin-bottom: 16px;
       }
 
-      .pane-title {
+      .section-title {
         font-size: 20px;
         font-weight: 900;
       }
@@ -268,13 +270,18 @@
         justify-content: center;
         gap: 8px;
         border: 1px solid var(--line);
-        border-radius: 12px;
+        border-radius: 10px;
         background: #fff;
-        color: #334155;
+        color: var(--text);
         font-size: 14px;
         font-weight: 850;
         padding: 0 14px;
         white-space: nowrap;
+        transition:
+          border-color 0.16s ease,
+          background 0.16s ease,
+          color 0.16s ease,
+          transform 0.16s ease;
       }
 
       .btn:hover {
@@ -282,9 +289,13 @@
         color: #1d4ed8;
       }
 
+      .btn:active {
+        transform: translateY(1px);
+      }
+
       .btn.primary {
-        border-color: var(--navy);
-        background: var(--navy);
+        border-color: #101827;
+        background: #101827;
         color: #fff;
       }
 
@@ -294,304 +305,45 @@
         color: #1d4ed8;
       }
 
+      .btn.ghost {
+        background: transparent;
+      }
+
       .preview-card {
-        position: relative;
         min-height: 390px;
         overflow: auto;
         border: 1px solid var(--line);
-        border-radius: 18px;
+        border-radius: var(--radius-lg);
         background:
-          radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.28) 1px, transparent 0),
-          #fbfdff;
+          radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.25) 1px, transparent 0),
+          var(--canvas);
         background-size: 28px 28px;
       }
 
       .preview-flow {
         position: relative;
-        width: 1280px;
+        width: 1260px;
         height: 360px;
       }
 
-      .flow-lines {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-      }
-
-      .flow-lines path {
-        fill: none;
-        stroke: #d4dfeb;
-        stroke-width: 2;
-      }
-
-      .flow-lines text {
-        fill: #8aa0b8;
-        font-family:
-          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-          monospace;
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .node-card {
-        position: absolute;
-        border: 1px solid #cbd8e7;
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.97);
-        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
-      }
-
-      .node-card.standard {
-        width: 300px;
-        min-height: 178px;
-        padding: 26px 22px 20px;
-      }
-
-      .node-card.branch-preview {
-        width: 360px;
-        min-height: 238px;
-        padding: 26px 22px 18px;
-      }
-
-      .node-card.preview-a {
-        left: 70px;
-        top: 96px;
-      }
-
-      .node-card.preview-b {
-        left: 510px;
-        top: 62px;
-      }
-
-      .node-card.preview-c {
-        left: 1010px;
-        top: 108px;
-      }
-
-      .node-card.selected {
-        border-color: var(--green);
-      }
-
-      .node-card.selected::before {
-        position: absolute;
-        top: 20px;
-        bottom: 20px;
-        left: 0;
-        width: 7px;
-        border-radius: 999px;
-        background: var(--green);
-        content: "";
-      }
-
-      .badge {
-        position: absolute;
-        top: -17px;
-        left: 28px;
-        display: inline-flex;
-        min-width: 52px;
-        height: 34px;
-        align-items: center;
-        justify-content: center;
-        border-radius: 12px;
-        background: var(--navy);
-        color: #fff;
-        font-weight: 900;
-        letter-spacing: 0.08em;
-      }
-
-      .selected .badge {
-        background: var(--green-deep);
-      }
-
-      .branch-preview .badge,
-      .branch-node .badge {
-        background: var(--purple);
-      }
-
-      .node-type {
-        display: inline-flex;
-        width: fit-content;
-        border-radius: 999px;
-        background: #eef2f7;
-        color: #64748b;
-        font-size: 12px;
-        font-weight: 900;
-        padding: 7px 10px;
-      }
-
-      .node-type.green {
-        background: var(--green-soft);
-        color: #047857;
-      }
-
-      .node-title {
-        margin-top: 14px;
-        font-size: 21px;
-        font-weight: 900;
-      }
-
-      .node-meta {
-        display: grid;
-        grid-template-columns: 62px 1fr;
-        gap: 8px 12px;
-        margin-top: 12px;
-        color: #64748b;
-        font-size: 13px;
-        font-weight: 800;
-      }
-
-      .node-meta strong {
-        min-width: 0;
-        overflow: hidden;
-        color: #334155;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .fail-pill {
-        display: inline-flex;
-        width: fit-content;
-        border: 1px solid #fecdd3;
-        border-radius: 9px;
-        background: var(--red-soft);
-        color: #e11d48;
-        font-size: 13px;
-        font-weight: 900;
-        margin-top: 18px;
-        padding: 7px 10px;
-      }
-
-      .branch-summary {
-        display: grid;
-        gap: 10px;
-        margin-top: 14px;
-      }
-
-      .branch-summary-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        border: 1px solid var(--line-soft);
-        border-radius: 12px;
-        background: #fff;
-        padding: 10px 12px;
-      }
-
-      .branch-summary-row strong {
-        color: #64748b;
-        font-size: 13px;
-      }
-
-      .rule-chip {
-        max-width: 190px;
-        overflow: hidden;
-        border: 1px solid var(--line-soft);
-        border-radius: 8px;
-        background: #f8fafc;
-        color: #8aa0b8;
-        font-family:
-          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-          monospace;
-        font-size: 11px;
-        font-weight: 800;
-        padding: 6px 9px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .canvas-editor {
-        position: fixed;
-        inset: 0;
-        z-index: 10;
-        display: none;
-        grid-template-columns: minmax(0, 1fr) 390px;
-        background: #f7fbff;
-      }
-
-      .canvas-editor.is-open {
-        display: grid;
-      }
-
-      .canvas-stage {
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr);
-        min-width: 0;
-        border-right: 1px solid var(--line);
-      }
-
-      .editor-topbar {
-        z-index: 2;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        border-bottom: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.94);
-        padding: 14px 18px;
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
-      }
-
-      .editor-heading {
-        display: flex;
-        min-width: 0;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .editor-heading strong {
-        display: inline-grid;
-        width: 34px;
-        height: 34px;
-        place-items: center;
-        border-radius: 11px;
-        background: var(--navy);
-        color: #fff;
-        font-size: 13px;
-      }
-
-      .editor-heading h2 {
-        margin: 0;
-        overflow: hidden;
-        font-size: 18px;
-        font-weight: 900;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .stage-scroll {
-        min-width: 0;
-        overflow: auto;
-        background:
-          radial-gradient(circle at 1px 1px, var(--grid-dot) 1.2px, transparent 0),
-          #fbfdff;
-        background-size: 26px 26px;
-      }
-
-      .large-canvas {
-        position: relative;
-        width: 1990px;
-        min-height: 900px;
-      }
-
+      .flow-svg,
       .canvas-svg {
         position: absolute;
         inset: 0;
         pointer-events: none;
       }
 
+      .flow-svg path,
       .canvas-svg path {
         fill: none;
-        stroke: #d6e1ed;
-        stroke-width: 2.2;
+        stroke: #d3dfeb;
+        stroke-linecap: round;
+        stroke-width: 2;
       }
 
-      .canvas-svg path.active-line {
-        stroke: #bad5ea;
-      }
-
+      .flow-svg text,
       .canvas-svg text {
-        fill: #91a4ba;
+        fill: #8297ae;
         font-family:
           ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
           monospace;
@@ -599,133 +351,391 @@
         font-weight: 850;
       }
 
-      .edit-node {
+      .flow-card,
+      .canvas-node {
         position: absolute;
         border: 1px solid #d8e4ef;
-        border-radius: 18px;
+        border-radius: var(--radius-lg);
         background: rgba(255, 255, 255, 0.98);
-        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.07);
+        box-shadow: var(--shadow-sm);
       }
 
-      .edit-node.is-selected {
-        border-color: var(--green);
-        box-shadow:
-          0 0 0 4px rgba(16, 185, 129, 0.09),
-          0 18px 36px rgba(15, 23, 42, 0.08);
+      .flow-card {
+        width: 305px;
+        min-height: 174px;
+        padding: 26px 22px 20px;
       }
 
-      .edit-node.is-selected::before {
+      .flow-card.branch {
+        width: 366px;
+        min-height: 224px;
+      }
+
+      .flow-card.a {
+        left: 62px;
+        top: 98px;
+      }
+
+      .flow-card.b {
+        left: 505px;
+        top: 66px;
+      }
+
+      .flow-card.c {
+        left: 1008px;
+        top: 108px;
+      }
+
+      .badge {
         position: absolute;
-        top: 20px;
-        bottom: 20px;
-        left: 0;
-        width: 7px;
-        border-radius: 999px;
-        background: var(--green);
-        content: "";
+        top: -17px;
+        left: 24px;
+        display: inline-flex;
+        min-width: 52px;
+        height: 34px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 11px;
+        background: #101827;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 0.06em;
       }
 
-      .edit-node.standard {
-        width: 360px;
-        min-height: 188px;
+      .badge.green {
+        background: var(--green-dark);
+      }
+
+      .badge.violet {
+        background: var(--violet);
+      }
+
+      .node-kind {
+        display: inline-flex;
+        width: fit-content;
+        border-radius: 999px;
+        background: #eef2f7;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 900;
+        padding: 7px 10px;
+      }
+
+      .node-kind.green {
+        background: var(--green-soft);
+        color: var(--green-dark);
+      }
+
+      .node-kind.violet {
+        background: var(--violet-soft);
+        color: var(--violet);
+      }
+
+      .node-title {
+        margin-top: 14px;
+        font-size: 20px;
+        font-weight: 900;
+        text-wrap: balance;
+      }
+
+      .node-meta {
+        display: grid;
+        grid-template-columns: 60px minmax(0, 1fr);
+        gap: 8px 12px;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .node-meta strong {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--text);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .policy {
+        display: inline-flex;
+        width: fit-content;
+        border: 1px solid #fecdd3;
+        border-radius: 8px;
+        background: var(--red-soft);
+        color: var(--red);
+        font-size: 12px;
+        font-weight: 900;
+        margin-top: 16px;
+        padding: 7px 10px;
+      }
+
+      .branch-brief {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .branch-brief-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--line-soft);
+        border-radius: 10px;
+        background: #fff;
+        padding: 10px 12px;
+      }
+
+      .branch-brief-row strong {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .rule-chip {
+        max-width: 210px;
+        overflow: hidden;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        background: var(--surface-soft);
+        color: #8297ae;
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          monospace;
+        font-size: 11px;
+        font-weight: 850;
+        padding: 6px 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dialog-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        border-top: 1px solid var(--line);
+        background: var(--surface-soft);
+        margin-top: auto;
+        padding: 16px 26px;
+      }
+
+      .canvas-editor {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: none;
+        grid-template-columns: minmax(0, 1fr) 420px;
+        background: var(--bg);
+      }
+
+      .canvas-editor.open {
+        display: grid;
+      }
+
+      .stage {
+        display: grid;
+        min-width: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+        border-right: 1px solid var(--line);
+        background: var(--canvas);
+      }
+
+      .stage-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.96);
+        padding: 13px 18px;
+      }
+
+      .stage-title {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .stage-title span {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 10px;
+        background: #101827;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .stage-title h2 {
+        margin: 0;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 18px;
+        font-weight: 900;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .stage-title small {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .stage-scroll {
+        min-width: 0;
+        overflow: auto;
+        background:
+          radial-gradient(circle at 1px 1px, rgba(172, 187, 205, 0.48) 1px, transparent 0),
+          var(--canvas);
+        background-size: 26px 26px;
+      }
+
+      .large-canvas {
+        position: relative;
+        width: 2020px;
+        min-height: 910px;
+      }
+
+      .canvas-svg path.active {
+        stroke: #9fc2dc;
+      }
+
+      .canvas-node {
+        transition:
+          border-color 0.16s ease,
+          box-shadow 0.16s ease,
+          transform 0.16s ease;
+      }
+
+      .canvas-node:hover {
+        transform: translateY(-1px);
+      }
+
+      .canvas-node.selected {
+        border-color: var(--green);
+        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.09), var(--shadow-md);
+      }
+
+      .canvas-node.standard {
+        width: 370px;
+        min-height: 190px;
         padding: 28px 28px 22px;
       }
 
-      .edit-node.node-a {
-        left: 80px;
-        top: 342px;
+      .canvas-node.start {
+        left: 78px;
+        top: 350px;
       }
 
-      .edit-node.node-c {
-        left: 1550px;
-        top: 342px;
+      .canvas-node.finish {
+        left: 1560px;
+        top: 350px;
       }
 
-      .branch-node {
-        left: 675px;
-        top: 86px;
-        width: 630px;
-        min-height: 660px;
+      .canvas-node.branch-node {
+        left: 680px;
+        top: 82px;
+        width: 650px;
+        min-height: 680px;
         padding: 34px 36px 30px;
       }
 
-      .check {
+      .node-check {
         position: absolute;
-        top: 34px;
-        right: 34px;
-        display: inline-grid;
-        width: 20px;
-        height: 20px;
+        top: 30px;
+        right: 30px;
+        display: grid;
+        width: 22px;
+        height: 22px;
         place-items: center;
         border: 2px solid var(--green);
         border-radius: 999px;
-        color: var(--green);
+        color: var(--green-dark);
         font-size: 13px;
         font-weight: 900;
       }
 
       .branch-list {
         display: grid;
-        gap: 18px;
-        margin-top: 20px;
+        gap: 16px;
+        margin-top: 22px;
       }
 
-      .branch-item {
-        min-height: 108px;
+      .branch-case {
         border: 1px solid var(--line-soft);
         border-radius: 14px;
         background: #fff;
-        padding: 18px;
+        padding: 16px;
+        transition:
+          border-color 0.16s ease,
+          background 0.16s ease,
+          box-shadow 0.16s ease;
       }
 
-      .branch-item-head {
+      .branch-case:hover,
+      .branch-case.selected {
+        border-color: #b9d7f2;
+        background: #fbfdff;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .branch-case-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
-      }
-
-      .branch-index {
-        display: inline-grid;
-        width: 24px;
-        height: 24px;
-        place-items: center;
-        border-radius: 999px;
-        background: #eef2f7;
-        color: #94a3b8;
-        font-size: 12px;
-        font-weight: 900;
+        gap: 14px;
       }
 
       .branch-name {
         display: flex;
         align-items: center;
         gap: 10px;
-        color: #64748b;
+        color: var(--text);
+        font-size: 14px;
         font-weight: 900;
       }
 
-      .mini-flow {
+      .branch-index {
+        display: grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border-radius: 999px;
+        background: #eef2f7;
+        color: #8aa0b8;
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .mini-steps {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
         align-items: center;
-        margin-top: 18px;
+        margin-top: 16px;
       }
 
-      .mini-flow span {
+      .mini-step {
         display: inline-flex;
-        border: 1px solid #d8f3e8;
-        border-radius: 10px;
+        align-items: center;
+        border: 1px solid #bbf7d0;
+        border-radius: 9px;
         background: #f0fdf7;
-        color: #047857;
+        color: var(--green-dark);
         font-size: 13px;
         font-weight: 900;
-        padding: 8px 12px;
+        padding: 7px 11px;
       }
 
-      .mini-flow b {
-        color: #b6c4d4;
+      .mini-arrow {
+        color: #a8b7c8;
+        font-weight: 900;
       }
 
       .branch-footer {
@@ -734,19 +744,17 @@
         justify-content: space-between;
         gap: 10px;
         border-top: 1px solid var(--line-soft);
-        margin-top: 20px;
-        padding-top: 16px;
+        margin-top: 18px;
+        padding-top: 15px;
       }
 
-      .skip-pill {
-        display: inline-flex;
-        align-items: center;
+      .skip-tag {
         border-radius: 8px;
         background: #f1f5f9;
-        color: #52708f;
+        color: #506986;
         font-size: 13px;
         font-weight: 900;
-        padding: 8px 10px;
+        padding: 7px 10px;
       }
 
       .add-node {
@@ -756,37 +764,39 @@
         display: grid;
         justify-items: center;
         gap: 8px;
-        color: #8aa0b8;
+        color: #8297ae;
+        font-size: 13px;
         font-weight: 900;
       }
 
       .add-node button {
         display: grid;
-        width: 60px;
-        height: 60px;
+        width: 58px;
+        height: 58px;
         place-items: center;
         border: 2px dashed #cbd5e1;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.72);
         color: #94a3b8;
-        font-size: 36px;
+        font-size: 34px;
         line-height: 1;
       }
 
       .inspector {
-        display: flex;
+        display: grid;
         min-width: 0;
-        flex-direction: column;
+        grid-template-rows: auto minmax(0, 1fr) auto;
         background: #fff;
       }
 
       .inspector-head {
         border-bottom: 1px solid var(--line);
-        padding: 20px 22px;
+        padding: 19px 22px 17px;
       }
 
       .inspector-head h3 {
         margin: 0;
+        color: var(--ink);
         font-size: 18px;
         font-weight: 900;
       }
@@ -795,13 +805,30 @@
         margin: 6px 0 0;
         color: var(--muted);
         font-size: 13px;
+        font-weight: 700;
       }
 
-      .form-stack {
-        display: grid;
-        gap: 16px;
+      .inspector-body {
+        min-height: 0;
         overflow-y: auto;
-        padding: 20px 22px;
+        padding: 18px 22px;
+      }
+
+      .form-section {
+        display: grid;
+        gap: 12px;
+      }
+
+      .form-section + .form-section {
+        border-top: 1px solid var(--line-soft);
+        margin-top: 18px;
+        padding-top: 18px;
+      }
+
+      .form-section-title {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 900;
       }
 
       .field {
@@ -810,19 +837,26 @@
       }
 
       .field label {
-        color: #334155;
+        color: var(--text);
         font-size: 13px;
         font-weight: 900;
       }
 
+      .field small {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
       .control {
         width: 100%;
+        min-height: 40px;
         border: 1px solid var(--line);
-        border-radius: 11px;
+        border-radius: 10px;
         background: #fff;
         color: var(--ink);
         outline: none;
-        padding: 10px 11px;
+        padding: 9px 11px;
       }
 
       .control:focus {
@@ -835,55 +869,129 @@
         resize: vertical;
       }
 
-      .split-fields {
+      .field-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 10px;
       }
 
-      .branch-editor-list {
-        display: none;
+      .param-table {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+      }
+
+      .param-row {
+        display: grid;
+        grid-template-columns: 0.9fr 1fr auto;
+        gap: 10px;
+        align-items: center;
+        border-top: 1px solid var(--line-soft);
+        padding: 10px;
+      }
+
+      .param-row:first-child {
+        border-top: 0;
+      }
+
+      .param-row span {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--muted);
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          monospace;
+        font-size: 12px;
+        font-weight: 850;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .icon-link {
+        border: 0;
+        background: transparent;
+        color: var(--blue);
+        font-size: 13px;
+        font-weight: 900;
+        padding: 0;
+      }
+
+      .branch-config-list {
+        display: grid;
         gap: 10px;
       }
 
-      .branch-editor-item {
+      .branch-config-card {
         border: 1px solid var(--line);
         border-radius: 12px;
-        background: #f8fafc;
+        background: var(--surface-soft);
         padding: 12px;
       }
 
-      .branch-editor-item strong {
-        display: block;
-        margin-bottom: 8px;
+      .branch-config-card.active {
+        border-color: #bfdbfe;
+        background: #f8fbff;
+      }
+
+      .branch-config-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .branch-config-top strong {
+        color: var(--ink);
         font-size: 13px;
       }
 
-      .inspector-foot {
+      .substep-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .substep-item {
         display: flex;
+        align-items: center;
+        justify-content: space-between;
         gap: 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 10px;
+        background: #fff;
+        padding: 9px 10px;
+      }
+
+      .substep-item strong {
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .inspector-footer {
+        display: flex;
         justify-content: flex-end;
+        gap: 10px;
         border-top: 1px solid var(--line);
-        margin-top: auto;
-        padding: 16px 22px;
+        padding: 15px 22px;
       }
 
       @media (max-width: 980px) {
-        .app-shell {
+        .demo-shell {
           padding: 12px;
         }
 
-        .template-modal {
+        .template-dialog {
           min-height: calc(100vh - 24px);
         }
 
         .template-head,
-        .pane-head {
+        .panel-head,
+        .stage-topbar {
           align-items: stretch;
           flex-direction: column;
         }
 
-        .steps-tabs {
+        .step-tabs {
           grid-template-columns: 1fr 1fr;
         }
 
@@ -895,42 +1003,50 @@
           display: none;
         }
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
     </style>
   </head>
   <body>
-    <div class="app-shell">
-      <div class="page-mask"></div>
-      <main class="template-modal">
+    <div class="demo-shell">
+      <main class="template-dialog">
         <section class="template-main">
-          <header class="modal-bar">
-            <h1 class="modal-title">编辑动作模板</h1>
-            <button class="icon-button" type="button" aria-label="关闭">×</button>
+          <header class="dialog-bar">
+            <h1 class="dialog-title">编辑动作模板</h1>
+            <button class="close-btn" type="button" aria-label="关闭">×</button>
           </header>
 
           <section class="template-head">
             <div class="title-row">
               <h2 class="template-title">自动构建datto包</h2>
-              <span class="pill">个人模板</span>
+              <span class="tag">个人模板</span>
             </div>
-            <div class="button-row">
-              <span class="pill success">✓ 已启用</span>
-              <div class="switcher" aria-label="模板范围">
+            <div class="status-row">
+              <span class="tag success">✓ 已启用</span>
+              <div class="scope-switch" aria-label="模板范围">
                 <button type="button">管理员模板</button>
                 <button class="active" type="button">个人模板</button>
               </div>
             </div>
           </section>
 
-          <nav class="steps-tabs" aria-label="编辑步骤">
+          <nav class="step-tabs" aria-label="编辑步骤">
             <button class="tab" type="button"><span>01</span>基础信息</button>
             <button class="tab" type="button"><span>02</span>全局参数</button>
             <button class="tab active" type="button"><span>03</span>执行步骤</button>
             <button class="tab" type="button"><span>04</span>授权范围</button>
           </nav>
 
-          <section class="step-pane">
-            <div class="pane-head">
-              <h2 class="pane-title">执行步骤</h2>
+          <section class="step-panel">
+            <div class="panel-head">
+              <h2 class="section-title">执行步骤</h2>
               <div class="button-row">
                 <button class="btn" type="button">导入节点</button>
                 <button id="openCanvas" class="btn blue" type="button">编辑</button>
@@ -939,68 +1055,61 @@
 
             <section class="preview-card" aria-label="流程预览">
               <div class="preview-flow">
-                <svg class="flow-lines" viewBox="0 0 1280 360" aria-hidden="true">
+                <svg class="flow-svg" viewBox="0 0 1260 360" aria-hidden="true">
                   <defs>
-                    <marker
-                      id="previewArrow"
-                      markerWidth="9"
-                      markerHeight="9"
-                      refX="8"
-                      refY="4.5"
-                      orient="auto"
-                    >
-                      <path d="M 0 0 L 9 4.5 L 0 9 z" fill="#d4dfeb" />
+                    <marker id="previewArrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d3dfeb" />
                     </marker>
                   </defs>
-                  <path d="M 370 184 C 440 184, 440 105, 510 105" marker-end="url(#previewArrow)" />
-                  <path d="M 370 184 C 440 184, 440 170, 510 170" marker-end="url(#previewArrow)" />
-                  <path d="M 870 180 C 930 180, 950 197, 1010 197" marker-end="url(#previewArrow)" />
-                  <text x="404" y="128">branch_name = "centos9"</text>
-                  <text x="407" y="193">os_version = "centos8"</text>
+                  <path d="M 367 184 C 434 184, 438 116, 505 116" marker-end="url(#previewArrow)" />
+                  <path d="M 367 184 C 434 184, 438 180, 505 180" marker-end="url(#previewArrow)" />
+                  <path d="M 871 178 C 930 178, 949 197, 1008 197" marker-end="url(#previewArrow)" />
+                  <text x="402" y="132">branch_name = "centos9"</text>
+                  <text x="405" y="197">os_version = "centos8"</text>
                 </svg>
 
-                <article class="node-card standard preview-a selected">
-                  <span class="badge">01</span>
-                  <span class="node-type green">触发 Jenkins</span>
+                <article class="flow-card a">
+                  <span class="badge green">01</span>
+                  <span class="node-kind green">触发 Jenkins</span>
                   <h3 class="node-title">前置资源准备</h3>
                   <div class="node-meta">
-                    <span>入口</span><strong>Prepare_Datto_Packages</strong>
-                    <span>等待</span><strong>等待完成</strong>
+                    <span>Job</span><strong>Prepare_Datto_Packages</strong>
+                    <span>参数</span><strong>branch_name, os_version</strong>
                   </div>
-                  <span class="fail-pill">失败停止</span>
+                  <span class="policy">失败停止</span>
                 </article>
 
-                <article class="node-card branch-preview preview-b">
-                  <span class="badge">02</span>
-                  <span class="node-type">条件分支</span>
+                <article class="flow-card branch b">
+                  <span class="badge violet">02</span>
+                  <span class="node-kind violet">条件分支</span>
                   <h3 class="node-title">自动构建并测试datto</h3>
-                  <div class="branch-summary">
-                    <div class="branch-summary-row">
-                      <strong>分支 1</strong>
-                      <span class="rule-chip">branch_name = "centos9"</span>
+                  <div class="branch-brief">
+                    <div class="branch-brief-row">
+                      <strong>构建 centos9</strong>
+                      <span class="rule-chip">branch_name == "centos9"</span>
                     </div>
-                    <div class="branch-summary-row">
-                      <strong>分支 2</strong>
-                      <span class="rule-chip">os_version = "centos8"</span>
+                    <div class="branch-brief-row">
+                      <strong>构建 centos8</strong>
+                      <span class="rule-chip">os_version == "centos8"</span>
                     </div>
                   </div>
                 </article>
 
-                <article class="node-card standard preview-c">
+                <article class="flow-card c">
                   <span class="badge">03</span>
-                  <span class="node-type">人工确认</span>
+                  <span class="node-kind">人工确认</span>
                   <h3 class="node-title">发布确认</h3>
                   <div class="node-meta">
-                    <span>用户</span><strong>1 个</strong>
-                    <span>群组</span><strong>0 个</strong>
+                    <span>确认人</span><strong>admin</strong>
+                    <span>超时</span><strong>30 分钟</strong>
                   </div>
-                  <span class="fail-pill">失败停止</span>
+                  <span class="policy">失败停止</span>
                 </article>
               </div>
             </section>
           </section>
 
-          <footer class="modal-footer">
+          <footer class="dialog-footer">
             <button class="btn" type="button">取消</button>
             <button class="btn" type="button">上一步</button>
             <button class="btn primary" type="button">下一步</button>
@@ -1010,16 +1119,19 @@
     </div>
 
     <section id="canvasEditor" class="canvas-editor" aria-label="流程画布编辑器">
-      <main class="canvas-stage">
-        <header class="editor-topbar">
-          <div class="editor-heading">
-            <strong>03</strong>
-            <h2>执行步骤 · 流程画布编辑</h2>
+      <main class="stage">
+        <header class="stage-topbar">
+          <div class="stage-title">
+            <span>03</span>
+            <div>
+              <h2>执行步骤画布</h2>
+              <small>点击节点或分支，右侧编辑对应配置</small>
+            </div>
           </div>
           <div class="button-row">
-            <button class="btn" type="button">-</button>
+            <button class="btn ghost" type="button">-</button>
             <button class="btn" type="button">100%</button>
-            <button class="btn" type="button">+</button>
+            <button class="btn ghost" type="button">+</button>
             <button class="btn blue" type="button">添加节点</button>
             <button id="closeCanvas" class="btn primary" type="button">完成</button>
           </div>
@@ -1027,105 +1139,111 @@
 
         <div id="stageScroll" class="stage-scroll">
           <div class="large-canvas">
-            <svg class="canvas-svg" viewBox="0 0 1990 900" aria-hidden="true">
+            <svg class="canvas-svg" viewBox="0 0 2020 910" aria-hidden="true">
               <defs>
-                <marker
-                  id="flowArrow"
-                  markerWidth="10"
-                  markerHeight="10"
-                  refX="9"
-                  refY="5"
-                  orient="auto"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#d6e1ed" />
+                <marker id="flowArrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#d3dfeb" />
                 </marker>
               </defs>
 
-              <path class="active-line" d="M 440 436 C 535 436, 560 206, 675 206" marker-end="url(#flowArrow)" />
-              <path d="M 440 436 C 535 436, 560 334, 675 334" marker-end="url(#flowArrow)" />
-              <path d="M 440 436 C 535 436, 560 462, 675 462" marker-end="url(#flowArrow)" />
-              <path d="M 440 436 C 535 436, 560 590, 675 590" marker-end="url(#flowArrow)" />
+              <path class="active" d="M 448 445 C 540 445, 574 205, 680 205" marker-end="url(#flowArrow)" />
+              <path d="M 448 445 C 540 445, 574 336, 680 336" marker-end="url(#flowArrow)" />
+              <path d="M 448 445 C 540 445, 574 467, 680 467" marker-end="url(#flowArrow)" />
+              <path d="M 448 445 C 540 445, 574 598, 680 598" marker-end="url(#flowArrow)" />
+              <path d="M 1330 205 C 1422 205, 1462 445, 1560 445" marker-end="url(#flowArrow)" />
+              <path d="M 1330 336 C 1422 336, 1462 445, 1560 445" marker-end="url(#flowArrow)" />
+              <path d="M 1330 467 C 1422 467, 1462 445, 1560 445" marker-end="url(#flowArrow)" />
+              <path d="M 1330 598 C 1422 598, 1462 445, 1560 445" marker-end="url(#flowArrow)" />
 
-              <path d="M 1305 206 C 1398 206, 1445 436, 1550 436" marker-end="url(#flowArrow)" />
-              <path d="M 1305 334 C 1398 334, 1445 436, 1550 436" marker-end="url(#flowArrow)" />
-              <path d="M 1305 462 C 1398 462, 1445 436, 1550 436" marker-end="url(#flowArrow)" />
-              <path d="M 1305 590 C 1398 590, 1445 436, 1550 436" marker-end="url(#flowArrow)" />
-
-              <text x="485" y="250">branch_name = "centos9"</text>
-              <text x="488" y="365">os_version = "centos8"</text>
-              <text x="492" y="496">branch_name = "main"</text>
-              <text x="492" y="624">未命中，跳过此段</text>
+              <text x="494" y="251">branch_name == "centos9"</text>
+              <text x="498" y="369">os_version == "centos8"</text>
+              <text x="500" y="500">package_type == "qa"</text>
+              <text x="500" y="632">未命中，跳过分支段</text>
             </svg>
 
-            <article class="edit-node standard node-a is-selected" data-node="prepare">
-              <span class="badge">01</span>
-              <span class="check">✓</span>
-              <span class="node-type green">触发 Jenkins</span>
+            <article class="canvas-node standard start selected" data-target="prepare">
+              <span class="badge green">01</span>
+              <span class="node-check">✓</span>
+              <span class="node-kind green">触发 Jenkins</span>
               <h3 class="node-title">前置资源准备</h3>
               <div class="node-meta">
-                <span>入口</span><strong>Prepare_Datto_Packages</strong>
+                <span>实例</span><strong>主 Jenkins</strong>
+                <span>Job</span><strong>Prepare_Datto_Packages</strong>
                 <span>等待</span><strong>等待完成</strong>
               </div>
-              <span class="fail-pill">失败停止 (Fail-Stop)</span>
+              <span class="policy">失败停止 (Fail-Stop)</span>
             </article>
 
-            <article class="edit-node branch-node" data-node="branch">
-              <span class="badge">02</span>
-              <span class="check">✓</span>
-              <span class="node-type">条件分支</span>
+            <article class="canvas-node branch-node" data-target="branch">
+              <span class="badge violet">02</span>
+              <span class="node-check">✓</span>
+              <span class="node-kind violet">条件分支</span>
               <h3 class="node-title">自动构建并测试datto</h3>
 
               <div class="branch-list">
-                <section class="branch-item">
-                  <div class="branch-item-head">
-                    <div class="branch-name"><span class="branch-index">1</span>分支 1</div>
-                    <span class="rule-chip">branch_name = "centos9"</span>
+                <section class="branch-case selected" data-target="branch-centos9">
+                  <div class="branch-case-head">
+                    <div class="branch-name"><span class="branch-index">1</span>构建 centos9</div>
+                    <span class="rule-chip">branch_name == "centos9"</span>
                   </div>
-                  <div class="mini-flow">
-                    <span>测试</span><b>→</b><span>子步骤 2</span><b>→</b><span>子步骤 3</span>
+                  <div class="mini-steps">
+                    <span class="mini-step" data-target="sub-build-centos9">Build_Datto_Centos9</span>
+                    <span class="mini-arrow">→</span>
+                    <span class="mini-step" data-target="sub-test-centos9">Run_Datto_Tests</span>
+                    <span class="mini-arrow">→</span>
+                    <span class="mini-step" data-target="sub-artifacts-centos9">Collect_Artifacts</span>
                   </div>
                 </section>
 
-                <section class="branch-item">
-                  <div class="branch-item-head">
-                    <div class="branch-name"><span class="branch-index">2</span>分支 2</div>
-                    <span class="rule-chip">os_version = "centos8"</span>
+                <section class="branch-case" data-target="branch-centos8">
+                  <div class="branch-case-head">
+                    <div class="branch-name"><span class="branch-index">2</span>构建 centos8</div>
+                    <span class="rule-chip">os_version == "centos8"</span>
                   </div>
-                  <div class="mini-flow"><span>子步骤 1</span></div>
+                  <div class="mini-steps">
+                    <span class="mini-step" data-target="sub-build-centos8">Build_Datto_Centos8</span>
+                    <span class="mini-arrow">→</span>
+                    <span class="mini-step" data-target="sub-test-centos8">Run_Datto_Tests</span>
+                  </div>
                 </section>
 
-                <section class="branch-item">
-                  <div class="branch-item-head">
-                    <div class="branch-name"><span class="branch-index">3</span>分支 3</div>
-                    <span class="rule-chip">branch_name = "main"</span>
+                <section class="branch-case" data-target="branch-qa">
+                  <div class="branch-case-head">
+                    <div class="branch-name"><span class="branch-index">3</span>QA 验证包</div>
+                    <span class="rule-chip">package_type == "qa"</span>
                   </div>
-                  <div class="mini-flow"><span>步骤 1</span></div>
+                  <div class="mini-steps">
+                    <span class="mini-step" data-target="sub-build-qa">Build_QA_Package</span>
+                  </div>
                 </section>
 
-                <section class="branch-item">
-                  <div class="branch-item-head">
-                    <div class="branch-name"><span class="branch-index">4</span>默认分支</div>
+                <section class="branch-case" data-target="branch-default">
+                  <div class="branch-case-head">
+                    <div class="branch-name"><span class="branch-index">4</span>默认处理</div>
                     <span class="rule-chip">else</span>
                   </div>
-                  <div class="mini-flow"><span>跳过</span></div>
+                  <div class="mini-steps">
+                    <span class="mini-step">跳过此段</span>
+                  </div>
                 </section>
               </div>
 
               <div class="branch-footer">
-                <span class="skip-pill">未命中 → 自动跳过</span>
-                <span class="fail-pill">失败停止</span>
+                <span class="skip-tag">匹配策略：命中第一条分支</span>
+                <span class="policy">失败停止</span>
               </div>
             </article>
 
-            <article class="edit-node standard node-c" data-node="approve">
+            <article class="canvas-node standard finish" data-target="approve">
               <span class="badge">03</span>
-              <span class="node-type">人工确认</span>
+              <span class="node-kind">人工确认</span>
               <h3 class="node-title">发布确认</h3>
               <div class="node-meta">
-                <span>用户</span><strong>1 个</strong>
-                <span>群组</span><strong>0 个</strong>
+                <span>确认人</span><strong>admin</strong>
+                <span>超时</span><strong>30 分钟</strong>
+                <span>未确认</span><strong>失败停止</strong>
               </div>
-              <span class="fail-pill">失败停止 (Fail-Stop)</span>
+              <span class="policy">失败停止 (Fail-Stop)</span>
             </article>
 
             <div class="add-node">
@@ -1136,150 +1254,502 @@
         </div>
       </main>
 
-      <aside class="inspector">
-        <div class="inspector-head">
+      <aside class="inspector" aria-label="节点配置">
+        <header class="inspector-head">
           <h3 id="inspectorTitle">前置资源准备</h3>
-          <p id="inspectorType">触发 Jenkins · 步骤 01</p>
-        </div>
+          <p id="inspectorSubtitle">触发 Jenkins · 步骤 01</p>
+        </header>
 
-        <div class="form-stack">
-          <div class="field">
-            <label for="nodeName">节点名称</label>
-            <input id="nodeName" class="control" value="前置资源准备" />
-          </div>
-          <div class="field">
-            <label for="nodeType">节点类型</label>
-            <select id="nodeType" class="control">
-              <option>触发 Jenkins</option>
-              <option>条件分支</option>
-              <option>人工确认</option>
-              <option>GitLab 分支操作</option>
-            </select>
-          </div>
-          <div class="split-fields standard-only">
-            <div class="field">
-              <label for="entry">入口</label>
-              <input id="entry" class="control" value="Prepare_Datto_Packages" />
-            </div>
-            <div class="field">
-              <label for="wait">等待策略</label>
-              <select id="wait" class="control">
-                <option>等待完成</option>
-                <option>触发后继续</option>
-              </select>
-            </div>
-          </div>
-          <div class="field">
-            <label for="fail">失败策略</label>
-            <select id="fail" class="control">
-              <option>失败停止</option>
-              <option>失败继续</option>
-            </select>
-          </div>
-          <div class="field standard-only">
-            <label for="desc">备注</label>
-            <textarea id="desc" class="control">准备 Datto 包构建所需资源。</textarea>
-          </div>
+        <div id="inspectorBody" class="inspector-body"></div>
 
-          <div class="branch-editor-list" id="branchEditor">
-            <div class="branch-editor-item">
-              <strong>分支 1</strong>
-              <input class="control" value='branch_name = "centos9"' />
-            </div>
-            <div class="branch-editor-item">
-              <strong>分支 2</strong>
-              <input class="control" value='os_version = "centos8"' />
-            </div>
-            <div class="branch-editor-item">
-              <strong>默认分支</strong>
-              <input class="control" value="else -> skip" />
-            </div>
-          </div>
-        </div>
-
-        <div class="inspector-foot">
-          <button class="btn" type="button">复制节点</button>
-          <button class="btn primary" type="button">保存节点</button>
-        </div>
+        <footer class="inspector-footer">
+          <button class="btn" type="button">复制</button>
+          <button class="btn primary" type="button">保存</button>
+        </footer>
       </aside>
     </section>
 
     <script>
+      const inspectorData = {
+        prepare: {
+          title: '前置资源准备',
+          subtitle: '触发 Jenkins · 步骤 01',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">节点信息</div>
+              <div class="field">
+                <label>节点名称</label>
+                <input class="control" value="前置资源准备" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>动作类型</label>
+                  <select class="control"><option>触发 Jenkins</option></select>
+                </div>
+                <div class="field">
+                  <label>失败策略</label>
+                  <select class="control"><option>失败停止</option><option>失败继续</option></select>
+                </div>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Jenkins 实例</label>
+                <select class="control"><option>主 Jenkins</option><option>Datto Jenkins</option></select>
+              </div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Prepare_Datto_Packages" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>等待策略</label>
+                  <select class="control"><option>等待完成</option><option>触发后继续</option></select>
+                </div>
+                <div class="field">
+                  <label>超时时间</label>
+                  <input class="control" value="30 分钟" />
+                </div>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">构建参数</div>
+              <div class="param-table">
+                <div class="param-row"><span>branch_name</span><span>{{ 全局参数.branch_name }}</span><button class="icon-link">编辑</button></div>
+                <div class="param-row"><span>os_version</span><span>{{ 全局参数.os_version }}</span><button class="icon-link">编辑</button></div>
+                <div class="param-row"><span>package_type</span><span>{{ 全局参数.package_type }}</span><button class="icon-link">编辑</button></div>
+              </div>
+            </section>
+          `
+        },
+        branch: {
+          title: '自动构建并测试datto',
+          subtitle: '条件分支 · 步骤 02',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">分支节点</div>
+              <div class="field">
+                <label>节点名称</label>
+                <input class="control" value="自动构建并测试datto" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>匹配策略</label>
+                  <select class="control"><option>命中第一条分支</option><option>命中全部分支</option></select>
+                </div>
+                <div class="field">
+                  <label>未命中</label>
+                  <select class="control"><option>跳过此段</option><option>执行默认分支</option><option>标记失败</option></select>
+                </div>
+              </div>
+              <div class="field">
+                <label>失败策略</label>
+                <select class="control"><option>任一分支失败则停止</option><option>失败继续后汇合</option></select>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">分支配置</div>
+              <div class="branch-config-list">
+                <div class="branch-config-card active">
+                  <div class="branch-config-top"><strong>构建 centos9</strong><button class="icon-link">编辑</button></div>
+                  <input class="control" value='branch_name == "centos9"' />
+                </div>
+                <div class="branch-config-card">
+                  <div class="branch-config-top"><strong>构建 centos8</strong><button class="icon-link">编辑</button></div>
+                  <input class="control" value='os_version == "centos8"' />
+                </div>
+                <div class="branch-config-card">
+                  <div class="branch-config-top"><strong>QA 验证包</strong><button class="icon-link">编辑</button></div>
+                  <input class="control" value='package_type == "qa"' />
+                </div>
+              </div>
+            </section>
+          `
+        },
+        'branch-centos9': {
+          title: '构建 centos9',
+          subtitle: '分支 1 · branch_name == "centos9"',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">条件</div>
+              <div class="field">
+                <label>分支名称</label>
+                <input class="control" value="构建 centos9" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>全局参数</label>
+                  <select class="control"><option>branch_name</option><option>os_version</option><option>package_type</option></select>
+                </div>
+                <div class="field">
+                  <label>判断方式</label>
+                  <select class="control"><option>等于</option><option>不等于</option><option>包含</option><option>为空</option></select>
+                </div>
+              </div>
+              <div class="field">
+                <label>目标值</label>
+                <input class="control" value="centos9" />
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">分支内步骤</div>
+              <div class="substep-list">
+                <div class="substep-item"><strong>1. Build_Datto_Centos9</strong><button class="icon-link" data-inspector-target="sub-build-centos9">配置</button></div>
+                <div class="substep-item"><strong>2. Run_Datto_Tests</strong><button class="icon-link" data-inspector-target="sub-test-centos9">配置</button></div>
+                <div class="substep-item"><strong>3. Collect_Artifacts</strong><button class="icon-link" data-inspector-target="sub-artifacts-centos9">配置</button></div>
+              </div>
+            </section>
+          `
+        },
+        'branch-centos8': {
+          title: '构建 centos8',
+          subtitle: '分支 2 · os_version == "centos8"',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">条件</div>
+              <div class="field">
+                <label>分支名称</label>
+                <input class="control" value="构建 centos8" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>全局参数</label>
+                  <select class="control"><option>os_version</option><option>branch_name</option><option>package_type</option></select>
+                </div>
+                <div class="field">
+                  <label>判断方式</label>
+                  <select class="control"><option>等于</option><option>不等于</option><option>包含</option></select>
+                </div>
+              </div>
+              <div class="field">
+                <label>目标值</label>
+                <input class="control" value="centos8" />
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">分支内步骤</div>
+              <div class="substep-list">
+                <div class="substep-item"><strong>1. Build_Datto_Centos8</strong><button class="icon-link" data-inspector-target="sub-build-centos8">配置</button></div>
+                <div class="substep-item"><strong>2. Run_Datto_Tests</strong><button class="icon-link" data-inspector-target="sub-test-centos8">配置</button></div>
+              </div>
+            </section>
+          `
+        },
+        'branch-qa': {
+          title: 'QA 验证包',
+          subtitle: '分支 3 · package_type == "qa"',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">条件</div>
+              <div class="field-row">
+                <div class="field">
+                  <label>全局参数</label>
+                  <select class="control"><option>package_type</option><option>branch_name</option><option>os_version</option></select>
+                </div>
+                <div class="field">
+                  <label>判断方式</label>
+                  <select class="control"><option>等于</option><option>包含</option></select>
+                </div>
+              </div>
+              <div class="field">
+                <label>目标值</label>
+                <input class="control" value="qa" />
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">分支内步骤</div>
+              <div class="substep-list">
+                <div class="substep-item"><strong>1. Build_QA_Package</strong><button class="icon-link" data-inspector-target="sub-build-qa">配置</button></div>
+              </div>
+            </section>
+          `
+        },
+        'branch-default': {
+          title: '默认处理',
+          subtitle: '未命中任何条件',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">默认策略</div>
+              <div class="field">
+                <label>未命中时</label>
+                <select class="control"><option>跳过此段并继续后续步骤</option><option>执行默认动作</option><option>标记失败</option></select>
+                <small>这里用于表达 A → 条件分支 → F 的汇合关系。未匹配时不执行分支内动作，直接进入后续步骤。</small>
+              </div>
+            </section>
+          `
+        },
+        approve: {
+          title: '发布确认',
+          subtitle: '人工确认 · 步骤 03',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">确认配置</div>
+              <div class="field">
+                <label>节点名称</label>
+                <input class="control" value="发布确认" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>确认用户</label>
+                  <input class="control" value="admin" />
+                </div>
+                <div class="field">
+                  <label>超时时间</label>
+                  <input class="control" value="30 分钟" />
+                </div>
+              </div>
+              <div class="field">
+                <label>超时策略</label>
+                <select class="control"><option>失败停止</option><option>自动通过</option><option>跳过</option></select>
+              </div>
+            </section>
+          `
+        },
+        'sub-build-centos9': {
+          title: 'Build_Datto_Centos9',
+          subtitle: '构建 centos9 · 分支内步骤 1',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">子步骤信息</div>
+              <div class="field">
+                <label>步骤名称</label>
+                <input class="control" value="Build_Datto_Centos9" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>动作类型</label>
+                  <select class="control"><option>触发 Jenkins</option><option>人工确认</option><option>GitLab 标签操作</option></select>
+                </div>
+                <div class="field">
+                  <label>失败策略</label>
+                  <select class="control"><option>失败停止</option><option>失败继续</option></select>
+                </div>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Jenkins 实例</label>
+                <select class="control"><option>Datto Jenkins</option><option>主 Jenkins</option></select>
+              </div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Build_Datto_Centos9" />
+              </div>
+              <div class="param-table">
+                <div class="param-row"><span>branch_name</span><span>centos9</span><button class="icon-link">编辑</button></div>
+                <div class="param-row"><span>package_type</span><span>{{ 全局参数.package_type }}</span><button class="icon-link">编辑</button></div>
+              </div>
+            </section>
+          `
+        },
+        'sub-test-centos9': {
+          title: 'Run_Datto_Tests',
+          subtitle: '构建 centos9 · 分支内步骤 2',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">子步骤信息</div>
+              <div class="field">
+                <label>步骤名称</label>
+                <input class="control" value="Run_Datto_Tests" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>动作类型</label>
+                  <select class="control"><option>触发 Jenkins</option></select>
+                </div>
+                <div class="field">
+                  <label>等待策略</label>
+                  <select class="control"><option>等待完成</option><option>触发后继续</option></select>
+                </div>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Run_Datto_Tests" />
+              </div>
+              <div class="param-table">
+                <div class="param-row"><span>target_os</span><span>centos9</span><button class="icon-link">编辑</button></div>
+                <div class="param-row"><span>artifact_from</span><span>Build_Datto_Centos9</span><button class="icon-link">编辑</button></div>
+              </div>
+            </section>
+          `
+        },
+        'sub-artifacts-centos9': {
+          title: 'Collect_Artifacts',
+          subtitle: '构建 centos9 · 分支内步骤 3',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">子步骤信息</div>
+              <div class="field">
+                <label>步骤名称</label>
+                <input class="control" value="Collect_Artifacts" />
+              </div>
+              <div class="field">
+                <label>动作类型</label>
+                <select class="control"><option>触发 Jenkins</option><option>GitLab 标签操作</option></select>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Collect_Artifacts" />
+              </div>
+              <div class="field">
+                <label>归档目录</label>
+                <input class="control" value="datto/centos9/{{ build_id }}" />
+              </div>
+            </section>
+          `
+        },
+        'sub-build-centos8': {
+          title: 'Build_Datto_Centos8',
+          subtitle: '构建 centos8 · 分支内步骤 1',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">子步骤信息</div>
+              <div class="field">
+                <label>步骤名称</label>
+                <input class="control" value="Build_Datto_Centos8" />
+              </div>
+              <div class="field">
+                <label>动作类型</label>
+                <select class="control"><option>触发 Jenkins</option></select>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Build_Datto_Centos8" />
+              </div>
+              <div class="param-table">
+                <div class="param-row"><span>os_version</span><span>centos8</span><button class="icon-link">编辑</button></div>
+              </div>
+            </section>
+          `
+        },
+        'sub-test-centos8': {
+          title: 'Run_Datto_Tests',
+          subtitle: '构建 centos8 · 分支内步骤 2',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">子步骤信息</div>
+              <div class="field">
+                <label>步骤名称</label>
+                <input class="control" value="Run_Datto_Tests" />
+              </div>
+              <div class="field">
+                <label>动作类型</label>
+                <select class="control"><option>触发 Jenkins</option></select>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Run_Datto_Tests" />
+              </div>
+            </section>
+          `
+        },
+        'sub-build-qa': {
+          title: 'Build_QA_Package',
+          subtitle: 'QA 验证包 · 分支内步骤 1',
+          html: `
+            <section class="form-section">
+              <div class="form-section-title">子步骤信息</div>
+              <div class="field">
+                <label>步骤名称</label>
+                <input class="control" value="Build_QA_Package" />
+              </div>
+              <div class="field">
+                <label>动作类型</label>
+                <select class="control"><option>触发 Jenkins</option></select>
+              </div>
+            </section>
+            <section class="form-section">
+              <div class="form-section-title">Jenkins 配置</div>
+              <div class="field">
+                <label>Job 名称</label>
+                <input class="control" value="Build_QA_Package" />
+              </div>
+              <div class="param-table">
+                <div class="param-row"><span>package_type</span><span>qa</span><button class="icon-link">编辑</button></div>
+              </div>
+            </section>
+          `
+        }
+      };
+
       const openCanvas = document.getElementById('openCanvas');
       const closeCanvas = document.getElementById('closeCanvas');
       const canvasEditor = document.getElementById('canvasEditor');
       const stageScroll = document.getElementById('stageScroll');
       const inspectorTitle = document.getElementById('inspectorTitle');
-      const inspectorType = document.getElementById('inspectorType');
-      const nodeName = document.getElementById('nodeName');
-      const nodeType = document.getElementById('nodeType');
-      const branchEditor = document.getElementById('branchEditor');
-      const standardOnlyFields = document.querySelectorAll('.standard-only');
+      const inspectorSubtitle = document.getElementById('inspectorSubtitle');
+      const inspectorBody = document.getElementById('inspectorBody');
 
-      function openEditor() {
-        canvasEditor.classList.add('is-open');
+      function renderInspector(key) {
+        const data = inspectorData[key] || inspectorData.prepare;
+        inspectorTitle.textContent = data.title;
+        inspectorSubtitle.textContent = data.subtitle;
+        inspectorBody.innerHTML = data.html;
+      }
+
+      function markSelected(target) {
+        document.querySelectorAll('.canvas-node').forEach((node) => {
+          node.classList.toggle('selected', node.dataset.target === target);
+        });
+        document.querySelectorAll('.branch-case').forEach((branch) => {
+          branch.classList.toggle('selected', branch.dataset.target === target);
+        });
+      }
+
+      function selectTarget(target) {
+        markSelected(target);
+        renderInspector(target);
+      }
+
+      openCanvas.addEventListener('click', () => {
+        canvasEditor.classList.add('open');
         requestAnimationFrame(() => {
           stageScroll.scrollLeft = 18;
           stageScroll.scrollTop = 0;
         });
-      }
+      });
 
-      function closeEditor() {
-        canvasEditor.classList.remove('is-open');
-      }
+      closeCanvas.addEventListener('click', () => {
+        canvasEditor.classList.remove('open');
+      });
 
-      function selectNode(node) {
-        document
-          .querySelectorAll('.edit-node')
-          .forEach((item) => item.classList.remove('is-selected'));
-        node.classList.add('is-selected');
-
-        const kind = node.dataset.node;
-        if (kind === 'branch') {
-          inspectorTitle.textContent = '自动构建并测试datto';
-          inspectorType.textContent = '条件分支 · 步骤 02';
-          nodeName.value = '自动构建并测试datto';
-          nodeType.value = '条件分支';
-          standardOnlyFields.forEach((field) => {
-            field.style.display = 'none';
-          });
-          branchEditor.style.display = 'grid';
-          return;
-        }
-
-        if (kind === 'approve') {
-          inspectorTitle.textContent = '发布确认';
-          inspectorType.textContent = '人工确认 · 步骤 03';
-          nodeName.value = '发布确认';
-          nodeType.value = '人工确认';
-          standardOnlyFields.forEach((field) => {
-            field.style.display = '';
-          });
-          branchEditor.style.display = 'none';
-          return;
-        }
-
-        inspectorTitle.textContent = '前置资源准备';
-        inspectorType.textContent = '触发 Jenkins · 步骤 01';
-        nodeName.value = '前置资源准备';
-        nodeType.value = '触发 Jenkins';
-        standardOnlyFields.forEach((field) => {
-          field.style.display = '';
-        });
-        branchEditor.style.display = 'none';
-      }
-
-      openCanvas.addEventListener('click', openEditor);
-      closeCanvas.addEventListener('click', closeEditor);
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
-          closeEditor();
+          canvasEditor.classList.remove('open');
         }
       });
 
-      document.querySelectorAll('.edit-node').forEach((node) => {
-        node.addEventListener('click', () => selectNode(node));
+      document.querySelectorAll('[data-target]').forEach((item) => {
+        item.addEventListener('click', (event) => {
+          event.stopPropagation();
+          selectTarget(item.dataset.target);
+        });
       });
+
+      inspectorBody.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-inspector-target]');
+        if (!trigger) {
+          return;
+        }
+        event.preventDefault();
+        selectTarget(trigger.dataset.inspectorTarget);
+      });
+
+      renderInspector('prepare');
     </script>
   </body>
 </html>
