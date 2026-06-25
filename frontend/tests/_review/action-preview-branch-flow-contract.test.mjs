@@ -34,13 +34,13 @@ assert(
 
 assert(
   source.includes('action-flow-conditional-connectors') &&
+    source.includes('action-flow-branch-inputs') &&
     source.includes('action-flow-conditional-label') &&
     source.includes('action-flow-conditional-curves') &&
     source.includes('action-flow-conditional-origin') &&
     source.includes('action-flow-conditional-arrow-line') &&
-    source.includes('previewConnectorCurve(') &&
-    source.includes('previewNextStep(index)'),
-  'the connector into a conditional branch should render labelled curved arrows from one origin point'
+    source.includes('previewConnectorCurve('),
+  'the connector inside a conditional branch should render labelled curved arrows from one origin point'
 )
 
 assert(
@@ -65,6 +65,16 @@ assert(
   !conditionalConnectorBlock.includes('margin-left: -') &&
     !conditionalConnectorBlock.includes('margin-right: -'),
   'conditional connector spacing should not rely on negative margins'
+)
+
+const branchDiagramBlock = source.match(
+  /\.action-flow-branch-diagram\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(branchDiagramBlock, 'branch diagram layout should be defined')
+
+assert(
+  branchDiagramBlock.includes('grid-template-columns: 230px minmax(360px, 1fr)'),
+  'branch diagram should place condition connectors and branch lanes in aligned columns'
 )
 
 const conditionalConnectorRowBlock = source.match(

@@ -2369,7 +2369,51 @@
                     </span>
                   </div>
                   <div class="action-flow-branch-diagram">
-                    <div class="action-flow-branch-split" aria-hidden="true" />
+                    <div class="action-flow-branch-inputs">
+                      <div class="action-flow-conditional-connectors">
+                        <svg
+                          class="action-flow-conditional-curves"
+                          :viewBox="`0 0 180 ${previewConnectorHeight(step)}`"
+                          preserveAspectRatio="none"
+                          aria-hidden="true"
+                        >
+                          <circle
+                            class="action-flow-conditional-origin"
+                            cx="10"
+                            :cy="previewConnectorOriginY(step)"
+                            r="4"
+                          />
+                          <path
+                            v-for="(branch, branchIndex) in previewBranchCases(
+                              step
+                            )"
+                            :key="`curve-${branch.id || branch.client_id || branchIndex}`"
+                            class="action-flow-conditional-curve"
+                            :d="
+                              previewConnectorCurve(
+                                branchIndex,
+                                previewBranchCases(step).length
+                              )
+                            "
+                          />
+                        </svg>
+                        <div
+                          v-for="(branch, branchIndex) in previewBranchCases(
+                            step
+                          )"
+                          :key="branch.id || branch.client_id || branchIndex"
+                          class="action-flow-conditional-connector"
+                        >
+                          <span class="action-flow-conditional-label">{{
+                            branchConditionText(branch)
+                          }}</span>
+                          <span
+                            class="action-flow-conditional-arrow-line"
+                            aria-hidden="true"
+                          />
+                        </div>
+                      </div>
+                    </div>
                     <div class="action-flow-branch-lanes">
                       <div
                         v-for="(branch, branchIndex) in previewBranchCases(
@@ -2465,56 +2509,7 @@
                 </template>
               </div>
               <div
-                v-if="
-                  index < previewSteps.length - 1 &&
-                  previewNextStep(index)?.action_type === 'conditional_branch'
-                "
-                class="action-flow-conditional-connectors"
-              >
-                <svg
-                  class="action-flow-conditional-curves"
-                  :viewBox="`0 0 180 ${previewConnectorHeight(previewNextStep(index))}`"
-                  preserveAspectRatio="none"
-                  aria-hidden="true"
-                >
-                  <circle
-                    class="action-flow-conditional-origin"
-                    cx="10"
-                    :cy="previewConnectorOriginY(previewNextStep(index))"
-                    r="4"
-                  />
-                  <path
-                    v-for="(branch, branchIndex) in previewBranchCases(
-                      previewNextStep(index)
-                    )"
-                    :key="`curve-${branch.id || branch.client_id || branchIndex}`"
-                    class="action-flow-conditional-curve"
-                    :d="
-                      previewConnectorCurve(
-                        branchIndex,
-                        previewBranchCases(previewNextStep(index)).length
-                      )
-                    "
-                  />
-                </svg>
-                <div
-                  v-for="(branch, branchIndex) in previewBranchCases(
-                    previewNextStep(index)
-                  )"
-                  :key="branch.id || branch.client_id || branchIndex"
-                  class="action-flow-conditional-connector"
-                >
-                  <span class="action-flow-conditional-label">{{
-                    branchConditionText(branch)
-                  }}</span>
-                  <span
-                    class="action-flow-conditional-arrow-line"
-                    aria-hidden="true"
-                  />
-                </div>
-              </div>
-              <div
-                v-else-if="index < previewSteps.length - 1"
+                v-if="index < previewSteps.length - 1"
                 class="action-flow-arrow"
               >
                 →
@@ -3584,10 +3579,6 @@ function previewBranchNestedSteps(branch) {
   return branch?.steps || []
 }
 
-function previewNextStep(index) {
-  return previewSteps.value[index + 1]
-}
-
 const connectorRowHeight = 112
 const connectorRowGap = 14
 
@@ -3610,7 +3601,7 @@ function previewConnectorCurve(index, count) {
       (Math.max(count, 1) - 1) * connectorRowGap) /
     2
   const targetY = previewConnectorTargetY(index)
-  return `M 10 ${originY} C 48 ${originY}, 58 ${targetY}, 92 ${targetY}`
+  return `M 10 ${originY} C 34 ${originY}, 42 ${targetY}, 62 ${targetY}`
 }
 
 function cleanConditionalBranchConfig(config, stepIndex) {
@@ -4221,11 +4212,10 @@ onMounted(() => {
 .action-flow-conditional-connectors {
   position: relative;
   display: grid;
-  width: 230px;
-  flex: 0 0 230px;
+  width: 100%;
   gap: 14px;
   align-self: center;
-  padding: 4px 0 4px 90px;
+  padding: 4px 0 4px 62px;
 }
 
 .action-flow-conditional-curves {
@@ -4261,7 +4251,7 @@ onMounted(() => {
 .action-flow-conditional-label {
   display: inline-flex;
   width: fit-content;
-  max-width: 164px;
+  max-width: 128px;
   border: 1px solid rgba(99, 102, 241, 0.22);
   border-radius: 8px;
   background: #ffffff;
@@ -4335,7 +4325,7 @@ onMounted(() => {
 }
 
 .action-flow-node--branch-preview {
-  min-width: 560px;
+  min-width: 820px;
 }
 
 .action-flow-node--branch-preview .action-flow-node-body {
@@ -4352,8 +4342,15 @@ onMounted(() => {
 }
 
 .action-flow-branch-diagram {
-  display: block;
+  display: grid;
+  grid-template-columns: 230px minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
   margin-top: 16px;
+}
+
+.action-flow-branch-inputs {
+  min-width: 0;
 }
 
 .action-flow-branch-split,
