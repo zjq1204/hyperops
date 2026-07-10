@@ -24,6 +24,7 @@ def test_meta_view_returns_module_flags(settings, authed_client):
     settings.ENABLE_NOTIFIER = True
     settings.ENABLE_AGENTCORE_TASK = False
     settings.ENABLE_AGENTCORE_METERING = True
+    settings.ENABLE_MONITORING = True
     response = authed_client.get("/")
     assert response.status_code == 200
     body = response.json()
@@ -32,6 +33,7 @@ def test_meta_view_returns_module_flags(settings, authed_client):
         "enable_notifier": True,
         "enable_agentcore_task": False,
         "enable_agentcore_metering": True,
+        "enable_monitoring": True,
     }
 
 

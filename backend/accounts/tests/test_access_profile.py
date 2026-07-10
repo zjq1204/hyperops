@@ -30,6 +30,8 @@ class AccessProfileTests(TestCase):
                 'admin_jenkins',
                 'admin_gitlab',
                 'admin_notifications',
+                'admin_actions',
+                'admin_monitoring',
             ],
         )
         self.assertEqual(
@@ -109,7 +111,7 @@ class AccessProfileTests(TestCase):
 
         self.assertEqual(
             access_profile['visible_features'],
-            ['workspace_dashboard', 'workspace_jenkins'],
+            ['workspace_dashboard', 'workspace_jenkins', 'workspace_actions'],
         )
 
     def test_admin_module_access_keeps_platform_summary_platform_level(self):
@@ -159,9 +161,12 @@ class AccessProfileTests(TestCase):
             [
                 'workspace_dashboard',
                 'workspace_jenkins',
+                'workspace_actions',
                 'admin_users',
                 'admin_jenkins',
                 'admin_gitlab',
                 'admin_notifications',
+                'admin_actions',
+                'admin_monitoring',
             ],
         )

@@ -156,5 +156,100 @@ export const adminRoutes = [
     name: 'AdminActionTemplates',
     component: () => import('@/admin/pages/Actions/Templates.vue'),
     meta: { requiresAuth: true, requiredFeature: 'admin_actions' }
+  },
+  // Monitoring Stack Admin
+  {
+    path: '/management/monitoring',
+    redirect: '/management/monitoring/overview'
+  },
+  {
+    path: '/management/monitoring/overview',
+    name: 'AdminMonitoringOverview',
+    component: () => import('@/admin/pages/Monitoring/Overview.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/installers',
+    name: 'AdminMonitoringInstallers',
+    component: () => import('@/admin/pages/Monitoring/Installers.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/probes',
+    name: 'AdminMonitoringProbes',
+    component: () => import('@/admin/pages/Monitoring/Probes.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/blackbox',
+    name: 'AdminMonitoringBlackbox',
+    component: () => import('@/admin/pages/Monitoring/BlackboxInstances.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/assets',
+    name: 'AdminMonitoringAssets',
+    component: () => import('@/admin/pages/Monitoring/Assets.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/rules',
+    name: 'AdminMonitoringRules',
+    component: () => import('@/admin/pages/Monitoring/Rules.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/rules/:templateName',
+    name: 'AdminMonitoringRuleDetail',
+    component: () => import('@/admin/pages/Monitoring/RuleDetail.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/jobs',
+    name: 'AdminMonitoringJobs',
+    component: () => import('@/admin/pages/Monitoring/Jobs.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/settings',
+    name: 'AdminMonitoringSettings',
+    component: () => import('@/admin/pages/Monitoring/Settings.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
   }
 ]

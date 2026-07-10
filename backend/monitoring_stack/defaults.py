@@ -1,0 +1,82 @@
+DEFAULT_PROFILES = [
+    {
+        "id": "linux-basic",
+        "name": "Linux 主机基础采集",
+        "category": "host",
+        "description": "采集 CPU、内存、磁盘、网络、进程和主机心跳。",
+        "plugins": ["cpu", "mem", "disk", "diskio", "net", "system"],
+    },
+    {
+        "id": "docker-host",
+        "name": "Docker 主机采集",
+        "category": "container",
+        "description": "采集 Docker daemon 和容器 CPU、内存、网络、状态指标。",
+        "plugins": ["docker"],
+    },
+    {
+        "id": "mysql-rds",
+        "name": "MySQL/RDS 采集",
+        "category": "database",
+        "description": "通过 Categraf MySQL 插件采集自建 MySQL 或 RDS MySQL。",
+        "plugins": ["mysql"],
+    },
+    {
+        "id": "redis",
+        "name": "Redis 采集",
+        "category": "middleware",
+        "description": "通过 Categraf Redis 插件采集自建 Redis 或云 Redis。",
+        "plugins": ["redis"],
+    },
+    {
+        "id": "nginx",
+        "name": "Nginx 采集",
+        "category": "middleware",
+        "description": "通过 Categraf Nginx 插件采集连接数、请求状态和 stub_status 指标。",
+        "plugins": ["nginx"],
+    },
+    {
+        "id": "huawei-ces-exporter",
+        "name": "华为云 CES Exporter",
+        "category": "cloud",
+        "description": "采集华为云平台侧云产品指标，适合云盘、EIP、ELB、OBS 等资源。",
+        "plugins": ["huawei-ces-exporter"],
+    },
+    {
+        "id": "aliyun-api-exporter",
+        "name": "阿里云 API Exporter",
+        "category": "cloud",
+        "description": "采集阿里云平台侧资源指标，作为 Categraf 直连插件无法覆盖时的补充。",
+        "plugins": ["aliyun-api-exporter"],
+    },
+]
+
+DEFAULT_INSTALLER_OPTIONS = {
+    "regions": [
+        "beijing-idc",
+        "beijing-cloud",
+        "beijing-office",
+        "aliyun-hz",
+        "aliyun-bj",
+        "aliyun-sh",
+        "tencent-sh",
+        "huawei-bj",
+        "idc-hz",
+    ],
+    "envs": ["dev", "test", "staging", "pre", "prod"],
+    "teams": ["ops", "dev", "backend", "frontend", "platform", "security", "dba"],
+    "services": ["infra", "app", "api", "web", "nginx", "mysql", "redis", "middleware"],
+    "roles": [
+        "docker-host",
+        "linux-host",
+        "app-server",
+        "web-server",
+        "db-server",
+        "middleware-server",
+        "lb-server",
+    ],
+    "probe_names": [
+        "blackbox-beijing-idc",
+        "blackbox-aliyun-hz",
+        "blackbox-tencent-sh",
+    ],
+}

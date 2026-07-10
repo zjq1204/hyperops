@@ -13,7 +13,9 @@
         </div>
         <div class="workspace-inline-stat">
           <span>{{ t('jenkinsWorkspace.searchStatus') }}</span>
-          <strong>{{ searchQuery ? t('jenkinsWorkspace.searching') : t('common.all') }}</strong>
+          <strong>{{
+            searchQuery ? t('jenkinsWorkspace.searching') : t('common.all')
+          }}</strong>
           <small>{{ searchQuery || t('jenkinsWorkspace.searchHint') }}</small>
         </div>
         <div class="workspace-inline-stat">
@@ -26,13 +28,27 @@
       <section class="workspace-panel workspace-panel--padded">
         <div class="section-heading">
           <div>
-            <h2 class="section-title">{{ t('jenkinsWorkspace.catalogTitle') }}</h2>
-            <p class="section-copy">{{ t('jenkinsWorkspace.catalogSubtitle') }}</p>
+            <h2 class="section-title">
+              {{ t('jenkinsWorkspace.catalogTitle') }}
+            </h2>
+            <p class="section-copy">
+              {{ t('jenkinsWorkspace.catalogSubtitle') }}
+            </p>
           </div>
         </div>
         <div class="relative">
-          <svg class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          <svg
+            class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
           </svg>
           <input
             v-model="searchQuery"
@@ -49,7 +65,9 @@
           :key="entry.id"
           class="workspace-entry-row workspace-entry-row--card"
         >
-          <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div
+            class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"
+          >
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-3">
                 <span class="workspace-chip workspace-chip--sky">
@@ -63,23 +81,34 @@
                 </span>
               </div>
 
-              <div class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+              <div
+                class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6"
+              >
                 <div class="min-w-0 flex-1">
                   <h3 class="text-xl font-semibold text-slate-900">
                     {{ entry.name }}
                   </h3>
                   <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                    {{ entry.description || t('jenkinsWorkspace.emptyDescription') }}
+                    {{
+                      entry.description ||
+                      t('jenkinsWorkspace.emptyDescription')
+                    }}
                   </p>
                 </div>
 
                 <div class="workspace-meta-box lg:min-w-[18rem]">
                   <div class="flex items-center justify-between gap-3">
-                    <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    <p
+                      class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400"
+                    >
                       {{ t('jenkinsWorkspace.notificationSectionTag') }}
                     </p>
                     <span
-                      :class="entryNotificationEnabled(entry.id) ? 'status-pill-success' : 'status-pill-neutral'"
+                      :class="
+                        entryNotificationEnabled(entry.id)
+                          ? 'status-pill-success'
+                          : 'status-pill-neutral'
+                      "
                     >
                       {{
                         entryNotificationEnabled(entry.id)
@@ -117,15 +146,38 @@
         :description="t('jenkinsWorkspace.emptySubtitle')"
       >
         <template #icon>
-          <svg class="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          <svg
+            class="h-8 w-8"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
+            />
           </svg>
         </template>
       </EmptyState>
 
-      <BaseModal :show="showTriggerModal" :title="selectedEntry ? t('jenkinsWorkspace.triggerTitle', { name: selectedEntry.name }) : t('jenkinsWorkspace.triggerBuild')" @close="closeTriggerModal">
+      <BaseModal
+        :show="showTriggerModal"
+        :title="
+          selectedEntry
+            ? t('jenkinsWorkspace.triggerTitle', { name: selectedEntry.name })
+            : t('jenkinsWorkspace.triggerBuild')
+        "
+        @close="closeTriggerModal"
+      >
         <div v-if="loadingParams" class="py-10">
-          <BaseLoading full-page size="lg" variant="primary" :text="t('jenkinsWorkspace.loadingParams')" />
+          <BaseLoading
+            full-page
+            size="lg"
+            variant="primary"
+            :text="t('jenkinsWorkspace.loadingParams')"
+          />
         </div>
 
         <form v-else class="space-y-5" @submit.prevent="triggerBuild">
@@ -137,48 +189,87 @@
             <label class="block text-sm font-semibold text-slate-800">
               {{ param.name }}
             </label>
-            <p v-if="param.description" class="mt-1 text-xs leading-5 text-slate-500">
+            <p
+              v-if="param.description"
+              class="mt-1 text-xs leading-5 text-slate-500"
+            >
               {{ param.description }}
             </p>
 
-            <input
-              v-if="param.type === 'StringParameterDefinition' || param.type === 'TextParameterDefinition'"
+            <select
+              v-if="isExtendedChoiceParam(param)"
               v-model="formParams[param.name]"
-              :type="param.name.toLowerCase().includes('password') ? 'password' : 'text'"
-              :placeholder="param.default_value || ''"
-              :readonly="param.mode === 'readonly'"
-              :class="['input mt-3', param.mode === 'readonly' ? 'bg-slate-100/90' : '']"
-            />
+              multiple
+              class="input mt-3 min-h-[7rem]"
+              :disabled="param.mode === 'readonly'"
+            >
+              <option
+                v-for="choice in param.choices"
+                :key="choice"
+                :value="choice"
+              >
+                {{ choice }}
+              </option>
+            </select>
 
-            <div v-else-if="param.type === 'BooleanParameterDefinition'" class="mt-3 flex items-center">
+            <select
+              v-else-if="isChoiceParam(param)"
+              v-model="formParams[param.name]"
+              class="input mt-3"
+              :disabled="param.mode === 'readonly'"
+            >
+              <option
+                v-for="choice in param.choices"
+                :key="choice"
+                :value="choice"
+              >
+                {{ choice }}
+              </option>
+            </select>
+
+            <div
+              v-else-if="isBooleanParam(param)"
+              class="mt-3 flex items-center"
+            >
               <input
                 :id="'param-' + param.name"
                 v-model="formParams[param.name]"
                 type="checkbox"
                 class="mr-3"
+                :disabled="param.mode === 'readonly'"
               />
-              <label :for="'param-' + param.name" class="text-sm text-slate-600">
-                {{ param.default_value ? t('jenkinsWorkspace.defaultOn') : t('jenkinsWorkspace.defaultOff') }}
+              <label
+                :for="'param-' + param.name"
+                class="text-sm text-slate-600"
+              >
+                {{
+                  param.default_value
+                    ? t('jenkinsWorkspace.defaultOn')
+                    : t('jenkinsWorkspace.defaultOff')
+                }}
               </label>
             </div>
 
-            <select
-              v-else-if="param.type === 'ChoiceParameterDefinition'"
+            <textarea
+              v-else-if="isTextParam(param)"
               v-model="formParams[param.name]"
-              class="input mt-3"
-            >
-              <option v-for="choice in param.choices" :key="choice" :value="choice">
-                {{ choice }}
-              </option>
-            </select>
+              rows="3"
+              class="input mt-3 min-h-[6rem]"
+              :placeholder="param.default_value || ''"
+              :readonly="param.mode === 'readonly'"
+              :class="param.mode === 'readonly' ? 'bg-slate-100/90' : ''"
+            ></textarea>
 
             <input
-              v-else-if="param.name.toLowerCase().includes('password') || param.type === 'PasswordParameterDefinition'"
+              v-else-if="isPasswordParam(param)"
               v-model="formParams[param.name]"
               type="password"
               :placeholder="param.default_value || ''"
               :readonly="param.mode === 'readonly'"
-              :class="['input mt-3', param.mode === 'readonly' ? 'bg-slate-100/90' : '']"
+              :class="[
+                'input mt-3',
+                param.mode === 'readonly' ? 'bg-slate-100/90' : ''
+              ]"
             />
 
             <input
@@ -187,10 +278,16 @@
               type="text"
               :placeholder="param.default_value || ''"
               :readonly="param.mode === 'readonly'"
-              :class="['input mt-3', param.mode === 'readonly' ? 'bg-slate-100/90' : '']"
+              :class="[
+                'input mt-3',
+                param.mode === 'readonly' ? 'bg-slate-100/90' : ''
+              ]"
             />
 
-            <p v-if="param.mode === 'readonly'" class="mt-2 text-xs font-medium text-sky-700">
+            <p
+              v-if="param.mode === 'readonly'"
+              class="mt-2 text-xs font-medium text-sky-700"
+            >
               {{ t('jenkinsWorkspace.presetField') }}
             </p>
           </div>
@@ -198,9 +295,15 @@
 
         <template #footer>
           <div class="flex w-full flex-col gap-3 sm:flex-row sm:justify-end">
-            <BaseButton variant="secondary" @click="closeTriggerModal">{{ t('common.cancel') }}</BaseButton>
+            <BaseButton variant="secondary" @click="closeTriggerModal">{{
+              t('common.cancel')
+            }}</BaseButton>
             <BaseButton :loading="triggering" @click="triggerBuild">
-              {{ triggering ? t('jenkinsWorkspace.triggering') : t('jenkinsWorkspace.triggerBuild') }}
+              {{
+                triggering
+                  ? t('jenkinsWorkspace.triggering')
+                  : t('jenkinsWorkspace.triggerBuild')
+              }}
             </BaseButton>
           </div>
         </template>
@@ -218,14 +321,24 @@
         @close="closeNotificationModal"
       >
         <div v-if="selectedNotificationEntry" class="space-y-5">
-          <section class="rounded-lg border border-slate-200/80 bg-white/95 px-4 py-4 sm:px-5">
+          <section
+            class="rounded-lg border border-slate-200/80 bg-white/95 px-4 py-4 sm:px-5"
+          >
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  <span
+                    class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500"
+                  >
                     {{ t('jenkinsWorkspace.notificationSectionTag') }}
                   </span>
-                  <span :class="notificationEnabled ? 'status-pill-success' : 'status-pill-neutral'">
+                  <span
+                    :class="
+                      notificationEnabled
+                        ? 'status-pill-success'
+                        : 'status-pill-neutral'
+                    "
+                  >
                     {{
                       notificationEnabled
                         ? t('jenkinsWorkspace.notificationEnabled')
@@ -274,7 +387,9 @@
                     <p class="text-sm font-semibold text-slate-800">
                       {{ targetGroup.label }}
                     </p>
-                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                    <span
+                      class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
+                    >
                       {{ notificationTargets[targetGroup.key].length }}
                     </span>
                   </div>
@@ -312,28 +427,45 @@
             <BaseButton variant="secondary" @click="closeNotificationModal">
               {{ t('common.cancel') }}
             </BaseButton>
-            <BaseButton :loading="notificationSaving" @click="saveNotificationPreferencesForSelectedEntry">
+            <BaseButton
+              :loading="notificationSaving"
+              @click="saveNotificationPreferencesForSelectedEntry"
+            >
               {{ t('common.save') }}
             </BaseButton>
           </div>
         </template>
       </BaseModal>
 
-      <BaseModal :show="showResultModal" :title="t('jenkinsWorkspace.buildTriggered')" @close="closeResultModal">
+      <BaseModal
+        :show="showResultModal"
+        :title="t('jenkinsWorkspace.buildTriggered')"
+        @close="closeResultModal"
+      >
         <div class="space-y-4">
-	          <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
-	            <p class="metric-label">{{ t('jenkinsWorkspace.buildNumber') }}</p>
-	            <p class="mt-2 text-2xl font-semibold text-slate-900">
-	              {{ triggerResult.build_number ? `#${triggerResult.build_number}` : t('jenkinsWorkspace.queuedBuild') }}
-	            </p>
-	          </div>
+          <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
+            <p class="metric-label">{{ t('jenkinsWorkspace.buildNumber') }}</p>
+            <p class="mt-2 text-2xl font-semibold text-slate-900">
+              {{
+                triggerResult.build_number
+                  ? `#${triggerResult.build_number}`
+                  : t('jenkinsWorkspace.queuedBuild')
+              }}
+            </p>
+          </div>
           <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
             <p class="metric-label">{{ t('jenkinsWorkspace.resultStatus') }}</p>
-            <span :class="resultStatusClass(triggerResult.status)" class="mt-3 inline-flex">
+            <span
+              :class="resultStatusClass(triggerResult.status)"
+              class="mt-3 inline-flex"
+            >
               {{ statusLabel(triggerResult.status || 'pending') }}
             </span>
           </div>
-          <div v-if="hasBuildProgress(triggerResult)" class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
+          <div
+            v-if="hasBuildProgress(triggerResult)"
+            class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4"
+          >
             <div class="flex items-center justify-between gap-3">
               <p class="metric-label">{{ t('jenkinsWorkspace.progress') }}</p>
               <span class="text-sm font-semibold text-slate-800">
@@ -346,15 +478,24 @@
                 :style="{ width: `${progressPercent(triggerResult)}%` }"
               />
             </div>
-            <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span class="font-medium text-slate-700">{{ progressStage(triggerResult) }}</span>
-              <span v-if="progressSummary(triggerResult)" class="text-xs text-slate-400">
+            <div
+              class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+            >
+              <span class="font-medium text-slate-700">{{
+                progressStage(triggerResult)
+              }}</span>
+              <span
+                v-if="progressSummary(triggerResult)"
+                class="text-xs text-slate-400"
+              >
                 {{ progressSummary(triggerResult) }}
               </span>
             </div>
           </div>
           <div class="rounded-lg border border-slate-200/80 bg-slate-50/80 p-4">
-            <p class="metric-label">{{ t('jenkinsWorkspace.notificationSectionTitle') }}</p>
+            <p class="metric-label">
+              {{ t('jenkinsWorkspace.notificationSectionTitle') }}
+            </p>
             <p class="mt-2 text-lg font-semibold text-slate-900">
               {{ resultNotificationSummary }}
             </p>
@@ -365,10 +506,20 @@
         </div>
         <template #footer>
           <div class="flex w-full flex-col gap-3 sm:flex-row sm:justify-end">
-            <BaseButton variant="secondary" :loading="manualRefreshing" @click="refreshStatus({ source: 'manual' })">
-              {{ manualRefreshing ? t('jenkinsWorkspace.refreshing') : t('jenkinsWorkspace.refreshStatus') }}
+            <BaseButton
+              variant="secondary"
+              :loading="manualRefreshing"
+              @click="refreshStatus({ source: 'manual' })"
+            >
+              {{
+                manualRefreshing
+                  ? t('jenkinsWorkspace.refreshing')
+                  : t('jenkinsWorkspace.refreshStatus')
+              }}
             </BaseButton>
-            <BaseButton @click="closeResultModal">{{ t('common.close') }}</BaseButton>
+            <BaseButton @click="closeResultModal">{{
+              t('common.close')
+            }}</BaseButton>
           </div>
         </template>
       </BaseModal>
@@ -397,6 +548,15 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import jenkinsApi from '@/api/jenkins'
 import { useUserStore } from '@/store/user'
+import {
+  formatRuntimeParamsForSubmit,
+  isBooleanParam,
+  isChoiceParam,
+  isExtendedChoiceParam,
+  isPasswordParam,
+  isTextParam,
+  normalizeRuntimeParam
+} from '@/utils/jenkinsParams'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -429,10 +589,11 @@ const toast = ref({ show: false, message: '', type: 'success' })
 const filteredEntries = computed(() => {
   if (!searchQuery.value) return entries.value
   const query = searchQuery.value.toLowerCase()
-  return entries.value.filter((e) =>
-    e.name.toLowerCase().includes(query) ||
-    e.description?.toLowerCase().includes(query) ||
-    e.job_name.toLowerCase().includes(query)
+  return entries.value.filter(
+    (e) =>
+      e.name.toLowerCase().includes(query) ||
+      e.description?.toLowerCase().includes(query) ||
+      e.job_name.toLowerCase().includes(query)
   )
 })
 
@@ -725,7 +886,10 @@ async function loadEntries() {
   try {
     entries.value = await jenkinsApi.getUserEntries()
   } catch (e) {
-    showToast(t('jenkinsWorkspace.toast.loadEntriesFailed', { message: e.message }), 'error')
+    showToast(
+      t('jenkinsWorkspace.toast.loadEntriesFailed', { message: e.message }),
+      'error'
+    )
   }
 }
 
@@ -750,14 +914,19 @@ async function openTriggerModal(entry) {
 
   try {
     const data = await jenkinsApi.getEntryParams(entry.id)
-    params.value = data.params || []
+    params.value = (data.params || []).map((param) =>
+      normalizeRuntimeParam(param)
+    )
 
     formParams.value = {}
     for (const p of params.value) {
-      formParams.value[p.name] = p.default_value || ''
+      formParams.value[p.name] = p.default_value ?? ''
     }
   } catch (e) {
-    showToast(t('jenkinsWorkspace.toast.loadParamsFailed', { message: e.message }), 'error')
+    showToast(
+      t('jenkinsWorkspace.toast.loadParamsFailed', { message: e.message }),
+      'error'
+    )
   } finally {
     loadingParams.value = false
   }
@@ -863,7 +1032,7 @@ async function triggerBuild() {
   try {
     const result = await jenkinsApi.triggerBuild(
       selectedEntry.value.id,
-      formParams.value
+      formatRuntimeParamsForSubmit(formParams.value)
     )
     triggerResult.value = {
       ...result,
@@ -879,7 +1048,10 @@ async function triggerBuild() {
     showToast(t('jenkinsWorkspace.toast.triggerQueued'))
     syncAutoRefresh()
   } catch (e) {
-    showToast(t('jenkinsWorkspace.toast.triggerFailed', { message: e.message }), 'error')
+    showToast(
+      t('jenkinsWorkspace.toast.triggerFailed', { message: e.message }),
+      'error'
+    )
   } finally {
     triggering.value = false
   }
@@ -907,12 +1079,20 @@ async function refreshStatus({ source = 'manual', silent = false } = {}) {
     applyRecordStatus(record, { notifyTerminal: true })
   } catch (e) {
     if (source === 'manual' && !silent) {
-      showToast(t('jenkinsWorkspace.toast.refreshFailed', { message: e.message }), 'error')
+      showToast(
+        t('jenkinsWorkspace.toast.refreshFailed', { message: e.message }),
+        'error'
+      )
     } else {
       autoRefreshFailureCount += 1
       if (autoRefreshFailureCount >= AUTO_REFRESH_MAX_ERRORS) {
         stopAutoRefresh()
-        showToast(t('jenkinsWorkspace.toast.autoRefreshStopped', { message: e.message }), 'error')
+        showToast(
+          t('jenkinsWorkspace.toast.autoRefreshStopped', {
+            message: e.message
+          }),
+          'error'
+        )
       }
     }
   } finally {

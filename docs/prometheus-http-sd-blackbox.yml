@@ -1,0 +1,92 @@
+# Prometheus configuration for HyperOps probe targets via HTTP SD.
+#
+# Replace these values before use:
+# - HYPEROPS_BASE_URL: http://192.168.7.168:18080
+# - HYPEROPS_HTTP_SD_TOKEN_FILE: /etc/prometheus/hyperops-http-sd.token
+# blackbox-exporter address comes from HyperOps probe node labels.
+#
+# The token file should contain only the raw MONITORING_ADMIN_TOKEN value,
+# without the "Bearer " prefix.
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    http_sd_configs:
+      - url: http://192.168.7.168:18080/api/v1/monitoring/prometheus/http-sd/blackbox/http/
+        refresh_interval: 30s
+        authorization:
+          type: Bearer
+          credentials_file: /etc/prometheus/hyperops-http-sd.token
+    relabel_configs:
+      - source_labels:
+          - __address__
+        target_label: __param_target
+      - source_labels:
+          - __param_target
+        target_label: instance
+      - target_label: probe_type
+        replacement: http
+      - source_labels:
+          - blackbox_address
+        target_label: __address__
+
+  - job_name: blackbox-tcp
+    metrics_path: /probe
+    params:
+      module:
+        - tcp_connect
+    http_sd_configs:
+      - url: http://192.168.7.168:18080/api/v1/monitoring/prometheus/http-sd/blackbox/tcp/
+        refresh_interval: 30s
+        authorization:
+          type: Bearer
+          credentials_file: /etc/prometheus/hyperops-http-sd.token
+    relabel_configs:
+      - source_labels:
+          - __address__
+        target_label: __param_target
+      - source_labels:
+          - __param_target
+        target_label: instance
+      - target_label: probe_type
+        replacement: tcp
+      - source_labels:
+          - blackbox_address
+        target_label: __address__
+
+  - job_name: blackbox-icmp
+    metrics_path: /probe
+    params:
+      module:
+        - icmp
+    http_sd_configs:
+      - url: http://192.168.7.168:18080/api/v1/monitoring/prometheus/http-sd/blackbox/icmp/
+        refresh_interval: 30s
+        authorization:
+          type: Bearer
+          credentials_file: /etc/prometheus/hyperops-http-sd.token
+    relabel_configs:
+      - source_labels:
+          - __address__
+        target_label: __param_target
+      - source_labels:
+          - __param_target
+        target_label: instance
+      - target_label: probe_type
+        replacement: icmp
+      - source_labels:
+          - blackbox_address
+        target_label: __address__

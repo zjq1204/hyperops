@@ -97,9 +97,9 @@ const buttonClasses = computed(() => {
     ghost: 'btn-ghost'
   }
   const sizeClasses = {
-    sm: 'px-3.5 py-2 text-xs',
-    md: 'px-5 py-2.5 text-sm',
-    lg: 'px-6 py-3.5 text-base'
+    sm: 'btn-sm',
+    md: 'btn-md',
+    lg: 'btn-lg'
   }
   const blockClass = props.block ? 'w-full' : ''
 

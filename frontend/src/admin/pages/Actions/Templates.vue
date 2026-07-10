@@ -366,134 +366,56 @@
                     <div>
                       <h3>{{ t('adminPages.actionTemplates.steps.title') }}</h3>
                     </div>
-                    <BaseButton
-                      variant="secondary"
-                      size="sm"
-                      @click="addStepAndEdit"
-                    >
-                      {{ t('adminPages.actionTemplates.steps.add') }}
-                    </BaseButton>
+                    <div class="action-pane-heading-actions">
+                      <BaseButton size="sm" @click="openFlowEditor">
+                        {{ t('adminPages.actionTemplates.actions.edit') }}
+                      </BaseButton>
+                    </div>
                   </div>
 
                   <div v-if="form.steps.length" class="action-step-overview">
-                    <div class="action-flow-canvas action-flow-canvas--editor">
-                      <article
+                    <ol class="action-step-map">
+                      <li
                         v-for="(step, index) in form.steps"
                         :key="step.client_id"
-                        class="action-flow-node action-flow-node--editable"
-                        :class="[
-                          `action-flow-node--${step.action_type}`,
-                          { active: selectedStepIndex === index }
-                        ]"
+                        class="action-step-map-node"
+                        :class="`action-step-map-node--${step.action_type}`"
                       >
-                        <div class="action-flow-node-body">
-                          <div class="action-flow-node-head">
-                            <div class="action-flow-node-type">
-                              {{ actionTypeText(step.action_type) }}
-                            </div>
-                            <div class="action-flow-node-index">
-                              {{ index + 1 }}
-                            </div>
-                          </div>
-                          <h4>
-                            {{
-                              step.name ||
-                              t('adminPages.actionTemplates.steps.step', {
-                                count: index + 1
-                              })
-                            }}
-                          </h4>
-                          <dl class="action-flow-node-summary">
-                            <div
-                              v-for="item in stepSummaryItems(step)"
-                              :key="item.label"
-                            >
-                              <dt>{{ item.label }}</dt>
-                              <dd>{{ item.value }}</dd>
-                            </div>
-                          </dl>
-                          <div class="action-flow-node-footer">
-                            <span
-                              :class="
-                                step.failure_policy === 'continue'
-                                  ? 'action-flow-policy action-flow-policy--continue'
-                                  : 'action-flow-policy'
-                              "
-                            >
+                        <div class="action-step-map-index">
+                          {{ previewStepIndex(index) }}
+                        </div>
+                        <div class="action-step-map-card">
+                          <div class="action-step-map-head">
+                            <span>{{ actionTypeText(step.action_type) }}</span>
+                            <strong>
                               {{
-                                step.failure_policy === 'continue'
-                                  ? t(
-                                      'adminPages.actionTemplates.steps.policyContinue'
-                                    )
-                                  : t(
-                                      'adminPages.actionTemplates.steps.policyStop'
-                                    )
+                                step.name ||
+                                t('adminPages.actionTemplates.steps.step', {
+                                  count: index + 1
+                                })
                               }}
+                            </strong>
+                          </div>
+                          <p>{{ stepMapSummary(step) }}</p>
+                          <div
+                            v-if="step.action_type === 'conditional_branch'"
+                            class="action-step-map-branches"
+                          >
+                            <span
+                              v-for="(branch, branchIndex) in previewBranchCases(
+                                step
+                              ).slice(0, 4)"
+                              :key="branch.client_id || branch.id || branchIndex"
+                            >
+                              {{ previewBranchConditionText(branch) }}
                             </span>
-                            <div class="action-flow-node-actions">
-                              <button
-                                type="button"
-                                class="action-flow-node-edit"
-                                @click.stop="openStepEditor(index)"
-                              >
-                                {{
-                                  t('adminPages.actionTemplates.actions.edit')
-                                }}
-                              </button>
-                              <details
-                                class="action-flow-node-more"
-                                @click.stop
-                              >
-                                <summary>
-                                  {{
-                                    t('adminPages.actionTemplates.actions.more')
-                                  }}
-                                </summary>
-                                <div class="action-flow-node-menu">
-                                  <button
-                                    type="button"
-                                    :disabled="index === 0"
-                                    @click="moveStep(index, -1)"
-                                  >
-                                    {{
-                                      t(
-                                        'adminPages.actionTemplates.actions.moveUp'
-                                      )
-                                    }}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    :disabled="index === form.steps.length - 1"
-                                    @click="moveStep(index, 1)"
-                                  >
-                                    {{
-                                      t(
-                                        'adminPages.actionTemplates.actions.moveDown'
-                                      )
-                                    }}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    @click="removeStep(index)"
-                                  >
-                                    {{
-                                      t(
-                                        'adminPages.actionTemplates.actions.delete'
-                                      )
-                                    }}
-                                  </button>
-                                </div>
-                              </details>
-                            </div>
+                            <em v-if="previewBranchCases(step).length > 4">
+                              +{{ previewBranchCases(step).length - 4 }}
+                            </em>
                           </div>
                         </div>
-                        <div
-                          v-if="index < form.steps.length - 1"
-                          class="action-flow-connector"
-                          aria-hidden="true"
-                        ></div>
-                      </article>
-                    </div>
+                      </li>
+                    </ol>
                   </div>
 
                   <div v-else class="action-empty-box">
@@ -505,7 +427,7 @@
                         t('adminPages.actionTemplates.steps.empty.description')
                       }}
                     </p>
-                    <BaseButton size="sm" @click="addStepAndEdit">{{
+                    <BaseButton size="sm" @click="openFlowEditor">{{
                       t('adminPages.actionTemplates.steps.empty.cta')
                     }}</BaseButton>
                   </div>
@@ -1150,6 +1072,42 @@
                           </label>
                         </div>
                         <div
+                          v-if="gitlabProjectLabels.length"
+                          class="action-project-label-filter"
+                        >
+                          <div class="action-project-label-filter-head">
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.resourceLabels'
+                              )
+                            }}</span>
+                            <button
+                              v-if="actionProjectLabelFilter.length"
+                              type="button"
+                              @click="clearActionProjectLabelFilter"
+                            >
+                              {{
+                                t('adminPages.actionTemplates.gitlab.allLabels')
+                              }}
+                            </button>
+                          </div>
+                          <div class="action-project-label-chips">
+                            <button
+                              v-for="label in gitlabProjectLabels"
+                              :key="label.id"
+                              type="button"
+                              :class="{
+                                active: actionProjectLabelFilter.includes(
+                                  Number(label.id)
+                                )
+                              }"
+                              @click="toggleActionProjectLabelFilter(label.id)"
+                            >
+                              {{ label.name }}
+                            </button>
+                          </div>
+                        </div>
+                        <div
                           v-if="filteredActionProjects.length"
                           class="action-project-grid"
                         >
@@ -1185,6 +1143,17 @@
                               <em v-if="project.group_name">{{
                                 project.group_name
                               }}</em>
+                              <div
+                                v-if="project.labels?.length"
+                                class="action-project-card-labels"
+                              >
+                                <i
+                                  v-for="label in project.labels"
+                                  :key="label.id"
+                                >
+                                  {{ label.name }}
+                                </i>
+                              </div>
                             </div>
                           </label>
                         </div>
@@ -2256,6 +2225,1484 @@
           <div v-if="formError" class="action-editor-error">
             {{ formError }}
           </div>
+
+          <Teleport to="body">
+            <section
+              v-if="flowEditorOpen"
+              class="action-flow-editor-overlay"
+              :class="{ 'inspector-closed': !flowInspectorOpen }"
+              :aria-label="t('adminPages.actionTemplates.flowEditor.aria')"
+            >
+              <main class="action-flow-editor-stage">
+                <header class="action-flow-editor-topbar">
+                  <div class="action-flow-editor-title">
+                    <h3>{{ t('adminPages.actionTemplates.flowEditor.title') }}</h3>
+                  </div>
+                  <div class="action-flow-editor-toolbar">
+                    <div class="action-flow-editor-zoom">
+                      <button type="button" @click="zoomFlowCanvas('editor', -1)">
+                        −
+                      </button>
+                      <button type="button" @click="fitFlowCanvas('editor')">
+                        {{ t('adminPages.actionTemplates.flowEditor.fitView') }}
+                      </button>
+                      <button
+                        type="button"
+                        @click="resetFlowCanvasZoom('editor')"
+                      >
+                        {{ flowZoomPercent(flowEditorCanvasZoom) }}
+                      </button>
+                      <button type="button" @click="zoomFlowCanvas('editor', 1)">
+                        +
+                      </button>
+                    </div>
+                    <BaseButton
+                      variant="secondary"
+                      size="sm"
+                      @click="addFlowEditorStep"
+                    >
+                      {{ t('adminPages.actionTemplates.flowEditor.addNode') }}
+                    </BaseButton>
+                    <BaseButton size="sm" @click="closeFlowEditor">
+                      {{ t('adminPages.actionTemplates.flowEditor.done') }}
+                    </BaseButton>
+                  </div>
+                </header>
+
+              <div
+                ref="flowEditorCanvasRef"
+                class="action-flow-editor-scroll"
+                :class="{ dragging: flowEditorDragging }"
+                @click.capture="handleFlowEditorCanvasClick"
+                @mousedown="startFlowCanvasPan($event, 'editor')"
+                @mousemove="moveFlowCanvasPan"
+                @mouseup="stopFlowCanvasPan"
+                @mouseleave="stopFlowCanvasPan"
+                @wheel="handleFlowCanvasWheel($event, 'editor')"
+                @scroll="scheduleFlowEditorMeasure"
+              >
+                <div
+                  class="action-flow-canvas-viewport"
+                  :style="
+                    flowCanvasViewportStyle(
+                      flowEditorCanvasSize,
+                      flowEditorCanvasZoom
+                    )
+                  "
+                >
+                  <div
+                    class="action-flow-editor-canvas action-flow-canvas-inner"
+                    :style="flowCanvasInnerStyle(flowEditorCanvasZoom)"
+                  >
+                  <svg
+                    v-if="flowEditorConnections.length"
+                    class="action-flow-editor-svg"
+                    :viewBox="`0 0 ${flowEditorCanvasSize.width} ${flowEditorCanvasSize.height}`"
+                    :style="{
+                      width: `${flowEditorCanvasSize.width}px`,
+                      height: `${flowEditorCanvasSize.height}px`
+                    }"
+                    aria-hidden="true"
+                  >
+                    <defs>
+                      <marker
+                        id="flowEditorArrow"
+                        markerWidth="10"
+                        markerHeight="10"
+                        refX="9"
+                        refY="5"
+                        orient="auto"
+                      >
+                        <path d="M 0 0 L 10 5 L 0 10 z" />
+                      </marker>
+                    </defs>
+                    <path
+                      v-for="connection in flowEditorConnections"
+                      :key="connection.id"
+                      class="action-flow-editor-path"
+                      :class="{ active: connection.label }"
+                      :d="connection.path"
+                      marker-end="url(#flowEditorArrow)"
+                    />
+                  </svg>
+                  <div
+                    v-if="
+                      flowEditorCanvasZoom >= 1.02 &&
+                      flowEditorConnections.some((connection) => connection.label)
+                    "
+                    class="action-flow-editor-labels"
+                    :style="{
+                      width: `${flowEditorCanvasSize.width}px`,
+                      height: `${flowEditorCanvasSize.height}px`
+                    }"
+                    aria-hidden="true"
+                  >
+                    <span
+                      v-for="connection in flowEditorConnections.filter(
+                        (item) => item.label && flowEditorCanvasZoom >= 1.02
+                      )"
+                      :key="`${connection.id}-label`"
+                      class="action-flow-editor-label"
+                      :style="connection.labelStyle"
+                    >
+                      {{ connection.label }}
+                    </span>
+                  </div>
+
+                  <article
+                    v-for="(step, index) in form.steps"
+                    :key="step.client_id"
+                    class="action-flow-editor-node"
+                    :class="[
+                      `action-flow-editor-node--${step.action_type}`,
+                      {
+                        selected:
+                          selectedFlowTarget.kind === 'step' &&
+                          selectedFlowTarget.stepIndex === index,
+                        branch:
+                          step.action_type === 'conditional_branch'
+                      }
+                    ]"
+                    @click="selectFlowStep(index)"
+                  >
+                    <span
+                      class="action-flow-editor-port action-flow-editor-port--in"
+                      :data-flow-editor-port="flowEditorStepPort(index, 'in')"
+                      aria-hidden="true"
+                    />
+                    <span
+                      class="action-flow-editor-port action-flow-editor-port--out"
+                      :data-flow-editor-port="flowEditorStepPort(index, 'out')"
+                      aria-hidden="true"
+                    />
+                    <span
+                      class="action-flow-editor-badge"
+                      :class="{
+                        green: step.action_type === 'jenkins_trigger',
+                        violet: step.action_type === 'conditional_branch'
+                      }"
+                    >
+                      {{ previewStepIndex(index) }}
+                    </span>
+                    <div class="action-flow-editor-kind">
+                      {{ actionTypeText(step.action_type) }}
+                    </div>
+                    <h4>
+                      {{
+                        step.name ||
+                        t('adminPages.actionTemplates.steps.step', {
+                          count: index + 1
+                        })
+                      }}
+                    </h4>
+
+                    <template v-if="step.action_type === 'conditional_branch'">
+                      <div class="action-flow-editor-branch-list">
+                        <section
+                          v-for="(branch, branchIndex) in step.config.branches"
+                          :key="branch.client_id || branch.id || branchIndex"
+                          class="action-flow-editor-branch-case"
+                          :class="{
+                            selected:
+                              selectedFlowTarget.stepIndex === index &&
+                              selectedFlowTarget.branchIndex === branchIndex &&
+                              selectedFlowTarget.kind === 'branch'
+                          }"
+                          @click.stop="selectFlowBranch(index, branchIndex)"
+                        >
+                          <span
+                            class="action-flow-editor-port action-flow-editor-port--branch-in"
+                            :data-flow-editor-port="
+                              flowEditorBranchPort(index, branchIndex, 'in')
+                            "
+                            aria-hidden="true"
+                          />
+                          <span
+                            class="action-flow-editor-port action-flow-editor-port--branch-out"
+                            :data-flow-editor-port="
+                              flowEditorBranchPort(index, branchIndex, 'out')
+                            "
+                            aria-hidden="true"
+                          />
+                          <div class="action-flow-editor-branch-head">
+                            <strong>
+                              <span>{{ branchIndex + 1 }}</span>
+                              {{
+                                branch.label ||
+                                t(
+                                  'adminPages.actionTemplates.branch.caseTitle',
+                                  {
+                                    count: branchIndex + 1
+                                  }
+                                )
+                              }}
+                            </strong>
+                            <code>{{ previewBranchConditionText(branch) }}</code>
+                          </div>
+                          <div class="action-flow-editor-mini-steps">
+                            <template
+                              v-for="(nestedStep, nestedIndex) in branch.steps"
+                              :key="nestedStep.client_id || nestedIndex"
+                            >
+                              <button
+                                type="button"
+                                class="action-flow-editor-mini-step"
+                                :class="{
+                                  selected:
+                                    selectedFlowTarget.kind === 'nested' &&
+                                    selectedFlowTarget.stepIndex === index &&
+                                    selectedFlowTarget.branchIndex ===
+                                      branchIndex &&
+                                    selectedFlowTarget.nestedIndex ===
+                                      nestedIndex
+                                }"
+                                @click.stop="
+                                  selectFlowNestedStep(
+                                    index,
+                                    branchIndex,
+                                    nestedIndex
+                                  )
+                                "
+                              >
+                                {{
+                                  nestedStep.name ||
+                                  actionTypeText(nestedStep.action_type)
+                                }}
+                              </button>
+                              <span
+                                v-if="nestedIndex < branch.steps.length - 1"
+                                class="action-flow-editor-mini-arrow"
+                                aria-hidden="true"
+                              >
+                                →
+                              </span>
+                            </template>
+                            <span
+                              v-if="!branch.steps?.length"
+                              class="action-flow-editor-mini-step muted"
+                            >
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.branch.noNestedSteps'
+                                )
+                              }}
+                            </span>
+                          </div>
+                        </section>
+                      </div>
+                      <div class="action-flow-editor-branch-footer">
+                        <span>{{ branchMatchModeText(step) }}</span>
+                        <em>{{ flowFailurePolicyText(step) }}</em>
+                      </div>
+                    </template>
+
+                    <template v-else>
+                      <dl class="action-flow-editor-meta">
+                        <div
+                          v-for="item in stepSummaryItems(step)"
+                          :key="item.label"
+                        >
+                          <dt>{{ item.label }}</dt>
+                          <dd>{{ item.value }}</dd>
+                        </div>
+                      </dl>
+                      <span class="action-flow-editor-policy">
+                        {{ flowFailurePolicyText(step) }}
+                      </span>
+                    </template>
+                    </article>
+                  </div>
+                </div>
+              </div>
+            </main>
+
+            <aside v-if="flowInspectorOpen" class="action-flow-editor-inspector">
+              <header class="action-flow-inspector-head">
+                <h3>{{ selectedFlowTitle }}</h3>
+                <p>{{ selectedFlowSubtitle }}</p>
+              </header>
+
+              <div class="action-flow-inspector-body">
+                <template v-if="selectedFlowTarget.kind === 'step'">
+                  <section class="action-flow-inspector-section">
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.node')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.steps.editor.name')
+                      }}</span>
+                      <input
+                        v-model="selectedFlowStep.name"
+                        :placeholder="
+                          t(
+                            'adminPages.actionTemplates.steps.editor.namePlaceholder'
+                          )
+                        "
+                      />
+                    </label>
+                    <div class="action-flow-inspector-grid">
+                      <label class="action-field">
+                        <span>{{
+                          t(
+                            'adminPages.actionTemplates.steps.editor.category'
+                          )
+                        }}</span>
+                        <select
+                          :value="actionCategory(selectedFlowStep)"
+                          @change="
+                            setActionCategory(
+                              selectedFlowStep,
+                              $event.target.value
+                            )
+                          "
+                        >
+                          <option value="jenkins">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.steps.types.jenkins'
+                              )
+                            }}
+                          </option>
+                          <option value="gitlab">
+                            {{
+                              t('adminPages.actionTemplates.steps.types.gitlab')
+                            }}
+                          </option>
+                          <option value="approval">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.steps.types.approval'
+                              )
+                            }}
+                          </option>
+                          <option value="conditional">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.steps.types.conditional'
+                              )
+                            }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.steps.policyName')
+                        }}</span>
+                        <select v-model="selectedFlowStep.failure_policy">
+                          <option value="stop">
+                            {{
+                              t('adminPages.actionTemplates.steps.policyStop')
+                            }}
+                          </option>
+                          <option value="continue">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.steps.policyContinue'
+                              )
+                            }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                  </section>
+
+                  <section
+                    v-if="selectedFlowStep.action_type === 'jenkins_trigger'"
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.jenkins')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.jenkins.entry')
+                      }}</span>
+                      <select
+                        v-model.number="selectedFlowStep.config.entry_id"
+                        @change="loadJenkinsStepParams(selectedFlowStep)"
+                      >
+                        <option value="">
+                          {{
+                            t(
+                              'adminPages.actionTemplates.jenkins.selectEntry'
+                            )
+                          }}
+                        </option>
+                        <option
+                          v-for="entry in jenkinsEntries"
+                          :key="entry.id"
+                          :value="entry.id"
+                        >
+                          {{ entry.name }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="action-checkbox-line">
+                      <input
+                        v-model="selectedFlowStep.config.wait_for_completion"
+                        type="checkbox"
+                      />
+                      {{
+                        t(
+                          'adminPages.actionTemplates.jenkins.waitForCompletion'
+                        )
+                      }}
+                    </label>
+                    <div class="action-flow-param-card">
+                      <div class="action-param-head">
+                        <span>{{
+                          t('adminPages.actionTemplates.jenkins.paramsTitle')
+                        }}</span>
+                        <button
+                          type="button"
+                          class="action-link-button"
+                          :disabled="!selectedFlowStep.config.entry_id"
+                          @click="loadJenkinsStepParams(selectedFlowStep)"
+                        >
+                          {{ t('adminPages.actionTemplates.jenkins.refresh') }}
+                        </button>
+                      </div>
+                      <div
+                        v-if="selectedFlowStep.paramsLoading"
+                        class="action-param-empty"
+                      >
+                        {{ t('adminPages.actionTemplates.jenkins.loading') }}
+                      </div>
+                      <div
+                        v-else-if="selectedFlowStep.paramRows?.length"
+                        class="action-param-table action-flow-param-table"
+                      >
+                        <div
+                          v-for="row in selectedFlowStep.paramRows"
+                          :key="row.name"
+                          class="action-param-row"
+                        >
+                          <div class="action-param-name">
+                            <strong>{{ row.name }}</strong>
+                            <small>{{ row.description || row.type || 'String' }}</small>
+                          </div>
+                          <select
+                            v-if="row.mode !== 'readonly'"
+                            v-model="row.source"
+                            @change="
+                              syncJenkinsParamsFromRows(selectedFlowStep)
+                            "
+                          >
+                            <option value="default">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.source.default'
+                                )
+                              }}
+                            </option>
+                            <option value="fixed">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.source.fixed'
+                                )
+                              }}
+                            </option>
+                            <option value="param">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.source.param'
+                                )
+                              }}
+                            </option>
+                          </select>
+                          <div v-else class="action-param-readonly-mode">
+                            {{
+                              t('adminPages.actionTemplates.jenkins.entry')
+                            }}
+                          </div>
+                          <select
+                            v-if="row.source === 'param'"
+                            v-model="row.value"
+                            @change="
+                              syncJenkinsParamsFromRows(selectedFlowStep)
+                            "
+                          >
+                            <option value="">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.selectParam'
+                                )
+                              }}
+                            </option>
+                            <option
+                              v-for="param in globalParamNames"
+                              :key="param"
+                              :value="param"
+                            >
+                              {{ param }}
+                            </option>
+                          </select>
+                          <input
+                            v-else
+                            v-model="row.value"
+                            :disabled="
+                              row.source === 'default' ||
+                              row.mode === 'readonly'
+                            "
+                            @input="
+                              syncJenkinsParamsFromRows(selectedFlowStep)
+                            "
+                          />
+                        </div>
+                      </div>
+                      <div v-else class="action-param-empty">
+                        {{ t('adminPages.actionTemplates.jenkins.empty') }}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    v-else-if="
+                      selectedFlowStep.action_type === 'conditional_branch'
+                    "
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.branch')
+                    }}</strong>
+                    <div class="action-flow-inspector-grid">
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.flowEditor.matchMode')
+                        }}</span>
+                        <select v-model="selectedFlowStep.config.match_mode">
+                          <option value="first">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.flowEditor.matchFirst'
+                              )
+                            }}
+                          </option>
+                          <option value="all">
+                            {{
+                              t('adminPages.actionTemplates.flowEditor.matchAll')
+                            }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.flowEditor.noMatch')
+                        }}</span>
+                        <select
+                          v-model="selectedFlowStep.config.default_behavior"
+                        >
+                          <option value="skip">
+                            {{
+                              t('adminPages.actionTemplates.flowEditor.skipBlock')
+                            }}
+                          </option>
+                          <option value="fail">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.flowEditor.markFailed'
+                              )
+                            }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="action-flow-branch-config-list">
+                      <button
+                        v-for="(branch, branchIndex) in selectedFlowStep.config
+                          .branches"
+                        :key="branch.client_id || branch.id || branchIndex"
+                        type="button"
+                        :class="{
+                          active:
+                            selectedFlowTarget.kind === 'branch' &&
+                            selectedFlowTarget.branchIndex === branchIndex
+                        }"
+                        @click="selectFlowBranch(selectedFlowTarget.stepIndex, branchIndex)"
+                      >
+                        <strong>{{
+                          branch.label ||
+                          t('adminPages.actionTemplates.branch.caseTitle', {
+                            count: branchIndex + 1
+                          })
+                        }}</strong>
+                        <span>{{ previewBranchConditionText(branch) }}</span>
+                      </button>
+                    </div>
+                    <BaseButton
+                      variant="secondary"
+                      size="sm"
+                      @click="addBranchCase(selectedFlowStep)"
+                    >
+                      {{ t('adminPages.actionTemplates.branch.addCase') }}
+                    </BaseButton>
+                  </section>
+
+                  <section
+                    v-else-if="isGitLabStep(selectedFlowStep)"
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.gitlab')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.gitlab.operation')
+                      }}</span>
+                      <select v-model="selectedFlowStep.config.operation">
+                        <option
+                          v-for="operation in gitlabOperationOptions(
+                            selectedFlowStep.action_type
+                          )"
+                          :key="operation.value"
+                          :value="operation.value"
+                        >
+                          {{ operation.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="action-field">
+                      <span>{{
+                        t(
+                          'adminPages.actionTemplates.steps.editor.specificAction'
+                        )
+                      }}</span>
+                      <select
+                        :value="gitlabStepValue(selectedFlowStep)"
+                        @change="
+                          setGitLabStepValue(
+                            selectedFlowStep,
+                            $event.target.value
+                          )
+                        "
+                      >
+                        <option
+                          v-for="operation in gitlabStepOptions"
+                          :key="operation.value"
+                          :value="operation.value"
+                        >
+                          {{ operation.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="action-field">
+                      <span>{{ gitlabPrimaryFieldLabel(selectedFlowStep) }}</span>
+                      <input
+                        v-model="
+                          selectedFlowStep.config[
+                            gitlabPrimaryFieldKey(selectedFlowStep)
+                          ]
+                        "
+                        :placeholder="
+                          gitlabPrimaryFieldPlaceholder(selectedFlowStep)
+                        "
+                      />
+                    </label>
+                    <label
+                      v-if="gitlabNeedsRef(selectedFlowStep)"
+                      class="action-field"
+                    >
+                      <span>{{ t('adminPages.actionTemplates.gitlab.ref') }}</span>
+                      <input v-model="selectedFlowStep.config.ref" />
+                    </label>
+                    <div class="action-flow-project-picker">
+                      <div class="action-flow-project-head">
+                        <div>
+                          <strong>{{
+                            t('adminPages.actionTemplates.gitlab.fixedProjects')
+                          }}</strong>
+                          <span>{{
+                            t(
+                              'adminPages.actionTemplates.gitlab.selectedCount',
+                              {
+                                count:
+                                  selectedFlowStep.config.project_ids?.length ||
+                                  0
+                              }
+                            )
+                          }}</span>
+                        </div>
+                        <div class="action-project-picker-actions">
+                          <button
+                            type="button"
+                            :disabled="
+                              !filteredGitLabProjectsForStep(selectedFlowStep)
+                                .length
+                            "
+                            @click="selectAllGitLabProjects(selectedFlowStep)"
+                          >
+                            {{
+                              t('adminPages.actionTemplates.gitlab.selectAll')
+                            }}
+                          </button>
+                          <span>|</span>
+                          <button
+                            type="button"
+                            :disabled="
+                              !selectedFlowStep.config.project_ids?.length
+                            "
+                            @click="clearActionProjects(selectedFlowStep)"
+                          >
+                            {{ t('adminPages.actionTemplates.gitlab.clear') }}
+                          </button>
+                        </div>
+                      </div>
+                      <div class="action-project-picker-toolbar compact">
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.group')
+                          }}</span>
+                          <select v-model="actionProjectGroupFilter">
+                            <option value="">
+                              {{
+                                t('adminPages.actionTemplates.gitlab.allGroups')
+                              }}
+                            </option>
+                            <option
+                              v-for="group in actionProjectGroupOptions"
+                              :key="group.id"
+                              :value="group.id"
+                            >
+                              {{ group.name }}
+                            </option>
+                          </select>
+                        </label>
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.search')
+                          }}</span>
+                          <input
+                            v-model="actionProjectSearch"
+                            :placeholder="
+                              t(
+                                'adminPages.actionTemplates.gitlab.searchPlaceholder'
+                              )
+                            "
+                          />
+                        </label>
+                        <label class="action-project-selected-only">
+                          <input
+                            v-model="actionProjectSelectedOnly"
+                            type="checkbox"
+                          />
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.selectedOnly')
+                          }}</span>
+                        </label>
+                      </div>
+                      <div
+                        v-if="gitlabProjectLabels.length"
+                        class="action-project-label-filter"
+                      >
+                        <div class="action-project-label-filter-head">
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.resourceLabels')
+                          }}</span>
+                          <button
+                            v-if="actionProjectLabelFilter.length"
+                            type="button"
+                            @click="clearActionProjectLabelFilter"
+                          >
+                            {{ t('adminPages.actionTemplates.gitlab.allLabels') }}
+                          </button>
+                        </div>
+                        <div class="action-project-label-chips">
+                          <button
+                            v-for="label in gitlabProjectLabels"
+                            :key="label.id"
+                            type="button"
+                            :class="{
+                              active: actionProjectLabelFilter.includes(
+                                Number(label.id)
+                              )
+                            }"
+                            @click="toggleActionProjectLabelFilter(label.id)"
+                          >
+                            {{ label.name }}
+                          </button>
+                        </div>
+                      </div>
+                      <label class="action-inline-switch">
+                        <input
+                          v-model="
+                            selectedFlowStep.config
+                              .allow_runtime_project_selection
+                          "
+                          type="checkbox"
+                        />
+                        <span>{{
+                          t('adminPages.actionTemplates.gitlab.allowRuntime')
+                        }}</span>
+                      </label>
+                      <div
+                        v-if="filteredGitLabProjectsForStep(selectedFlowStep).length"
+                        class="action-project-grid action-flow-project-grid"
+                      >
+                        <label
+                          v-for="project in filteredGitLabProjectsForStep(
+                            selectedFlowStep
+                          )"
+                          :key="project.id"
+                          class="action-project-card"
+                          :class="{
+                            selected: isSelected(
+                              selectedFlowStep.config.project_ids,
+                              project.id
+                            )
+                          }"
+                        >
+                          <input
+                            type="checkbox"
+                            :checked="
+                              isSelected(
+                                selectedFlowStep.config.project_ids,
+                                project.id
+                              )
+                            "
+                            @change="
+                              toggleSelection(
+                                selectedFlowStep.config.project_ids,
+                                project.id
+                              )
+                            "
+                          />
+                          <div class="action-project-card-copy">
+                            <strong>{{ project.name }}</strong>
+                            <span>{{ project.path || project.name }}</span>
+                            <em v-if="project.group_name">{{
+                              project.group_name
+                            }}</em>
+                            <div
+                              v-if="project.labels?.length"
+                              class="action-project-card-labels"
+                            >
+                              <i
+                                v-for="label in project.labels"
+                                :key="label.id"
+                              >
+                                {{ label.name }}
+                              </i>
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                      <div v-else class="action-project-empty">
+                        {{
+                          t('adminPages.actionTemplates.gitlab.emptyNoMatch')
+                        }}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    v-else-if="
+                      selectedFlowStep.action_type === 'manual_approval'
+                    "
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.approval')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.approval.message')
+                      }}</span>
+                      <textarea
+                        v-model="selectedFlowStep.config.message"
+                        rows="3"
+                      ></textarea>
+                    </label>
+                  </section>
+                </template>
+
+                <template v-else-if="selectedFlowTarget.kind === 'branch'">
+                  <section class="action-flow-inspector-section">
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.condition')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{ t('adminPages.actionTemplates.branch.label') }}</span>
+                      <input v-model="selectedFlowBranch.label" />
+                    </label>
+                    <div class="action-flow-inspector-grid">
+                      <label class="action-field">
+                        <span>{{ t('adminPages.actionTemplates.branch.param') }}</span>
+                        <select v-model="selectedFlowBranch.condition.param">
+                          <option value="">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.branch.selectParam'
+                              )
+                            }}
+                          </option>
+                          <option
+                            v-for="param in globalParamNames"
+                            :key="param"
+                            :value="param"
+                          >
+                            {{ param }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.branch.operator')
+                        }}</span>
+                        <select v-model="selectedFlowBranch.condition.operator">
+                          <option
+                            v-for="operator in branchOperatorOptions"
+                            :key="operator.value"
+                            :value="operator.value"
+                          >
+                            {{ operator.label }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                    <label
+                      v-if="
+                        branchOperatorNeedsValue(
+                          selectedFlowBranch.condition.operator
+                        )
+                      "
+                      class="action-field"
+                    >
+                      <span>{{ t('adminPages.actionTemplates.branch.value') }}</span>
+                      <input v-model="selectedFlowBranch.condition.value" />
+                    </label>
+                  </section>
+
+                  <section class="action-flow-inspector-section">
+                    <div class="action-flow-inspector-section-head">
+                      <strong>{{ t('adminPages.actionTemplates.branch.steps') }}</strong>
+                      <button
+                        type="button"
+                        class="action-link-button"
+                        @click="addFlowNestedStep"
+                      >
+                        {{
+                          t(
+                            'adminPages.actionTemplates.branch.addNestedStep'
+                          )
+                        }}
+                      </button>
+                    </div>
+                    <div class="action-flow-nested-config-list">
+                      <button
+                        v-for="(nestedStep, nestedIndex) in selectedFlowBranch
+                          .steps"
+                        :key="nestedStep.client_id || nestedIndex"
+                        type="button"
+                        @click="
+                          selectFlowNestedStep(
+                            selectedFlowTarget.stepIndex,
+                            selectedFlowTarget.branchIndex,
+                            nestedIndex
+                          )
+                        "
+                      >
+                        <strong>
+                          {{ nestedIndex + 1 }}.
+                          {{
+                            nestedStep.name ||
+                            actionTypeText(nestedStep.action_type)
+                          }}
+                        </strong>
+                        <span>{{ actionTypeText(nestedStep.action_type) }}</span>
+                      </button>
+                    </div>
+                  </section>
+                </template>
+
+                <template v-else-if="selectedFlowTarget.kind === 'nested'">
+                  <section class="action-flow-inspector-section">
+                    <strong>{{
+                      t(
+                        'adminPages.actionTemplates.flowEditor.sections.nested'
+                      )
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.steps.editor.name')
+                      }}</span>
+                      <input v-model="selectedFlowNestedStep.name" />
+                    </label>
+                    <div class="action-flow-inspector-grid">
+                      <label class="action-field">
+                        <span>{{
+                          t(
+                            'adminPages.actionTemplates.steps.editor.specificAction'
+                          )
+                        }}</span>
+                        <select
+                          v-model="selectedFlowNestedStep.action_type"
+                          @change="resetNestedStepConfig(selectedFlowNestedStep)"
+                        >
+                          <option
+                            v-for="option in nestedActionTypeOptions"
+                            :key="option.value"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.steps.policyName')
+                        }}</span>
+                        <select v-model="selectedFlowNestedStep.failure_policy">
+                          <option value="stop">
+                            {{
+                              t('adminPages.actionTemplates.steps.policyStop')
+                            }}
+                          </option>
+                          <option value="continue">
+                            {{
+                              t(
+                                'adminPages.actionTemplates.steps.policyContinue'
+                              )
+                            }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                  </section>
+
+                  <section
+                    v-if="
+                      selectedFlowNestedStep.action_type === 'jenkins_trigger'
+                    "
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.jenkins')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.jenkins.entry')
+                      }}</span>
+                      <select
+                        v-model.number="selectedFlowNestedStep.config.entry_id"
+                        @change="loadJenkinsStepParams(selectedFlowNestedStep)"
+                      >
+                        <option value="">
+                          {{
+                            t(
+                              'adminPages.actionTemplates.jenkins.selectEntry'
+                            )
+                          }}
+                        </option>
+                        <option
+                          v-for="entry in jenkinsEntries"
+                          :key="entry.id"
+                          :value="entry.id"
+                        >
+                          {{ entry.name }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="action-checkbox-line">
+                      <input
+                        v-model="
+                          selectedFlowNestedStep.config.wait_for_completion
+                        "
+                        type="checkbox"
+                      />
+                      {{
+                        t(
+                          'adminPages.actionTemplates.jenkins.waitForCompletion'
+                        )
+                      }}
+                    </label>
+                    <div class="action-flow-param-card">
+                      <div class="action-param-head">
+                        <span>{{
+                          t('adminPages.actionTemplates.jenkins.paramsTitle')
+                        }}</span>
+                        <button
+                          type="button"
+                          class="action-link-button"
+                          :disabled="!selectedFlowNestedStep.config.entry_id"
+                          @click="loadJenkinsStepParams(selectedFlowNestedStep)"
+                        >
+                          {{ t('adminPages.actionTemplates.jenkins.refresh') }}
+                        </button>
+                      </div>
+                      <div
+                        v-if="selectedFlowNestedStep.paramsLoading"
+                        class="action-param-empty"
+                      >
+                        {{ t('adminPages.actionTemplates.jenkins.loading') }}
+                      </div>
+                      <div
+                        v-else-if="selectedFlowNestedStep.paramRows?.length"
+                        class="action-param-table action-flow-param-table"
+                      >
+                        <div
+                          v-for="row in selectedFlowNestedStep.paramRows"
+                          :key="row.name"
+                          class="action-param-row"
+                        >
+                          <div class="action-param-name">
+                            <strong>{{ row.name }}</strong>
+                            <small>{{ row.description || row.type || 'String' }}</small>
+                          </div>
+                          <select
+                            v-if="row.mode !== 'readonly'"
+                            v-model="row.source"
+                            @change="
+                              syncJenkinsParamsFromRows(selectedFlowNestedStep)
+                            "
+                          >
+                            <option value="default">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.source.default'
+                                )
+                              }}
+                            </option>
+                            <option value="fixed">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.source.fixed'
+                                )
+                              }}
+                            </option>
+                            <option value="param">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.source.param'
+                                )
+                              }}
+                            </option>
+                          </select>
+                          <div v-else class="action-param-readonly-mode">
+                            {{
+                              t('adminPages.actionTemplates.jenkins.entry')
+                            }}
+                          </div>
+                          <select
+                            v-if="row.source === 'param'"
+                            v-model="row.value"
+                            @change="
+                              syncJenkinsParamsFromRows(selectedFlowNestedStep)
+                            "
+                          >
+                            <option value="">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.jenkins.selectParam'
+                                )
+                              }}
+                            </option>
+                            <option
+                              v-for="param in globalParamNames"
+                              :key="param"
+                              :value="param"
+                            >
+                              {{ param }}
+                            </option>
+                          </select>
+                          <input
+                            v-else
+                            v-model="row.value"
+                            :disabled="
+                              row.source === 'default' ||
+                              row.mode === 'readonly'
+                            "
+                            @input="
+                              syncJenkinsParamsFromRows(selectedFlowNestedStep)
+                            "
+                          />
+                        </div>
+                      </div>
+                      <div v-else class="action-param-empty">
+                        {{ t('adminPages.actionTemplates.jenkins.empty') }}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    v-else-if="isGitLabStep(selectedFlowNestedStep)"
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.gitlab')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.gitlab.operation')
+                      }}</span>
+                      <select v-model="selectedFlowNestedStep.config.operation">
+                        <option
+                          v-for="operation in gitlabOperationOptions(
+                            selectedFlowNestedStep.action_type
+                          )"
+                          :key="operation.value"
+                          :value="operation.value"
+                        >
+                          {{ operation.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="action-field">
+                      <span>{{ gitlabPrimaryFieldLabel(selectedFlowNestedStep) }}</span>
+                      <input
+                        v-model="
+                          selectedFlowNestedStep.config[
+                            gitlabPrimaryFieldKey(selectedFlowNestedStep)
+                          ]
+                        "
+                      />
+                    </label>
+                    <label
+                      v-if="gitlabNeedsRef(selectedFlowNestedStep)"
+                      class="action-field"
+                    >
+                      <span>{{ t('adminPages.actionTemplates.gitlab.ref') }}</span>
+                      <input v-model="selectedFlowNestedStep.config.ref" />
+                    </label>
+                    <div class="action-flow-project-picker">
+                      <div class="action-flow-project-head">
+                        <div>
+                          <strong>{{
+                            t('adminPages.actionTemplates.gitlab.fixedProjects')
+                          }}</strong>
+                          <span>{{
+                            t(
+                              'adminPages.actionTemplates.gitlab.selectedCount',
+                              {
+                                count:
+                                  selectedFlowNestedStep.config.project_ids
+                                    ?.length || 0
+                              }
+                            )
+                          }}</span>
+                        </div>
+                        <div class="action-project-picker-actions">
+                          <button
+                            type="button"
+                            :disabled="
+                              !filteredGitLabProjectsForStep(
+                                selectedFlowNestedStep
+                              ).length
+                            "
+                            @click="
+                              selectAllGitLabProjects(selectedFlowNestedStep)
+                            "
+                          >
+                            {{
+                              t('adminPages.actionTemplates.gitlab.selectAll')
+                            }}
+                          </button>
+                          <span>|</span>
+                          <button
+                            type="button"
+                            :disabled="
+                              !selectedFlowNestedStep.config.project_ids?.length
+                            "
+                            @click="clearActionProjects(selectedFlowNestedStep)"
+                          >
+                            {{ t('adminPages.actionTemplates.gitlab.clear') }}
+                          </button>
+                        </div>
+                      </div>
+                      <div class="action-project-picker-toolbar compact">
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.group')
+                          }}</span>
+                          <select v-model="actionProjectGroupFilter">
+                            <option value="">
+                              {{
+                                t('adminPages.actionTemplates.gitlab.allGroups')
+                              }}
+                            </option>
+                            <option
+                              v-for="group in actionProjectGroupOptions"
+                              :key="group.id"
+                              :value="group.id"
+                            >
+                              {{ group.name }}
+                            </option>
+                          </select>
+                        </label>
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.search')
+                          }}</span>
+                          <input
+                            v-model="actionProjectSearch"
+                            :placeholder="
+                              t(
+                                'adminPages.actionTemplates.gitlab.searchPlaceholder'
+                              )
+                            "
+                          />
+                        </label>
+                        <label class="action-project-selected-only">
+                          <input
+                            v-model="actionProjectSelectedOnly"
+                            type="checkbox"
+                          />
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.selectedOnly')
+                          }}</span>
+                        </label>
+                      </div>
+                      <div
+                        v-if="gitlabProjectLabels.length"
+                        class="action-project-label-filter"
+                      >
+                        <div class="action-project-label-filter-head">
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.resourceLabels')
+                          }}</span>
+                          <button
+                            v-if="actionProjectLabelFilter.length"
+                            type="button"
+                            @click="clearActionProjectLabelFilter"
+                          >
+                            {{ t('adminPages.actionTemplates.gitlab.allLabels') }}
+                          </button>
+                        </div>
+                        <div class="action-project-label-chips">
+                          <button
+                            v-for="label in gitlabProjectLabels"
+                            :key="label.id"
+                            type="button"
+                            :class="{
+                              active: actionProjectLabelFilter.includes(
+                                Number(label.id)
+                              )
+                            }"
+                            @click="toggleActionProjectLabelFilter(label.id)"
+                          >
+                            {{ label.name }}
+                          </button>
+                        </div>
+                      </div>
+                      <label class="action-inline-switch">
+                        <input
+                          v-model="
+                            selectedFlowNestedStep.config
+                              .allow_runtime_project_selection
+                          "
+                          type="checkbox"
+                        />
+                        <span>{{
+                          t('adminPages.actionTemplates.gitlab.allowRuntime')
+                        }}</span>
+                      </label>
+                      <div
+                        v-if="
+                          filteredGitLabProjectsForStep(selectedFlowNestedStep)
+                            .length
+                        "
+                        class="action-project-grid action-flow-project-grid"
+                      >
+                        <label
+                          v-for="project in filteredGitLabProjectsForStep(
+                            selectedFlowNestedStep
+                          )"
+                          :key="project.id"
+                          class="action-project-card"
+                          :class="{
+                            selected: isSelected(
+                              selectedFlowNestedStep.config.project_ids,
+                              project.id
+                            )
+                          }"
+                        >
+                          <input
+                            type="checkbox"
+                            :checked="
+                              isSelected(
+                                selectedFlowNestedStep.config.project_ids,
+                                project.id
+                              )
+                            "
+                            @change="
+                              toggleSelection(
+                                selectedFlowNestedStep.config.project_ids,
+                                project.id
+                              )
+                            "
+                          />
+                          <div class="action-project-card-copy">
+                            <strong>{{ project.name }}</strong>
+                            <span>{{ project.path || project.name }}</span>
+                            <em v-if="project.group_name">{{
+                              project.group_name
+                            }}</em>
+                            <div
+                              v-if="project.labels?.length"
+                              class="action-project-card-labels"
+                            >
+                              <i
+                                v-for="label in project.labels"
+                                :key="label.id"
+                              >
+                                {{ label.name }}
+                              </i>
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                      <div v-else class="action-project-empty">
+                        {{
+                          t('adminPages.actionTemplates.gitlab.emptyNoMatch')
+                        }}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    v-else-if="
+                      selectedFlowNestedStep.action_type === 'manual_approval'
+                    "
+                    class="action-flow-inspector-section"
+                  >
+                    <strong>{{
+                      t('adminPages.actionTemplates.flowEditor.sections.approval')
+                    }}</strong>
+                    <label class="action-field">
+                      <span>{{
+                        t('adminPages.actionTemplates.approval.message')
+                      }}</span>
+                      <textarea
+                        v-model="selectedFlowNestedStep.config.message"
+                        rows="3"
+                      ></textarea>
+                    </label>
+                  </section>
+                </template>
+              </div>
+
+              <footer class="action-flow-inspector-footer">
+                <BaseButton
+                  variant="secondary"
+                  size="sm"
+                  @click="handleFlowInspectorBack"
+                >
+                  {{ flowInspectorBackLabel }}
+                </BaseButton>
+                <BaseButton
+                  variant="secondary"
+                  size="sm"
+                  @click="duplicateFlowSelection"
+                >
+                  {{ flowInspectorDuplicateLabel }}
+                </BaseButton>
+                <BaseButton size="sm" @click="closeFlowInspector">
+                  {{ flowInspectorSaveLabel }}
+                </BaseButton>
+              </footer>
+              </aside>
+            </section>
+          </Teleport>
         </div>
 
         <template #footer>
@@ -2327,77 +3774,234 @@
           <div
             v-if="previewSteps.length"
             ref="previewCanvasRef"
-            class="action-flow-canvas"
+            class="action-flow-canvas action-flow-canvas--interactive"
+            :class="{ dragging: previewCanvasDragging }"
+            @mousedown="startFlowCanvasPan($event, 'preview')"
+            @mousemove="moveFlowCanvasPan"
+            @mouseup="stopFlowCanvasPan"
+            @mouseleave="stopFlowCanvasPan"
+            @wheel="handleFlowCanvasWheel($event, 'preview')"
             @scroll="schedulePreviewFlowMeasure"
           >
-            <svg
-              v-if="previewFlowConnections.length"
-              class="action-flow-connection-layer"
-              :viewBox="`0 0 ${previewFlowCanvasSize.width} ${previewFlowCanvasSize.height}`"
-              :style="{
-                width: `${previewFlowCanvasSize.width}px`,
-                height: `${previewFlowCanvasSize.height}px`
-              }"
-              aria-hidden="true"
-            >
-              <path
-                v-for="connection in previewFlowConnections"
-                :key="connection.id"
-                class="action-flow-connection-path"
-                :d="connection.path"
-              />
-            </svg>
-            <div
-              v-if="
-                previewFlowConnections.some((connection) => connection.label)
-              "
-              class="action-flow-connection-labels"
-              :style="{
-                width: `${previewFlowCanvasSize.width}px`,
-                height: `${previewFlowCanvasSize.height}px`
-              }"
-              aria-hidden="true"
-            >
-              <span
-                v-for="connection in previewFlowConnections.filter(
-                  (item) => item.label
-                )"
-                :key="`${connection.id}-label`"
-                class="action-flow-connection-label"
-                :style="connection.labelStyle"
+            <div class="action-flow-canvas-tools">
+              <button type="button" @click="zoomFlowCanvas('preview', -1)">
+                −
+              </button>
+              <button
+                type="button"
+                class="action-flow-canvas-fit"
+                @click="fitFlowCanvas('preview')"
               >
-                {{ connection.label }}
-              </span>
+                {{ t('adminPages.actionTemplates.flowEditor.fitView') }}
+              </button>
+              <button
+                type="button"
+                class="action-flow-canvas-zoom-value"
+                @click="resetFlowCanvasZoom('preview')"
+              >
+                {{ flowZoomPercent(previewCanvasZoom) }}
+              </button>
+              <button type="button" @click="zoomFlowCanvas('preview', 1)">
+                +
+              </button>
             </div>
-            <article
-              v-for="(step, index) in previewSteps"
-              :key="step.id || `${step.order}-${index}`"
-              class="action-flow-node"
-              :class="[
-                `action-flow-node--${step.action_type}`,
-                {
-                  'action-flow-node--branch-preview':
-                    step.action_type === 'conditional_branch'
-                }
-              ]"
+            <div
+              class="action-flow-canvas-viewport"
+              :style="
+                flowCanvasViewportStyle(previewFlowCanvasSize, previewCanvasZoom)
+              "
             >
-              <span
-                class="action-flow-port action-flow-port--in"
-                :data-flow-port="previewStepPort(index, 'in')"
-                aria-hidden="true"
-              />
-              <span
-                class="action-flow-port action-flow-port--out"
-                :data-flow-port="previewStepPort(index, 'out')"
-                aria-hidden="true"
-              />
-              <div class="action-flow-node-index">
-                {{ previewStepIndex(index) }}
-              </div>
-              <div class="action-flow-node-body">
-                <template v-if="step.action_type === 'conditional_branch'">
-                  <div class="action-flow-branch-top">
-                    <div>
+              <div
+                class="action-flow-canvas-inner"
+                :style="flowCanvasInnerStyle(previewCanvasZoom)"
+              >
+                <svg
+                  v-if="previewFlowConnections.length"
+                  class="action-flow-connection-layer"
+                  :viewBox="`0 0 ${previewFlowCanvasSize.width} ${previewFlowCanvasSize.height}`"
+                  :style="{
+                    width: `${previewFlowCanvasSize.width}px`,
+                    height: `${previewFlowCanvasSize.height}px`
+                  }"
+                  aria-hidden="true"
+                >
+                  <path
+                    v-for="connection in previewFlowConnections"
+                    :key="connection.id"
+                    class="action-flow-connection-path"
+                    :d="connection.path"
+                  />
+                </svg>
+                <div
+                  v-if="
+                    previewFlowConnections.some(
+                      (connection) => connection.label
+                    )
+                  "
+                  class="action-flow-connection-labels"
+                  :style="{
+                    width: `${previewFlowCanvasSize.width}px`,
+                    height: `${previewFlowCanvasSize.height}px`
+                  }"
+                  aria-hidden="true"
+                >
+                  <span
+                    v-for="connection in previewFlowConnections.filter(
+                      (item) => item.label
+                    )"
+                    :key="`${connection.id}-label`"
+                    class="action-flow-connection-label"
+                    :style="connection.labelStyle"
+                  >
+                    {{ connection.label }}
+                  </span>
+                </div>
+                <article
+                  v-for="(step, index) in previewSteps"
+                  :key="step.id || `${step.order}-${index}`"
+                  class="action-flow-node"
+                  :class="[
+                    `action-flow-node--${step.action_type}`,
+                    {
+                      'action-flow-node--branch-preview':
+                        step.action_type === 'conditional_branch'
+                    }
+                  ]"
+                >
+                  <span
+                    class="action-flow-port action-flow-port--in"
+                    :data-flow-port="previewStepPort(index, 'in')"
+                    aria-hidden="true"
+                  />
+                  <span
+                    class="action-flow-port action-flow-port--out"
+                    :data-flow-port="previewStepPort(index, 'out')"
+                    aria-hidden="true"
+                  />
+                  <div class="action-flow-node-index">
+                    {{ previewStepIndex(index) }}
+                  </div>
+                  <div class="action-flow-node-body">
+                    <template v-if="step.action_type === 'conditional_branch'">
+                      <div class="action-flow-branch-top">
+                        <div>
+                          <div class="action-flow-node-type">
+                            {{ actionTypeText(step.action_type) }}
+                          </div>
+                          <h4>
+                            {{
+                              step.name ||
+                              t('adminPages.actionTemplates.steps.step', {
+                                count: index + 1
+                              })
+                            }}
+                          </h4>
+                        </div>
+                        <span
+                          :class="
+                            step.failure_policy === 'continue'
+                              ? 'action-flow-policy action-flow-policy--continue'
+                              : 'action-flow-policy'
+                          "
+                        >
+                          {{
+                            step.failure_policy === 'continue'
+                              ? t(
+                                  'adminPages.actionTemplates.steps.policyContinue'
+                                )
+                              : t('adminPages.actionTemplates.steps.policyStop')
+                          }}
+                        </span>
+                      </div>
+                      <div class="action-flow-branch-diagram">
+                        <div class="action-flow-branch-lanes">
+                          <div
+                            v-for="(branch, branchIndex) in previewBranchCases(
+                              step
+                            )"
+                            :key="branch.id || branch.client_id || branchIndex"
+                            class="action-flow-branch-lane"
+                          >
+                            <span
+                              class="action-flow-port action-flow-port--branch-in"
+                              :data-flow-port="
+                                previewBranchPort(index, branchIndex, 'in')
+                              "
+                              aria-hidden="true"
+                            />
+                            <span
+                              class="action-flow-port action-flow-port--branch-out"
+                              :data-flow-port="
+                                previewBranchPort(index, branchIndex, 'out')
+                              "
+                              aria-hidden="true"
+                            />
+                            <div class="action-flow-branch-condition">
+                              <div class="action-flow-branch-title">
+                                <span class="action-flow-branch-number">{{
+                                  branchIndex + 1
+                                }}</span>
+                                <strong>{{
+                                  branch.label ||
+                                  previewBranchConditionText(branch)
+                                }}</strong>
+                              </div>
+                              <code class="action-flow-branch-rule-chip">{{
+                                previewBranchConditionText(branch)
+                              }}</code>
+                            </div>
+                            <div class="action-flow-branch-step-list">
+                              <div
+                                v-for="(
+                                  nestedStep, nestedIndex
+                                ) in previewBranchNestedSteps(branch)"
+                                :key="
+                                  nestedStep.id ||
+                                  nestedStep.client_id ||
+                                  nestedIndex
+                                "
+                                class="action-flow-branch-step-item"
+                              >
+                                <span class="action-flow-branch-step">
+                                  {{
+                                    nestedStep.name ||
+                                    actionTypeText(nestedStep.action_type)
+                                  }}
+                                </span>
+                                <span
+                                  v-if="
+                                    nestedIndex <
+                                    previewBranchNestedSteps(branch).length - 1
+                                  "
+                                  class="action-flow-branch-step-arrow"
+                                  aria-hidden="true"
+                                >
+                                  →
+                                </span>
+                              </div>
+                              <span
+                                v-if="!previewBranchNestedSteps(branch).length"
+                                class="action-flow-branch-step action-flow-branch-step--empty"
+                              >
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.branch.noNestedSteps'
+                                  )
+                                }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          class="action-flow-branch-merge"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <div class="action-flow-branch-default">
+                        {{ t('adminPages.actionTemplates.branch.defaultSkip') }}
+                      </div>
+                    </template>
+                    <template v-else>
                       <div class="action-flow-node-type">
                         {{ actionTypeText(step.action_type) }}
                       </div>
@@ -2409,134 +4013,27 @@
                           })
                         }}
                       </h4>
-                    </div>
-                    <span
-                      :class="
-                        step.failure_policy === 'continue'
-                          ? 'action-flow-policy action-flow-policy--continue'
-                          : 'action-flow-policy'
-                      "
-                    >
-                      {{
-                        step.failure_policy === 'continue'
-                          ? t('adminPages.actionTemplates.steps.policyContinue')
-                          : t('adminPages.actionTemplates.steps.policyStop')
-                      }}
-                    </span>
-                  </div>
-                  <div class="action-flow-branch-diagram">
-                    <div class="action-flow-branch-lanes">
-                      <div
-                        v-for="(branch, branchIndex) in previewBranchCases(
-                          step
-                        )"
-                        :key="branch.id || branch.client_id || branchIndex"
-                        class="action-flow-branch-lane"
+                      <p>{{ previewStepSummary(step) }}</p>
+                      <span
+                        :class="
+                          step.failure_policy === 'continue'
+                            ? 'action-flow-policy action-flow-policy--continue'
+                            : 'action-flow-policy'
+                        "
                       >
-                        <span
-                          class="action-flow-port action-flow-port--branch-in"
-                          :data-flow-port="
-                            previewBranchPort(index, branchIndex, 'in')
-                          "
-                          aria-hidden="true"
-                        />
-                        <span
-                          class="action-flow-port action-flow-port--branch-out"
-                          :data-flow-port="
-                            previewBranchPort(index, branchIndex, 'out')
-                          "
-                          aria-hidden="true"
-                        />
-                        <div class="action-flow-branch-condition">
-                          <div class="action-flow-branch-title">
-                            <span class="action-flow-branch-number">{{
-                              branchIndex + 1
-                            }}</span>
-                            <strong>{{
-                              branch.label || previewBranchConditionText(branch)
-                            }}</strong>
-                          </div>
-                          <code class="action-flow-branch-rule-chip">{{
-                            previewBranchConditionText(branch)
-                          }}</code>
-                        </div>
-                        <div class="action-flow-branch-step-list">
-                          <div
-                            v-for="(
-                              nestedStep, nestedIndex
-                            ) in previewBranchNestedSteps(branch)"
-                            :key="
-                              nestedStep.id ||
-                              nestedStep.client_id ||
-                              nestedIndex
-                            "
-                            class="action-flow-branch-step-item"
-                          >
-                            <span class="action-flow-branch-step">
-                              {{
-                                nestedStep.name ||
-                                actionTypeText(nestedStep.action_type)
-                              }}
-                            </span>
-                            <span
-                              v-if="
-                                nestedIndex <
-                                previewBranchNestedSteps(branch).length - 1
-                              "
-                              class="action-flow-branch-step-arrow"
-                              aria-hidden="true"
-                            >
-                              →
-                            </span>
-                          </div>
-                          <span
-                            v-if="!previewBranchNestedSteps(branch).length"
-                            class="action-flow-branch-step action-flow-branch-step--empty"
-                          >
-                            {{
-                              t(
-                                'adminPages.actionTemplates.branch.noNestedSteps'
+                        {{
+                          step.failure_policy === 'continue'
+                            ? t(
+                                'adminPages.actionTemplates.steps.policyContinue'
                               )
-                            }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="action-flow-branch-merge" aria-hidden="true" />
+                            : t('adminPages.actionTemplates.steps.policyStop')
+                        }}
+                      </span>
+                    </template>
                   </div>
-                  <div class="action-flow-branch-default">
-                    {{ t('adminPages.actionTemplates.branch.defaultSkip') }}
-                  </div>
-                </template>
-                <template v-else>
-                  <div class="action-flow-node-type">
-                    {{ actionTypeText(step.action_type) }}
-                  </div>
-                  <h4>
-                    {{
-                      step.name ||
-                      t('adminPages.actionTemplates.steps.step', {
-                        count: index + 1
-                      })
-                    }}
-                  </h4>
-                  <p>{{ previewStepSummary(step) }}</p>
-                  <span
-                    :class="
-                      step.failure_policy === 'continue'
-                        ? 'action-flow-policy action-flow-policy--continue'
-                        : 'action-flow-policy'
-                    "
-                  >
-                    {{
-                      step.failure_policy === 'continue'
-                        ? t('adminPages.actionTemplates.steps.policyContinue')
-                        : t('adminPages.actionTemplates.steps.policyStop')
-                    }}
-                  </span>
-                </template>
+                </article>
               </div>
-            </article>
+            </div>
           </div>
 
           <div v-else class="action-empty-box">
@@ -2595,14 +4092,35 @@ const users = ref([])
 const groups = ref([])
 const jenkinsEntries = ref([])
 const gitlabProjects = ref([])
+const gitlabProjectLabels = ref([])
 const searchQuery = ref('')
 const showModal = ref(false)
 const showPreviewModal = ref(false)
 const editingTemplate = ref(null)
 const previewTemplate = ref(null)
+const overviewCanvasRef = ref(null)
+const overviewFlowConnections = ref([])
+const overviewFlowCanvasSize = ref({ width: 1, height: 1 })
+const overviewCanvasZoom = ref(1)
+const overviewCanvasDragging = ref(false)
 const previewCanvasRef = ref(null)
 const previewFlowConnections = ref([])
 const previewFlowCanvasSize = ref({ width: 1, height: 1 })
+const previewCanvasZoom = ref(1)
+const previewCanvasDragging = ref(false)
+const flowEditorOpen = ref(false)
+const flowInspectorOpen = ref(false)
+const flowEditorCanvasRef = ref(null)
+const flowEditorConnections = ref([])
+const flowEditorCanvasSize = ref({ width: 1, height: 1 })
+const flowEditorCanvasZoom = ref(0.86)
+const flowEditorDragging = ref(false)
+const selectedFlowTarget = ref({
+  kind: 'step',
+  stepIndex: 0,
+  branchIndex: null,
+  nestedIndex: null
+})
 const saving = ref(false)
 const formError = ref('')
 const parameterSchemaText = ref('[]')
@@ -2612,10 +4130,21 @@ const selectedStepIndex = ref(0)
 const stepEditorOpen = ref(false)
 const actionProjectSearch = ref('')
 const actionProjectGroupFilter = ref('')
+const actionProjectLabelFilter = ref([])
 const actionProjectSelectedOnly = ref(false)
 const toast = ref({ show: false, message: '', type: 'success' })
+const FLOW_CANVAS_PAN_BUFFER = 360
+const FLOW_CANVAS_MIN_ZOOM = 0.6
+const FLOW_CANVAS_MAX_ZOOM = 1.35
+const FLOW_CANVAS_ZOOM_STEP = 0.1
+let overviewMeasureTimer = null
 let previewMeasureTimer = null
+let flowEditorMeasureTimer = null
+let overviewResizeObserver = null
 let previewResizeObserver = null
+let flowEditorResizeObserver = null
+let flowCanvasPanState = null
+let flowEditorSuppressClick = false
 
 const form = ref(buildEmptyForm())
 
@@ -2674,6 +4203,86 @@ const selectedStep = computed(() => {
   return form.value.steps[selectedStepIndex.value] || null
 })
 
+const selectedFlowStep = computed(() => {
+  return form.value.steps[selectedFlowTarget.value.stepIndex] || null
+})
+
+const selectedFlowBranch = computed(() => {
+  const step = selectedFlowStep.value
+  if (!step || step.action_type !== 'conditional_branch') return null
+  return step.config?.branches?.[selectedFlowTarget.value.branchIndex] || null
+})
+
+const selectedFlowNestedStep = computed(() => {
+  return (
+    selectedFlowBranch.value?.steps?.[selectedFlowTarget.value.nestedIndex] ||
+    null
+  )
+})
+
+const selectedFlowTitle = computed(() => {
+  if (selectedFlowTarget.value.kind === 'nested') {
+    return (
+      selectedFlowNestedStep.value?.name ||
+      actionTypeText(selectedFlowNestedStep.value?.action_type)
+    )
+  }
+  if (selectedFlowTarget.value.kind === 'branch') {
+    return (
+      selectedFlowBranch.value?.label ||
+      t('adminPages.actionTemplates.branch.caseTitle', {
+        count: Number(selectedFlowTarget.value.branchIndex) + 1
+      })
+    )
+  }
+  return (
+    selectedFlowStep.value?.name ||
+    t('adminPages.actionTemplates.steps.step', {
+      count: Number(selectedFlowTarget.value.stepIndex) + 1
+    })
+  )
+})
+
+const selectedFlowSubtitle = computed(() => {
+  if (selectedFlowTarget.value.kind === 'nested') {
+    return `${selectedFlowBranch.value?.label || t('adminPages.actionTemplates.branch.caseTitle', { count: Number(selectedFlowTarget.value.branchIndex) + 1 })} · ${actionTypeText(selectedFlowNestedStep.value?.action_type)}`
+  }
+  if (selectedFlowTarget.value.kind === 'branch') {
+    return `${t('adminPages.actionTemplates.branch.title')} ${Number(selectedFlowTarget.value.branchIndex) + 1} · ${previewBranchConditionText(selectedFlowBranch.value)}`
+  }
+  return `${actionTypeText(selectedFlowStep.value?.action_type)} · ${t('adminPages.actionTemplates.steps.step', { count: Number(selectedFlowTarget.value.stepIndex) + 1 })}`
+})
+
+const flowInspectorBackLabel = computed(() => {
+  if (selectedFlowTarget.value.kind === 'nested') {
+    return t('adminPages.actionTemplates.flowEditor.backToBranch')
+  }
+  if (selectedFlowTarget.value.kind === 'branch') {
+    return t('adminPages.actionTemplates.flowEditor.backToNode')
+  }
+  return t('adminPages.actionTemplates.flowEditor.closePanel')
+})
+
+const flowInspectorDuplicateLabel = computed(() => {
+  if (selectedFlowTarget.value.kind === 'nested') {
+    return t('adminPages.actionTemplates.flowEditor.duplicateNested')
+  }
+  if (selectedFlowTarget.value.kind === 'branch') {
+    return t('adminPages.actionTemplates.flowEditor.duplicateBranch')
+  }
+  return t('adminPages.actionTemplates.flowEditor.duplicateNode')
+})
+
+const flowInspectorSaveLabel = computed(() => {
+  if (selectedFlowTarget.value.kind === 'nested') {
+    return t('adminPages.actionTemplates.flowEditor.saveNested')
+  }
+  if (selectedFlowTarget.value.kind === 'branch') {
+    return t('adminPages.actionTemplates.flowEditor.saveBranch')
+  }
+  return t('adminPages.actionTemplates.flowEditor.saveNode')
+})
+
 const actionProjectGroupOptions = computed(() => {
   const groupMap = new Map()
   gitlabProjects.value.forEach((project) => {
@@ -2693,26 +4302,49 @@ const filteredActionProjects = computed(() => {
   const step = selectedStep.value
   if (!step || !isGitLabStep(step)) return []
 
+  return filteredGitLabProjectsForStep(step)
+})
+
+function projectMatchesActionFilters(project, step) {
+  if (!step || !isGitLabStep(step)) return false
+
   const selectedIds = new Set(
     (step.config.project_ids || []).map((projectId) => Number(projectId))
   )
   const keyword = actionProjectSearch.value.trim().toLowerCase()
   const groupId = actionProjectGroupFilter.value
+  const labelIds = actionProjectLabelFilter.value.map((labelId) =>
+    Number(labelId)
+  )
+  const projectLabelIds = (project.labels || []).map((label) =>
+    Number(label.id)
+  )
 
-  return gitlabProjects.value.filter((project) => {
-    if (groupId && Number(project.group) !== Number(groupId)) return false
-    if (
-      actionProjectSelectedOnly.value &&
-      !selectedIds.has(Number(project.id))
-    ) {
-      return false
-    }
-    if (!keyword) return true
-    return `${project.name || ''} ${project.path || ''} ${project.group_name || ''}`
-      .toLowerCase()
-      .includes(keyword)
-  })
-})
+  if (groupId && Number(project.group) !== Number(groupId)) return false
+  if (
+    actionProjectSelectedOnly.value &&
+    !selectedIds.has(Number(project.id))
+  ) {
+    return false
+  }
+  if (
+    labelIds.length &&
+    !labelIds.some((labelId) => projectLabelIds.includes(labelId))
+  ) {
+    return false
+  }
+  if (!keyword) return true
+  return `${project.name || ''} ${project.path || ''} ${project.group_name || ''}`
+    .toLowerCase()
+    .includes(keyword)
+}
+
+function filteredGitLabProjectsForStep(step) {
+  if (!step || !isGitLabStep(step)) return []
+  return gitlabProjects.value.filter((project) =>
+    projectMatchesActionFilters(project, step)
+  )
+}
 
 const globalParamNames = computed(() => {
   return parameterRows.value.map((item) => item.name).filter(Boolean)
@@ -2826,12 +4458,19 @@ async function loadTemplates() {
 }
 
 async function loadOptions() {
-  const [usersPayload, groupsPayload, entriesPayload, projectsPayload] =
+  const [
+    usersPayload,
+    groupsPayload,
+    entriesPayload,
+    projectsPayload,
+    projectLabelsPayload
+  ] =
     await Promise.allSettled([
       managementApi.getUsers({ page_size: 10000 }),
       managementApi.getGroups({ page_size: 10000 }),
       jenkinsApi.listEntries(),
-      gitlabApi.listProjects()
+      gitlabApi.listProjects(),
+      gitlabApi.listProjectLabels({ page_size: 1000 })
     ])
 
   users.value =
@@ -2847,6 +4486,10 @@ async function loadOptions() {
   gitlabProjects.value =
     projectsPayload.status === 'fulfilled'
       ? normalizeList(projectsPayload.value)
+      : []
+  gitlabProjectLabels.value =
+    projectLabelsPayload.status === 'fulfilled'
+      ? normalizeList(projectLabelsPayload.value)
       : []
 }
 
@@ -3188,6 +4831,236 @@ function openStepEditor(index) {
 
 function closeStepEditor() {
   stepEditorOpen.value = false
+}
+
+function openFlowEditor() {
+  if (!form.value.steps.length) {
+    addStep()
+  }
+  selectedFlowTarget.value = {
+    kind: 'step',
+    stepIndex: Math.min(selectedStepIndex.value, form.value.steps.length - 1),
+    branchIndex: null,
+    nestedIndex: null
+  }
+  stepEditorOpen.value = false
+  flowEditorOpen.value = true
+  flowInspectorOpen.value = true
+  nextTick(() => {
+    if (flowEditorResizeObserver && flowEditorCanvasRef.value) {
+      flowEditorResizeObserver.observe(flowEditorCanvasRef.value)
+    }
+    if (flowEditorCanvasRef.value) {
+      delete flowEditorCanvasRef.value.dataset.flowCanvasBuffered
+    }
+    flowEditorCanvasZoom.value = 0.78
+    scheduleFlowEditorMeasure()
+    window.setTimeout(() => fitFlowCanvas('editor'), 100)
+  })
+}
+
+function openFlowEditorForStep(index) {
+  selectedStepIndex.value = index
+  selectedFlowTarget.value = {
+    kind: 'step',
+    stepIndex: index,
+    branchIndex: null,
+    nestedIndex: null
+  }
+  openFlowEditor()
+}
+
+function closeFlowEditor() {
+  flowEditorOpen.value = false
+  flowInspectorOpen.value = false
+  flowEditorConnections.value = []
+  stopFlowCanvasPan()
+}
+
+function closeFlowInspector() {
+  flowInspectorOpen.value = false
+  nextTick(() => {
+    scheduleFlowEditorMeasure()
+  })
+}
+
+function handleFlowInspectorBack() {
+  const target = selectedFlowTarget.value
+  if (target.kind === 'nested') {
+    selectFlowBranch(target.stepIndex, target.branchIndex)
+    return
+  }
+  if (target.kind === 'branch') {
+    selectFlowStep(target.stepIndex)
+    return
+  }
+  closeFlowInspector()
+}
+
+function isFlowEditorInteractiveTarget(target) {
+  return Boolean(
+    target?.closest?.(
+      'button, input, select, textarea, a, [role="button"], [contenteditable="true"]'
+    )
+  )
+}
+
+function handleFlowEditorCanvasClick(event) {
+  if (!flowEditorSuppressClick) return
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function centerFlowEditorSelectedNode() {
+  const canvas = flowEditorCanvasRef.value
+  if (!canvas) return
+  window.requestAnimationFrame(() => {
+    const targetNode =
+      canvas.querySelector('.action-flow-editor-node.selected') ||
+      canvas.querySelector('.action-flow-editor-node')
+    if (!targetNode) return
+    const canvasRect = canvas.getBoundingClientRect()
+    const nodeRect = targetNode.getBoundingClientRect()
+    canvas.scrollLeft += Math.round(
+      nodeRect.left + nodeRect.width / 2 - canvasRect.left - canvas.clientWidth / 2
+    )
+    canvas.scrollTop += Math.round(
+      nodeRect.top +
+        nodeRect.height / 2 -
+        canvasRect.top -
+        canvas.clientHeight / 2
+    )
+    scheduleFlowEditorMeasure()
+  })
+}
+
+function centerFlowEditorGraph() {
+  const canvas = flowEditorCanvasRef.value
+  if (!canvas) return
+  window.requestAnimationFrame(() => {
+    const nodes = [
+      ...canvas.querySelectorAll('.action-flow-editor-node')
+    ]
+    if (!nodes.length) return
+    const canvasRect = canvas.getBoundingClientRect()
+    const rects = nodes.map((node) => node.getBoundingClientRect())
+    const left = Math.min(...rects.map((rect) => rect.left))
+    const right = Math.max(...rects.map((rect) => rect.right))
+    const top = Math.min(...rects.map((rect) => rect.top))
+    const bottom = Math.max(...rects.map((rect) => rect.bottom))
+    canvas.scrollLeft += Math.round(
+      (left + right) / 2 - (canvasRect.left + canvas.clientWidth / 2)
+    )
+    canvas.scrollTop += Math.round(
+      (top + bottom) / 2 - (canvasRect.top + canvas.clientHeight / 2)
+    )
+    scheduleFlowEditorMeasure()
+  })
+}
+
+function selectFlowStep(stepIndex) {
+  selectedStepIndex.value = stepIndex
+  flowInspectorOpen.value = true
+  selectedFlowTarget.value = {
+    kind: 'step',
+    stepIndex,
+    branchIndex: null,
+    nestedIndex: null
+  }
+}
+
+function selectFlowBranch(stepIndex, branchIndex) {
+  selectedStepIndex.value = stepIndex
+  flowInspectorOpen.value = true
+  selectedFlowTarget.value = {
+    kind: 'branch',
+    stepIndex,
+    branchIndex,
+    nestedIndex: null
+  }
+}
+
+function selectFlowNestedStep(stepIndex, branchIndex, nestedIndex) {
+  selectedStepIndex.value = stepIndex
+  flowInspectorOpen.value = true
+  selectedFlowTarget.value = {
+    kind: 'nested',
+    stepIndex,
+    branchIndex,
+    nestedIndex
+  }
+}
+
+function addFlowEditorStep() {
+  addStep()
+  selectFlowStep(form.value.steps.length - 1)
+  scheduleFlowEditorMeasure()
+}
+
+function addFlowNestedStep() {
+  const branch = selectedFlowBranch.value
+  if (!branch) return
+  addBranchNestedStep(branch)
+  selectFlowNestedStep(
+    selectedFlowTarget.value.stepIndex,
+    selectedFlowTarget.value.branchIndex,
+    branch.steps.length - 1
+  )
+  scheduleFlowEditorMeasure()
+}
+
+function duplicateFlowSelection() {
+  const target = selectedFlowTarget.value
+  if (target.kind === 'nested' && selectedFlowNestedStep.value) {
+    const source = selectedFlowNestedStep.value
+    const copy = normalizeBranchNestedStep({
+      ...JSON.parse(JSON.stringify(source)),
+      id: undefined,
+      client_id: undefined,
+      name: t('adminPages.actionTemplates.flowEditor.copyName', {
+        name: source.name || actionTypeText(source.action_type)
+      })
+    })
+    selectedFlowBranch.value.steps.splice(target.nestedIndex + 1, 0, copy)
+    selectFlowNestedStep(target.stepIndex, target.branchIndex, target.nestedIndex + 1)
+    return
+  }
+  if (target.kind === 'branch' && selectedFlowBranch.value) {
+    const source = selectedFlowBranch.value
+    const copy = normalizeBranchCase(
+      {
+        ...JSON.parse(JSON.stringify(source)),
+        id: undefined,
+        client_id: undefined,
+        label: t('adminPages.actionTemplates.flowEditor.copyName', {
+          name:
+            source.label ||
+            t('adminPages.actionTemplates.branch.caseTitle', {
+              count: target.branchIndex + 1
+            })
+        })
+      },
+      target.branchIndex + 2
+    )
+    selectedFlowStep.value.config.branches.splice(target.branchIndex + 1, 0, copy)
+    selectFlowBranch(target.stepIndex, target.branchIndex + 1)
+    return
+  }
+  if (selectedFlowStep.value) {
+    const source = selectedFlowStep.value
+    const copy = normalizeStep({
+      ...JSON.parse(JSON.stringify(source)),
+      id: undefined,
+      client_id: undefined,
+      name: t('adminPages.actionTemplates.flowEditor.copyName', {
+        name: source.name || actionTypeText(source.action_type)
+      })
+    })
+    form.value.steps.splice(target.stepIndex + 1, 0, copy)
+    syncStepOrders()
+    selectFlowStep(target.stepIndex + 1)
+  }
+  scheduleFlowEditorMeasure()
 }
 
 function moveStep(index, direction) {
@@ -3642,8 +5515,274 @@ function previewBranchPort(stepIndex, branchIndex, side) {
   return `step-${stepIndex}-branch-${branchIndex}-${side}`
 }
 
+function overviewStepPort(index, side) {
+  return `overview-step-${index}-${side}`
+}
+
+function overviewBranchPort(stepIndex, branchIndex, side) {
+  return `overview-step-${stepIndex}-branch-${branchIndex}-${side}`
+}
+
+function flowEditorStepPort(index, side) {
+  return `editor-step-${index}-${side}`
+}
+
+function flowEditorBranchPort(stepIndex, branchIndex, side) {
+  return `editor-step-${stepIndex}-branch-${branchIndex}-${side}`
+}
+
+function branchMatchModeText(step) {
+  return step?.config?.match_mode === 'all'
+    ? t('adminPages.actionTemplates.flowEditor.matchAllSummary')
+    : t('adminPages.actionTemplates.flowEditor.matchFirstSummary')
+}
+
+function flowFailurePolicyText(step) {
+  return step?.failure_policy === 'continue'
+    ? t('adminPages.actionTemplates.steps.policyContinue')
+    : t('adminPages.actionTemplates.steps.policyStop')
+}
+
 function isPreviewBranchStep(step) {
   return step?.action_type === 'conditional_branch'
+}
+
+function clampFlowCanvasZoom(value) {
+  return Math.min(
+    FLOW_CANVAS_MAX_ZOOM,
+    Math.max(FLOW_CANVAS_MIN_ZOOM, Number(value) || 1)
+  )
+}
+
+function flowZoomPercent(value) {
+  return `${Math.round(clampFlowCanvasZoom(value) * 100)}%`
+}
+
+function flowCanvasInnerStyle(zoom) {
+  const buffer = FLOW_CANVAS_PAN_BUFFER
+  return {
+    transform: `translate(${buffer}px, ${buffer}px) scale(${clampFlowCanvasZoom(zoom)})`
+  }
+}
+
+function flowCanvasViewportStyle(size, zoom) {
+  const scale = clampFlowCanvasZoom(zoom)
+  const buffer = FLOW_CANVAS_PAN_BUFFER * 2
+  return {
+    width: `${Math.max(1, Math.ceil((size?.width || 1) * scale + buffer))}px`,
+    height: `${Math.max(1, Math.ceil((size?.height || 1) * scale + buffer))}px`
+  }
+}
+
+function flowCanvasState(kind) {
+  if (kind === 'overview') {
+    return {
+      canvasRef: overviewCanvasRef,
+      draggingRef: overviewCanvasDragging,
+      zoomRef: overviewCanvasZoom,
+      measure: scheduleOverviewFlowMeasure
+    }
+  }
+  if (kind === 'editor') {
+    return {
+      canvasRef: flowEditorCanvasRef,
+      draggingRef: flowEditorDragging,
+      zoomRef: flowEditorCanvasZoom,
+      measure: scheduleFlowEditorMeasure
+    }
+  }
+
+  return {
+    canvasRef: previewCanvasRef,
+    draggingRef: previewCanvasDragging,
+    zoomRef: previewCanvasZoom,
+    measure: schedulePreviewFlowMeasure
+  }
+}
+
+function setFlowCanvasZoom(kind, value) {
+  const state = flowCanvasState(kind)
+  state.zoomRef.value = clampFlowCanvasZoom(value)
+  nextTick(() => {
+    state.measure()
+  })
+}
+
+function zoomFlowCanvas(kind, direction, anchorEvent = null) {
+  const state = flowCanvasState(kind)
+  const canvas = state.canvasRef.value
+  const oldZoom = clampFlowCanvasZoom(state.zoomRef.value)
+  const nextZoom = clampFlowCanvasZoom(
+    state.zoomRef.value + FLOW_CANVAS_ZOOM_STEP * direction
+  )
+  if (nextZoom === oldZoom) return
+
+  let anchorX = canvas ? canvas.clientWidth / 2 : 0
+  let anchorY = canvas ? canvas.clientHeight / 2 : 0
+  if (anchorEvent && canvas) {
+    const rect = canvas.getBoundingClientRect()
+    anchorX = anchorEvent.clientX - rect.left
+    anchorY = anchorEvent.clientY - rect.top
+  }
+
+  const originX = canvas ? (canvas.scrollLeft + anchorX) / oldZoom : 0
+  const originY = canvas ? (canvas.scrollTop + anchorY) / oldZoom : 0
+  state.zoomRef.value = nextZoom
+  nextTick(() => {
+    state.measure()
+    window.requestAnimationFrame(() => {
+      if (!canvas) return
+      canvas.scrollLeft = Math.max(0, Math.round(originX * nextZoom - anchorX))
+      canvas.scrollTop = Math.max(0, Math.round(originY * nextZoom - anchorY))
+    })
+  })
+}
+
+function resetFlowCanvasZoom(kind) {
+  const state = flowCanvasState(kind)
+  state.zoomRef.value = 1
+  nextTick(() => {
+    state.measure()
+    centerFlowCanvas(kind)
+  })
+}
+
+function handleFlowCanvasWheel(event, kind) {
+  event.preventDefault()
+  zoomFlowCanvas(kind, event.deltaY > 0 ? -1 : 1, event)
+}
+
+function startFlowCanvasPan(event, kind) {
+  if (event.button !== 0 || isFlowEditorInteractiveTarget(event.target)) return
+  const state = flowCanvasState(kind)
+  const canvas = state.canvasRef.value
+  if (!canvas) return
+  flowCanvasPanState = {
+    kind,
+    startX: event.clientX,
+    startY: event.clientY,
+    scrollLeft: canvas.scrollLeft,
+    scrollTop: canvas.scrollTop,
+    moved: false
+  }
+  state.draggingRef.value = true
+}
+
+function moveFlowCanvasPan(event) {
+  if (!flowCanvasPanState) return
+  const state = flowCanvasState(flowCanvasPanState.kind)
+  const canvas = state.canvasRef.value
+  if (!canvas) return
+  const deltaX = event.clientX - flowCanvasPanState.startX
+  const deltaY = event.clientY - flowCanvasPanState.startY
+  if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+    flowCanvasPanState.moved = true
+  }
+  canvas.scrollLeft =
+    flowCanvasPanState.scrollLeft - deltaX
+  canvas.scrollTop =
+    flowCanvasPanState.scrollTop - deltaY
+}
+
+function stopFlowCanvasPan() {
+  if (!flowCanvasPanState) return
+  const state = flowCanvasState(flowCanvasPanState.kind)
+  if (flowCanvasPanState.kind === 'editor' && flowCanvasPanState.moved) {
+    flowEditorSuppressClick = true
+    window.setTimeout(() => {
+      flowEditorSuppressClick = false
+    }, 0)
+  }
+  state.draggingRef.value = false
+  flowCanvasPanState = null
+}
+
+function ensureFlowCanvasBufferedScroll(canvas, scale = 1) {
+  if (!canvas || canvas.dataset.flowCanvasBuffered === 'true') return
+  canvas.dataset.flowCanvasBuffered = 'true'
+  window.requestAnimationFrame(() => {
+    const bounds = flowCanvasContentBounds(canvas)
+    if (!bounds) {
+      canvas.scrollLeft = Math.round(FLOW_CANVAS_PAN_BUFFER * scale)
+      canvas.scrollTop = Math.round(FLOW_CANVAS_PAN_BUFFER * scale)
+      return
+    }
+    canvas.scrollLeft = Math.max(
+      0,
+      Math.round(bounds.left + bounds.width / 2 - canvas.clientWidth / 2)
+    )
+    canvas.scrollTop = Math.max(
+      0,
+      Math.round(bounds.top + bounds.height / 2 - canvas.clientHeight / 2)
+    )
+  })
+}
+
+function flowCanvasContentBounds(canvas) {
+  const inner = canvas?.querySelector('.action-flow-canvas-inner')
+  if (!canvas || !inner) return null
+  const innerRect = inner.getBoundingClientRect()
+  const itemRects = [
+    ...canvas.querySelectorAll(
+      [
+        '.action-flow-node',
+        '.action-flow-editor-node',
+        '.action-flow-connection-label',
+        '.action-flow-editor-label'
+      ].join(', ')
+    )
+  ].map((node) => node.getBoundingClientRect())
+  if (!itemRects.length) return null
+  const left = Math.min(...itemRects.map((rect) => rect.left)) - innerRect.left
+  const right = Math.max(...itemRects.map((rect) => rect.right)) - innerRect.left
+  const top = Math.min(...itemRects.map((rect) => rect.top)) - innerRect.top
+  const bottom = Math.max(...itemRects.map((rect) => rect.bottom)) - innerRect.top
+  return { left, right, top, bottom, width: right - left, height: bottom - top }
+}
+
+function centerFlowCanvas(kind) {
+  const state = flowCanvasState(kind)
+  const canvas = state.canvasRef.value
+  if (!canvas) return
+  window.requestAnimationFrame(() => {
+    const bounds = flowCanvasContentBounds(canvas)
+    if (!bounds) return
+    canvas.scrollLeft = Math.max(
+      0,
+      Math.round(bounds.left + bounds.width / 2 - canvas.clientWidth / 2)
+    )
+    canvas.scrollTop = Math.max(
+      0,
+      Math.round(bounds.top + bounds.height / 2 - canvas.clientHeight / 2)
+    )
+  })
+}
+
+function fitFlowCanvas(kind) {
+  const state = flowCanvasState(kind)
+  const canvas = state.canvasRef.value
+  if (!canvas) return
+  const bounds = flowCanvasContentBounds(canvas)
+  if (!bounds) return
+  const currentZoom = clampFlowCanvasZoom(state.zoomRef.value)
+  const rawWidth = bounds.width / currentZoom
+  const rawHeight = bounds.height / currentZoom
+  const nextZoom = clampFlowCanvasZoom(
+    Math.min(
+      1,
+      (canvas.clientWidth - 88) / Math.max(rawWidth, 1),
+      (canvas.clientHeight - 72) / Math.max(rawHeight, 1)
+    )
+  )
+  state.zoomRef.value = nextZoom
+  nextTick(() => {
+    state.measure()
+    if (kind === 'editor') {
+      centerFlowEditorGraph()
+      return
+    }
+    centerFlowCanvas(kind)
+  })
 }
 
 function previewConnectionPath(start, end) {
@@ -3655,30 +5794,36 @@ function previewConnectionPath(start, end) {
   return `M ${start.x} ${start.y} C ${c1x} ${start.y}, ${c2x} ${end.y}, ${end.x} ${end.y}`
 }
 
-function previewConnectionLabelStyle(start, end) {
+function previewConnectionLabelStyle(start, end, offsetY = 0) {
   const x = start.x + (end.x - start.x) * 0.45
-  const y = start.y + (end.y - start.y) * 0.45
+  const y = start.y + (end.y - start.y) * 0.45 + offsetY
   return {
     left: `${x}px`,
     top: `${y}px`
   }
 }
 
-function getPreviewPortMap(canvas) {
-  const canvasRect = canvas.getBoundingClientRect()
+function getPreviewPortMap(canvas, selector, datasetKey, zoom = 1) {
+  const inner = canvas.querySelector('.action-flow-canvas-inner') || canvas
+  const canvasRect = inner.getBoundingClientRect()
   const ports = new Map()
-  canvas.querySelectorAll('[data-flow-port]').forEach((node) => {
+  const scale = clampFlowCanvasZoom(zoom)
+  canvas.querySelectorAll(selector).forEach((node) => {
     const rect = node.getBoundingClientRect()
-    ports.set(node.dataset.flowPort, {
-      x: rect.left - canvasRect.left + canvas.scrollLeft + rect.width / 2,
-      y: rect.top - canvasRect.top + canvas.scrollTop + rect.height / 2
+    ports.set(node.dataset[datasetKey], {
+      x: (rect.left - canvasRect.left + rect.width / 2) / scale,
+      y: (rect.top - canvasRect.top + rect.height / 2) / scale
     })
   })
   return ports
 }
 
-function getPreviewConnectionDescriptors() {
-  const steps = previewSteps.value
+function getPreviewConnectionDescriptors(
+  steps = previewSteps.value,
+  stepPort = previewStepPort,
+  branchPort = previewBranchPort,
+  idPrefix = 'preview'
+) {
   const descriptors = []
 
   steps.slice(0, -1).forEach((step, index) => {
@@ -3688,9 +5833,9 @@ function getPreviewConnectionDescriptors() {
 
     if (!currentIsBranch && !nextIsBranch) {
       descriptors.push({
-        id: `step-${index}-to-step-${index + 1}`,
-        from: previewStepPort(index, 'out'),
-        to: previewStepPort(index + 1, 'in')
+        id: `${idPrefix}-step-${index}-to-step-${index + 1}`,
+        from: stepPort(index, 'out'),
+        to: stepPort(index + 1, 'in')
       })
       return
     }
@@ -3698,9 +5843,9 @@ function getPreviewConnectionDescriptors() {
     if (!currentIsBranch && nextIsBranch) {
       previewBranchCases(nextStep).forEach((branch, branchIndex) => {
         descriptors.push({
-          id: `step-${index}-to-branch-${index + 1}-${branchIndex}`,
-          from: previewStepPort(index, 'out'),
-          to: previewBranchPort(index + 1, branchIndex, 'in'),
+          id: `${idPrefix}-step-${index}-to-branch-${index + 1}-${branchIndex}`,
+          from: stepPort(index, 'out'),
+          to: branchPort(index + 1, branchIndex, 'in'),
           label: previewBranchConditionText(branch)
         })
       })
@@ -3710,9 +5855,9 @@ function getPreviewConnectionDescriptors() {
     if (currentIsBranch && !nextIsBranch) {
       previewBranchCases(step).forEach((branch, branchIndex) => {
         descriptors.push({
-          id: `branch-${index}-${branchIndex}-to-step-${index + 1}`,
-          from: previewBranchPort(index, branchIndex, 'out'),
-          to: previewStepPort(index + 1, 'in')
+          id: `${idPrefix}-branch-${index}-${branchIndex}-to-step-${index + 1}`,
+          from: branchPort(index, branchIndex, 'out'),
+          to: stepPort(index + 1, 'in')
         })
       })
       return
@@ -3721,9 +5866,9 @@ function getPreviewConnectionDescriptors() {
     previewBranchCases(step).forEach((branch, branchIndex) => {
       previewBranchCases(nextStep).forEach((nextBranch, nextBranchIndex) => {
         descriptors.push({
-          id: `branch-${index}-${branchIndex}-to-branch-${index + 1}-${nextBranchIndex}`,
-          from: previewBranchPort(index, branchIndex, 'out'),
-          to: previewBranchPort(index + 1, nextBranchIndex, 'in'),
+          id: `${idPrefix}-branch-${index}-${branchIndex}-to-branch-${index + 1}-${nextBranchIndex}`,
+          from: branchPort(index, branchIndex, 'out'),
+          to: branchPort(index + 1, nextBranchIndex, 'in'),
           label: previewBranchConditionText(nextBranch)
         })
       })
@@ -3733,6 +5878,113 @@ function getPreviewConnectionDescriptors() {
   return descriptors
 }
 
+function getFlowEditorConnectionDescriptors() {
+  const steps = form.value.steps
+  const descriptors = []
+
+  steps.slice(0, -1).forEach((step, index) => {
+    const nextStep = steps[index + 1]
+    const currentIsBranch = isPreviewBranchStep(step)
+    const nextIsBranch = isPreviewBranchStep(nextStep)
+
+    if (!currentIsBranch && !nextIsBranch) {
+      descriptors.push({
+        id: `editor-step-${index}-to-step-${index + 1}`,
+        from: flowEditorStepPort(index, 'out'),
+        to: flowEditorStepPort(index + 1, 'in')
+      })
+      return
+    }
+
+    if (!currentIsBranch && nextIsBranch) {
+      previewBranchCases(nextStep).forEach((branch, branchIndex) => {
+        descriptors.push({
+          id: `editor-step-${index}-to-branch-${index + 1}-${branchIndex}`,
+          from: flowEditorStepPort(index, 'out'),
+          to: flowEditorBranchPort(index + 1, branchIndex, 'in'),
+          label: previewBranchConditionText(branch),
+          labelOffset: (branchIndex % 2 === 0 ? -1 : 1) * 8
+        })
+      })
+      return
+    }
+
+    if (currentIsBranch && !nextIsBranch) {
+      previewBranchCases(step).forEach((branch, branchIndex) => {
+        descriptors.push({
+          id: `editor-branch-${index}-${branchIndex}-to-step-${index + 1}`,
+          from: flowEditorBranchPort(index, branchIndex, 'out'),
+          to: flowEditorStepPort(index + 1, 'in')
+        })
+      })
+      return
+    }
+
+    previewBranchCases(step).forEach((branch, branchIndex) => {
+      previewBranchCases(nextStep).forEach((nextBranch, nextBranchIndex) => {
+        descriptors.push({
+          id: `editor-branch-${index}-${branchIndex}-to-branch-${index + 1}-${nextBranchIndex}`,
+          from: flowEditorBranchPort(index, branchIndex, 'out'),
+          to: flowEditorBranchPort(index + 1, nextBranchIndex, 'in'),
+          label: previewBranchConditionText(nextBranch),
+          labelOffset: (nextBranchIndex % 2 === 0 ? -1 : 1) * 8
+        })
+      })
+    })
+  })
+
+  return descriptors
+}
+
+function measureFlowEditorConnections() {
+  const canvas = flowEditorCanvasRef.value
+  if (!canvas || !flowEditorOpen.value || !form.value.steps.length) {
+    flowEditorConnections.value = []
+    return
+  }
+
+  const inner = canvas.querySelector('.action-flow-canvas-inner') || canvas
+  const scale = clampFlowCanvasZoom(flowEditorCanvasZoom.value)
+  const ports = getPreviewPortMap(
+    canvas,
+    '[data-flow-editor-port]',
+    'flowEditorPort',
+    scale
+  )
+  flowEditorCanvasSize.value = {
+    width: Math.max(inner.scrollWidth, 1),
+    height: Math.max(inner.scrollHeight, 1)
+  }
+  flowEditorConnections.value = getFlowEditorConnectionDescriptors()
+    .map((descriptor) => {
+      const start = ports.get(descriptor.from)
+      const end = ports.get(descriptor.to)
+      if (!start || !end) return null
+      return {
+        ...descriptor,
+        path: previewConnectionPath(start, end),
+        labelStyle: previewConnectionLabelStyle(
+          start,
+          end,
+          descriptor.labelOffset || 0
+        )
+      }
+    })
+    .filter(Boolean)
+}
+
+function scheduleFlowEditorMeasure() {
+  if (flowEditorMeasureTimer) {
+    window.clearTimeout(flowEditorMeasureTimer)
+  }
+  flowEditorMeasureTimer = window.setTimeout(() => {
+    flowEditorMeasureTimer = null
+    nextTick(() => {
+      measureFlowEditorConnections()
+    })
+  }, 24)
+}
+
 function measurePreviewFlowConnections() {
   const canvas = previewCanvasRef.value
   if (!canvas || !showPreviewModal.value || !previewSteps.value.length) {
@@ -3740,11 +5992,19 @@ function measurePreviewFlowConnections() {
     return
   }
 
-  const ports = getPreviewPortMap(canvas)
+  const inner = canvas.querySelector('.action-flow-canvas-inner') || canvas
+  const scale = clampFlowCanvasZoom(previewCanvasZoom.value)
+  const ports = getPreviewPortMap(
+    canvas,
+    '[data-flow-port]',
+    'flowPort',
+    scale
+  )
   previewFlowCanvasSize.value = {
-    width: Math.max(canvas.scrollWidth, canvas.clientWidth, 1),
-    height: Math.max(canvas.scrollHeight, canvas.clientHeight, 1)
+    width: Math.max(inner.scrollWidth, 1),
+    height: Math.max(inner.scrollHeight, 1)
   }
+  ensureFlowCanvasBufferedScroll(canvas, scale)
   previewFlowConnections.value = getPreviewConnectionDescriptors()
     .map((descriptor) => {
       const start = ports.get(descriptor.from)
@@ -3757,6 +6017,57 @@ function measurePreviewFlowConnections() {
       }
     })
     .filter(Boolean)
+}
+
+function measureOverviewFlowConnections() {
+  const canvas = overviewCanvasRef.value
+  if (!canvas || activeEditorTab.value !== 'steps' || !form.value.steps.length) {
+    overviewFlowConnections.value = []
+    return
+  }
+
+  const inner = canvas.querySelector('.action-flow-canvas-inner') || canvas
+  const scale = clampFlowCanvasZoom(overviewCanvasZoom.value)
+  const ports = getPreviewPortMap(
+    canvas,
+    '[data-overview-flow-port]',
+    'overviewFlowPort',
+    scale
+  )
+  overviewFlowCanvasSize.value = {
+    width: Math.max(inner.scrollWidth, 1),
+    height: Math.max(inner.scrollHeight, 1)
+  }
+  ensureFlowCanvasBufferedScroll(canvas, scale)
+  overviewFlowConnections.value = getPreviewConnectionDescriptors(
+    form.value.steps,
+    overviewStepPort,
+    overviewBranchPort,
+    'overview'
+  )
+    .map((descriptor) => {
+      const start = ports.get(descriptor.from)
+      const end = ports.get(descriptor.to)
+      if (!start || !end) return null
+      return {
+        ...descriptor,
+        path: previewConnectionPath(start, end),
+        labelStyle: previewConnectionLabelStyle(start, end)
+      }
+    })
+    .filter(Boolean)
+}
+
+function scheduleOverviewFlowMeasure() {
+  if (overviewMeasureTimer) {
+    window.clearTimeout(overviewMeasureTimer)
+  }
+  overviewMeasureTimer = window.setTimeout(() => {
+    overviewMeasureTimer = null
+    nextTick(() => {
+      measureOverviewFlowConnections()
+    })
+  }, 24)
 }
 
 function schedulePreviewFlowMeasure() {
@@ -3848,7 +6159,16 @@ function toggleSelection(list, id) {
 function selectAllActionProjects(step) {
   if (!step?.config?.project_ids) return
   const selected = new Set(step.config.project_ids.map((id) => Number(id)))
-  filteredActionProjects.value.forEach((project) => {
+  filteredGitLabProjectsForStep(step).forEach((project) => {
+    selected.add(Number(project.id))
+  })
+  step.config.project_ids = [...selected]
+}
+
+function selectAllGitLabProjects(step) {
+  if (!step?.config?.project_ids) return
+  const selected = new Set(step.config.project_ids.map((id) => Number(id)))
+  filteredGitLabProjectsForStep(step).forEach((project) => {
     selected.add(Number(project.id))
   })
   step.config.project_ids = [...selected]
@@ -3857,6 +6177,24 @@ function selectAllActionProjects(step) {
 function clearActionProjects(step) {
   if (!step?.config) return
   step.config.project_ids = []
+}
+
+function toggleActionProjectLabelFilter(labelId) {
+  const normalizedId = Number(labelId)
+  if (actionProjectLabelFilter.value.includes(normalizedId)) {
+    actionProjectLabelFilter.value = actionProjectLabelFilter.value.filter(
+      (id) => id !== normalizedId
+    )
+  } else {
+    actionProjectLabelFilter.value = [
+      ...actionProjectLabelFilter.value,
+      normalizedId
+    ]
+  }
+}
+
+function clearActionProjectLabelFilter() {
+  actionProjectLabelFilter.value = []
 }
 
 function parseJson(text, fallback, label) {
@@ -4220,17 +6558,60 @@ function previewStepSummary(step) {
   return t('adminPages.actionTemplates.preview.unknown')
 }
 
+function stepMapSummary(step) {
+  if (step.action_type !== 'conditional_branch') {
+    return previewStepSummary(step)
+  }
+  return `${t('adminPages.actionTemplates.branch.caseCount', {
+    count: previewBranchCases(step).length
+  })} · ${branchMatchModeText(step)} · ${t(
+    'adminPages.actionTemplates.branch.defaultSkip'
+  )}`
+}
+
 onMounted(() => {
   loadTemplates()
   loadOptions()
+  window.addEventListener('resize', scheduleOverviewFlowMeasure)
   window.addEventListener('resize', schedulePreviewFlowMeasure)
+  window.addEventListener('resize', scheduleFlowEditorMeasure)
+  overviewResizeObserver = new ResizeObserver(() => {
+    scheduleOverviewFlowMeasure()
+  })
   previewResizeObserver = new ResizeObserver(() => {
     schedulePreviewFlowMeasure()
+  })
+  flowEditorResizeObserver = new ResizeObserver(() => {
+    scheduleFlowEditorMeasure()
   })
   if (previewCanvasRef.value) {
     previewResizeObserver.observe(previewCanvasRef.value)
   }
+  if (overviewCanvasRef.value) {
+    overviewResizeObserver.observe(overviewCanvasRef.value)
+  }
+  if (flowEditorCanvasRef.value) {
+    flowEditorResizeObserver.observe(flowEditorCanvasRef.value)
+  }
 })
+
+watch(activeEditorTab, (tab) => {
+  if (tab !== 'steps') return
+  nextTick(() => {
+    if (overviewResizeObserver && overviewCanvasRef.value) {
+      overviewResizeObserver.observe(overviewCanvasRef.value)
+    }
+    scheduleOverviewFlowMeasure()
+  })
+})
+
+watch(
+  () => form.value.steps,
+  () => {
+    scheduleOverviewFlowMeasure()
+  },
+  { deep: true }
+)
 
 watch(showPreviewModal, (isOpen) => {
   if (!isOpen) return
@@ -4250,13 +6631,45 @@ watch(
   { deep: true }
 )
 
+watch(flowEditorOpen, (isOpen) => {
+  if (!isOpen) return
+  nextTick(() => {
+    if (flowEditorResizeObserver && flowEditorCanvasRef.value) {
+      flowEditorResizeObserver.observe(flowEditorCanvasRef.value)
+    }
+    scheduleFlowEditorMeasure()
+  })
+})
+
+watch(
+  () => form.value.steps,
+  () => {
+    scheduleFlowEditorMeasure()
+  },
+  { deep: true }
+)
+
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', scheduleOverviewFlowMeasure)
   window.removeEventListener('resize', schedulePreviewFlowMeasure)
+  window.removeEventListener('resize', scheduleFlowEditorMeasure)
+  if (overviewResizeObserver) {
+    overviewResizeObserver.disconnect()
+  }
   if (previewResizeObserver) {
     previewResizeObserver.disconnect()
   }
+  if (flowEditorResizeObserver) {
+    flowEditorResizeObserver.disconnect()
+  }
   if (previewMeasureTimer) {
     window.clearTimeout(previewMeasureTimer)
+  }
+  if (overviewMeasureTimer) {
+    window.clearTimeout(overviewMeasureTimer)
+  }
+  if (flowEditorMeasureTimer) {
+    window.clearTimeout(flowEditorMeasureTimer)
   }
 })
 </script>
@@ -4322,10 +6735,10 @@ onBeforeUnmount(() => {
 
 .action-flow-canvas {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  overflow-x: auto;
+  display: block;
+  height: clamp(360px, 46vh, 560px);
+  min-height: 360px;
+  overflow: auto;
   border: 1px solid #e8edf5;
   border-radius: 16px;
   background:
@@ -4336,7 +6749,83 @@ onBeforeUnmount(() => {
     ),
     #fbfdff;
   background-size: 28px 28px;
+  cursor: grab;
+  padding: 0;
+  scrollbar-width: thin;
+}
+
+.action-flow-canvas.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.action-flow-canvas--interactive .action-flow-node,
+.action-flow-canvas--interactive .action-flow-connection-label {
+  cursor: inherit;
+}
+
+.action-flow-canvas-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 12;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
+  padding: 4px;
+}
+
+.action-flow-canvas-tools button {
+  display: inline-grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.action-flow-canvas-tools button:hover {
+  background: #eef4fb;
+}
+
+.action-flow-canvas-tools .action-flow-canvas-zoom-value {
+  min-width: 50px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.action-flow-canvas-tools .action-flow-canvas-fit {
+  min-width: 44px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.action-flow-canvas-viewport {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.action-flow-canvas-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  min-width: max-content;
+  min-height: 300px;
+  align-items: center;
+  gap: 20px;
   padding: 54px 42px 52px;
+  padding-right: 402px;
+  padding-bottom: 412px;
+  transform-origin: top left;
 }
 
 .action-flow-connection-layer {
@@ -5158,7 +7647,7 @@ onBeforeUnmount(() => {
 .action-branch-nested-head,
 .action-branch-nested-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
@@ -5430,8 +7919,142 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 
+.action-step-map {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.action-step-map-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 18px;
+}
+
+.action-step-map-node::before {
+  position: absolute;
+  top: 38px;
+  bottom: 0;
+  left: 20px;
+  width: 2px;
+  border-radius: 999px;
+  background: #dbe5f0;
+  content: '';
+}
+
+.action-step-map-node:last-child::before {
+  display: none;
+}
+
+.action-step-map-index {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 14px;
+  background: #101827;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.action-step-map-node--jenkins_trigger .action-step-map-index {
+  background: #047857;
+}
+
+.action-step-map-node--conditional_branch .action-step-map-index {
+  background: #4338ca;
+}
+
+.action-step-map-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid #e4ebf3;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 14px 16px;
+}
+
+.action-step-map-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-step-map-head span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 9px;
+}
+
+.action-step-map-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-step-map-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.action-step-map-branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action-step-map-branches span,
+.action-step-map-branches em {
+  display: inline-flex;
+  max-width: 190px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  padding: 6px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .action-flow-canvas--editor {
+  height: clamp(260px, 36vh, 460px);
   min-height: 260px;
+  border: 1px solid #dbe9f7;
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 1px 1px,
+      rgba(172, 187, 205, 0.32) 1px,
+      transparent 0
+    ),
+    #f8fbff;
+  background-size: 28px 28px;
 }
 
 .action-flow-node--editable {
@@ -5445,6 +8068,10 @@ onBeforeUnmount(() => {
     border-color 0.16s ease,
     box-shadow 0.16s ease,
     transform 0.16s ease;
+}
+
+.action-flow-node--preview-only .action-flow-node-body {
+  box-shadow: none;
 }
 
 .action-flow-node-head {
@@ -5471,7 +8098,7 @@ onBeforeUnmount(() => {
 
 .action-flow-node-summary div {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 68px minmax(0, 1fr);
   gap: 10px;
   align-items: baseline;
 }
@@ -5496,7 +8123,13 @@ onBeforeUnmount(() => {
 
 .action-flow-node--editable:hover .action-flow-node-body,
 .action-flow-node--editable.active .action-flow-node-body {
-  border-color: #94a3b8;
+  border-color: #c7d7e8;
+}
+
+.action-flow-node--editable:not(.action-flow-node--preview-only):hover
+  .action-flow-node-body,
+.action-flow-node--editable:not(.action-flow-node--preview-only).active
+  .action-flow-node-body {
   box-shadow: 0 22px 46px rgba(15, 23, 42, 0.12);
   transform: translateY(-2px);
 }
@@ -5785,6 +8418,11 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
+.action-project-picker-toolbar.compact {
+  grid-template-columns: 1fr;
+  margin-bottom: 0;
+}
+
 .action-project-selected-only {
   display: inline-flex;
   min-height: 46px;
@@ -5888,6 +8526,84 @@ onBeforeUnmount(() => {
   font-style: normal;
   font-weight: 800;
   padding: 3px 7px;
+}
+
+.action-project-card-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.action-project-card-labels i {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 3px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-project-label-filter {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.action-project-label-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.action-project-label-filter-head span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.action-project-label-filter-head button,
+.action-project-label-chips button {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.action-project-label-chips {
+  display: flex;
+  max-height: 74px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: auto;
+}
+
+.action-project-label-chips button {
+  border: 1px solid #dbe5f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  line-height: 1.2;
+  padding: 6px 10px;
+}
+
+.action-project-label-chips button:hover,
+.action-project-label-chips button.active {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .action-project-empty {
@@ -6330,7 +9046,698 @@ onBeforeUnmount(() => {
   border-top-color: #edf2f7;
 }
 
+.action-pane-heading-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.action-flow-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  grid-template-columns: minmax(0, 1fr) clamp(460px, 34vw, 540px);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  background: #f5f8fb;
+}
+
+.action-flow-editor-overlay.inspector-closed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.action-flow-editor-overlay.inspector-closed .action-flow-editor-stage {
+  border-right: 0;
+}
+
+.action-flow-editor-stage {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-right: 1px solid #dbe5f0;
+  background: #fbfdff;
+}
+
+.action-flow-editor-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #dbe5f0;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 13px 18px;
+}
+
+.action-flow-editor-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-flow-editor-title h3 {
+  margin: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-editor-toolbar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.action-flow-editor-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 4px;
+}
+
+.action-flow-editor-zoom button {
+  display: inline-grid;
+  min-width: 32px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 0 8px;
+}
+
+.action-flow-editor-zoom button:hover {
+  background: #eef4fb;
+}
+
+.action-flow-editor-scroll {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  cursor: grab;
+  background:
+    radial-gradient(
+      circle at 1px 1px,
+      rgba(172, 187, 205, 0.32) 1px,
+      transparent 0
+    ),
+    #f8fbff;
+  background-size: 26px 26px;
+}
+
+.action-flow-editor-scroll.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.action-flow-editor-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 126px;
+  min-width: max-content;
+  min-height: 560px;
+  padding: 58px 190px 120px;
+  transform-origin: top left;
+}
+
+.action-flow-editor-svg,
+.action-flow-editor-labels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.action-flow-editor-svg marker path {
+  fill: #c9d8e6;
+}
+
+.action-flow-editor-path {
+  fill: none;
+  stroke: rgba(148, 181, 207, 0.55);
+  stroke-linecap: round;
+  stroke-width: 1.8px;
+}
+
+.action-flow-editor-path.active {
+  stroke: rgba(82, 139, 179, 0.58);
+}
+
+.action-flow-editor-labels {
+  z-index: 1;
+}
+
+.action-flow-editor-label {
+  position: absolute;
+  display: inline-flex;
+  max-width: 156px;
+  overflow: hidden;
+  border: 1px solid rgba(210, 224, 238, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #6f86a0;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 4px 7px;
+  text-overflow: ellipsis;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+.action-flow-editor-node {
+  position: relative;
+  z-index: 2;
+  width: 310px;
+  min-height: 160px;
+  flex: 0 0 310px;
+  border: 1px solid #dbe6f1;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  padding: 24px 20px 18px;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.action-flow-editor-node:hover {
+  transform: translateY(-1px);
+}
+
+.action-flow-editor-node.selected,
+.action-flow-editor-branch-case.selected,
+.action-flow-editor-mini-step.selected {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.08);
+}
+
+.action-flow-editor-node.branch {
+  width: 520px;
+  min-height: 540px;
+  flex-basis: 520px;
+  padding: 28px 22px 22px;
+}
+
+.action-flow-editor-port {
+  position: absolute;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.action-flow-editor-port--in {
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.action-flow-editor-port--out {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+.action-flow-editor-port--branch-in {
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.action-flow-editor-port--branch-out {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+.action-flow-editor-badge {
+  position: absolute;
+  top: -17px;
+  left: 18px;
+  display: inline-flex;
+  min-width: 52px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: #101827;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.action-flow-editor-badge.green {
+  background: #047857;
+}
+
+.action-flow-editor-badge.violet {
+  background: #4338ca;
+}
+
+.action-flow-editor-kind {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
+.action-flow-editor-node--jenkins_trigger .action-flow-editor-kind {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.action-flow-editor-node--conditional_branch .action-flow-editor-kind {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.action-flow-editor-node h4 {
+  margin: 14px 0 0;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.action-flow-editor-meta {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 12px 0 16px;
+}
+
+.action-flow-editor-meta div {
+  display: contents;
+}
+
+.action-flow-editor-meta dt {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.action-flow-editor-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-editor-policy,
+.action-flow-editor-branch-footer em {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #e11d48;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
+.action-flow-editor-branch-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.action-flow-editor-branch-case {
+  position: relative;
+  border: 1px solid #edf2f7;
+  border-radius: 11px;
+  background: #fcfdff;
+  padding: 12px;
+}
+
+.action-flow-editor-branch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.action-flow-editor-branch-head strong {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.action-flow-editor-branch-head strong span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #8aa0b8;
+  font-size: 12px;
+}
+
+.action-flow-editor-branch-head code {
+  max-width: 155px;
+  overflow: hidden;
+  border: 1px solid #eaf0f7;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #8297ae;
+  font-size: 11px;
+  font-weight: 850;
+  padding: 5px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-editor-mini-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.action-flow-editor-mini-step {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf7;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 9px;
+}
+
+.action-flow-editor-mini-step.muted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.action-flow-editor-mini-arrow {
+  color: #a8b7c8;
+  font-weight: 900;
+}
+
+.action-flow-editor-branch-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid #eaf0f7;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.action-flow-editor-branch-footer span {
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #506986;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 9px;
+}
+
+.action-flow-editor-inspector {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: #ffffff;
+}
+
+.action-flow-inspector-head {
+  border-bottom: 1px solid #dbe5f0;
+  padding: 19px 22px 17px;
+}
+
+.action-flow-inspector-head h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.action-flow-inspector-head p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.action-flow-inspector-body {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 36px;
+}
+
+.action-flow-inspector-section {
+  display: grid;
+  gap: 14px;
+}
+
+.action-flow-inspector-section + .action-flow-inspector-section {
+  border-top: 1px solid #eaf0f7;
+  padding-top: 18px;
+}
+
+.action-flow-inspector-section > strong,
+.action-flow-inspector-section-head > strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.action-flow-inspector-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.action-flow-inspector-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.action-flow-editor-inspector .action-field input,
+.action-flow-editor-inspector .action-field select,
+.action-flow-editor-inspector .action-field textarea {
+  min-height: 46px;
+  border-radius: 14px;
+}
+
+.action-flow-editor-inspector .action-checkbox-line {
+  align-items: flex-start;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.action-flow-param-card,
+.action-flow-branch-config-list,
+.action-flow-nested-config-list {
+  display: grid;
+  gap: 10px;
+}
+
+.action-flow-param-table {
+  display: grid;
+  gap: 10px;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+
+.action-flow-param-table .action-param-row {
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.action-flow-param-table .action-param-name {
+  min-width: 0;
+}
+
+.action-flow-param-table .action-param-name small {
+  overflow-wrap: anywhere;
+}
+
+.action-flow-param-table .action-param-row input,
+.action-flow-param-table .action-param-row select,
+.action-flow-param-table .action-param-readonly-mode {
+  min-height: 42px;
+  border-radius: 12px;
+}
+
+.action-flow-project-picker {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #eaf0f7;
+  padding-top: 14px;
+}
+
+.action-flow-project-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.action-flow-project-head strong,
+.action-flow-project-head span {
+  display: block;
+}
+
+.action-flow-project-head strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.action-flow-project-head span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.action-flow-project-picker .action-inline-switch {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.action-flow-project-grid {
+  max-height: 220px;
+  grid-template-columns: 1fr;
+  border-radius: 14px;
+  padding: 8px;
+}
+
+.action-flow-project-grid .action-project-card {
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.action-flow-branch-config-list button,
+.action-flow-nested-config-list button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.action-flow-branch-config-list button.active,
+.action-flow-branch-config-list button:hover,
+.action-flow-nested-config-list button:hover {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.action-flow-branch-config-list strong,
+.action-flow-nested-config-list strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.action-flow-branch-config-list span,
+.action-flow-nested-config-list span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-flow-inspector-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid #dbe5f0;
+  padding: 15px 22px;
+}
+
 @media (max-width: 900px) {
+  .action-flow-editor-overlay {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(320px, 42vh);
+  }
+
+  .action-flow-editor-stage {
+    border-right: 0;
+    border-bottom: 1px solid #dbe5f0;
+  }
+
+  .action-flow-editor-topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .action-flow-editor-toolbar {
+    justify-content: flex-start;
+  }
+
+  .action-flow-editor-inspector {
+    min-height: 0;
+  }
+
   .action-editor-topbar,
   .action-editor-body {
     grid-template-columns: 1fr;
@@ -6385,6 +9792,14 @@ onBeforeUnmount(() => {
 
   .action-global-param-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-flow-editor-node,
+  .action-flow-editor-node:hover {
+    transform: none;
+    transition: none;
   }
 }
 </style>

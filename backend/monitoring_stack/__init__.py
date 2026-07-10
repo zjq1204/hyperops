@@ -1,0 +1,1 @@
+"""Monitoring stack management app."""

@@ -173,11 +173,51 @@ INSTALLED_APPS += [
     'jenkins_trigger',
     'gitlab_resource',
     'action_orchestration',
+    'monitoring_stack',
 ]
 
 ENABLE_NOTIFIER = env_flag('ENABLE_NOTIFIER', False)
 ENABLE_AGENTCORE_TASK = env_flag('ENABLE_AGENTCORE_TASK', False)
 ENABLE_AGENTCORE_METERING = env_flag('ENABLE_AGENTCORE_METERING', False)
+ENABLE_MONITORING = env_flag('ENABLE_MONITORING', True)
+
+STORAGE_ROOT = os.getenv("STORAGE_ROOT", "/opt/storage")
+MONITORING_STACK_ROOT = os.getenv(
+    "MONITORING_STACK_ROOT",
+    str(Path(STORAGE_ROOT) / "monitoring_stack"),
+)
+MONITORING_ADMIN_TOKEN = os.getenv("MONITORING_ADMIN_TOKEN", "")
+MONITORING_PROMETHEUS_URL = os.getenv("MONITORING_PROMETHEUS_URL", "")
+MONITORING_N9E_URL = os.getenv("MONITORING_N9E_URL", "")
+MONITORING_N9E_USERNAME = os.getenv("MONITORING_N9E_USERNAME", "")
+MONITORING_N9E_PASSWORD = os.getenv("MONITORING_N9E_PASSWORD", "")
+MONITORING_GRAFANA_URL = os.getenv("MONITORING_GRAFANA_URL", "")
+MONITORING_INSTALLER_BASE_URL = os.getenv("MONITORING_INSTALLER_BASE_URL", "")
+MONITORING_INSTALLER_DIR = os.getenv(
+    "MONITORING_INSTALLER_DIR",
+    str(Path(MONITORING_STACK_ROOT) / "installer"),
+)
+MONITORING_TEMPLATE_DIR = os.getenv(
+    "MONITORING_TEMPLATE_DIR",
+    str(Path(MONITORING_STACK_ROOT) / "templates"),
+)
+MONITORING_RULES_DIR = os.getenv(
+    "MONITORING_RULES_DIR",
+    str(Path(MONITORING_STACK_ROOT) / "rules"),
+)
+MONITORING_SSH_DIR = os.getenv(
+    "MONITORING_SSH_DIR",
+    str(Path(MONITORING_STACK_ROOT) / "ssh"),
+)
+MONITORING_CATEGRAF_INSTALL_DIR = os.getenv(
+    "MONITORING_CATEGRAF_INSTALL_DIR",
+    "/opt/categraf",
+)
+MONITORING_BLACKBOX_INSTALL_DIR = os.getenv(
+    "MONITORING_BLACKBOX_INSTALL_DIR",
+    "/opt/blackbox-exporter",
+)
+MONITORING_BLACKBOX_PORT = os.getenv("MONITORING_BLACKBOX_PORT", "9115")
 
 if ENABLE_NOTIFIER:
     INSTALLED_APPS.append('agentcore_notifier.adapters.django')

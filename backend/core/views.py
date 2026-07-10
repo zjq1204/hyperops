@@ -23,5 +23,8 @@ class PlatformMetaView(APIView):
                 "enable_agentcore_metering": bool(
                     getattr(settings, "ENABLE_AGENTCORE_METERING", False)
                 ),
+                "enable_monitoring": bool(
+                    getattr(settings, "ENABLE_MONITORING", False)
+                ),
             }
         )

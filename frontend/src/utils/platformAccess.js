@@ -54,6 +54,13 @@ export const FEATURE_DEFINITIONS = [
     defaultPath: '/management/actions/templates',
     platform: 'admin_console',
     parentKey: 'admin_console'
+  },
+  {
+    key: 'admin_monitoring',
+    label: '监控接入控制台',
+    defaultPath: '/management/monitoring/overview',
+    platform: 'admin_console',
+    parentKey: 'admin_console'
   }
 ]
 
@@ -89,7 +96,8 @@ const FEATURE_ALIASES = {
     'admin_jenkins',
     'admin_gitlab',
     'admin_notifications',
-    'admin_actions'
+    'admin_actions',
+    'admin_monitoring'
   ],
   jenkins: ['workspace_dashboard', 'workspace_jenkins'],
   gitlab: ['workspace_dashboard', 'workspace_jenkins'],
@@ -104,35 +112,40 @@ const FEATURE_ALIASES = {
     'admin_jenkins',
     'admin_gitlab',
     'admin_notifications',
-    'admin_actions'
+    'admin_actions',
+    'admin_monitoring'
   ],
   gitlab_admin: [
     'admin_users',
     'admin_jenkins',
     'admin_gitlab',
     'admin_notifications',
-    'admin_actions'
+    'admin_actions',
+    'admin_monitoring'
   ],
   llm_console: [
     'admin_users',
     'admin_jenkins',
     'admin_gitlab',
     'admin_notifications',
-    'admin_actions'
+    'admin_actions',
+    'admin_monitoring'
   ],
   task_management_console: [
     'admin_users',
     'admin_jenkins',
     'admin_gitlab',
     'admin_notifications',
-    'admin_actions'
+    'admin_actions',
+    'admin_monitoring'
   ],
   notification_console: [
     'admin_users',
     'admin_jenkins',
     'admin_gitlab',
     'admin_notifications',
-    'admin_actions'
+    'admin_actions',
+    'admin_monitoring'
   ]
 }
 

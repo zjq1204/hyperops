@@ -191,9 +191,10 @@ export const useUserStore = defineStore('user', () => {
 
   // Platform feature flags (e.g. enable_notifier). Loaded once per session so
   // that router guards and sidebars can hide modules that are not enabled
-  // server-side. Defaults to "off" for any flag we have not seen.
+  // server-side. Monitoring defaults on because it is a first-party module.
   const platformFlags = ref({
     enable_notifier: false,
+    enable_monitoring: true,
     enable_agentcore_task: false,
     enable_agentcore_metering: false
   })
@@ -206,6 +207,7 @@ export const useUserStore = defineStore('user', () => {
       const payload = response?.data?.data ?? response?.data ?? {}
       platformFlags.value = {
         enable_notifier: Boolean(payload.enable_notifier),
+        enable_monitoring: Boolean(payload.enable_monitoring),
         enable_agentcore_task: Boolean(payload.enable_agentcore_task),
         enable_agentcore_metering: Boolean(payload.enable_agentcore_metering)
       }
@@ -214,6 +216,7 @@ export const useUserStore = defineStore('user', () => {
       // modules the server has not enabled.
       platformFlags.value = {
         enable_notifier: false,
+        enable_monitoring: true,
         enable_agentcore_task: false,
         enable_agentcore_metering: false
       }

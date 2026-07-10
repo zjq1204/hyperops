@@ -1,11 +1,6 @@
 <template>
   <AdminLayout>
-    <PageFrame
-      variant="soft"
-      :eyebrow="t('adminPages.jenkinsEntries.eyebrow')"
-      :title="t('adminPages.jenkinsEntries.title')"
-      :subtitle="t('adminPages.jenkinsEntries.subtitle')"
-    >
+    <PageFrame variant="soft" :title="t('adminPages.jenkinsEntries.title')">
       <template #actions>
         <BaseButton @click="showEntryModal = true">{{
           t('adminPages.jenkinsEntries.add')
@@ -91,7 +86,6 @@
           v-else
           variant="admin"
           :title="t('adminPages.jenkinsEntries.emptyTitle')"
-          :description="t('adminPages.jenkinsEntries.emptySubtitle')"
         >
           <template #icon>
             <svg
@@ -180,9 +174,6 @@
                 class="admin-modal-control"
                 :placeholder="t('adminPages.jenkinsEntries.jobNamePlaceholder')"
               />
-              <p class="admin-modal-help">
-                {{ t('adminPages.jenkinsEntries.jobNameHint') }}
-              </p>
             </div>
             <div>
               <label class="admin-modal-field-label">{{
@@ -200,12 +191,6 @@
                   <label class="block text-sm font-medium text-slate-700">{{
                     t('adminPages.jenkinsEntries.paramsConfig')
                   }}</label>
-                  <p class="mt-1 text-xs text-slate-500">
-                    {{ t('adminPages.jenkinsEntries.paramsHintVisual') }}
-                  </p>
-                  <p class="mt-1 text-xs text-emerald-600">
-                    {{ t('adminPages.jenkinsEntries.paramsLatestHint') }}
-                  </p>
                 </div>
                 <div class="flex items-center gap-2">
                   <span
@@ -248,7 +233,7 @@
                           :readonly="row.locked"
                         />
                         <span v-if="row.type" class="admin-modal-chip">
-                          {{ row.type }}
+                          {{ getParamTypeLabel(row.type) }}
                         </span>
                       </div>
                       <p
@@ -308,9 +293,59 @@
                       <label class="admin-modal-field-label--compact">
                         {{ t('adminPages.jenkinsEntries.paramDefaultValue') }}
                       </label>
-                      <input
+                      <select
+                        v-if="isExtendedChoiceParam(row) && row.choices?.length"
                         v-model="row.default_value"
-                        type="text"
+                        multiple
+                        class="admin-modal-control min-h-[7rem]"
+                      >
+                        <option
+                          v-for="choice in row.choices"
+                          :key="choice"
+                          :value="choice"
+                        >
+                          {{ choice }}
+                        </option>
+                      </select>
+                      <select
+                        v-else-if="isChoiceParam(row) && row.choices?.length"
+                        v-model="row.default_value"
+                        class="admin-modal-control"
+                      >
+                        <option
+                          v-for="choice in row.choices"
+                          :key="choice"
+                          :value="choice"
+                        >
+                          {{ choice }}
+                        </option>
+                      </select>
+                      <label
+                        v-else-if="isBooleanParam(row)"
+                        class="admin-modal-toggle min-h-[2.75rem]"
+                      >
+                        <input v-model="row.default_value" type="checkbox" />
+                        <span class="text-sm font-medium text-slate-700">
+                          {{
+                            row.default_value
+                              ? t('adminPages.jenkinsEntries.booleanTrue')
+                              : t('adminPages.jenkinsEntries.booleanFalse')
+                          }}
+                        </span>
+                      </label>
+                      <textarea
+                        v-else-if="isTextParam(row)"
+                        v-model="row.default_value"
+                        rows="3"
+                        class="admin-modal-control min-h-[5.5rem]"
+                        :placeholder="
+                          t('adminPages.jenkinsEntries.paramDefaultPlaceholder')
+                        "
+                      ></textarea>
+                      <input
+                        v-else
+                        v-model="row.default_value"
+                        :type="isPasswordParam(row) ? 'password' : 'text'"
                         class="admin-modal-control"
                         :placeholder="
                           t('adminPages.jenkinsEntries.paramDefaultPlaceholder')
@@ -324,9 +359,6 @@
               <div v-else class="admin-modal-card-dashed">
                 <p class="text-sm font-medium text-slate-700">
                   {{ t('adminPages.jenkinsEntries.noParamsTitle') }}
-                </p>
-                <p class="mt-2 text-xs text-slate-500">
-                  {{ t('adminPages.jenkinsEntries.noParamsSubtitle') }}
                 </p>
               </div>
 
@@ -403,6 +435,18 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 import jenkinsApi from '@/api/jenkins'
+import {
+  buildParamRowsFromConfig,
+  buildParamRowsFromDefinitions,
+  buildParamsConfigFromRows,
+  createParamRow,
+  getParamTypeLabelKey,
+  isBooleanParam,
+  isChoiceParam,
+  isExtendedChoiceParam,
+  isPasswordParam,
+  isTextParam
+} from '@/utils/jenkinsParams'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -434,7 +478,6 @@ const paramRows = ref([])
 
 const toast = ref({ show: false, message: '', type: 'success' })
 const loadingDraftParams = ref(false)
-const DEFAULT_PARAM_MODE = 'hidden'
 
 function showToast(message, type = 'success') {
   toast.value = { show: true, message, type }
@@ -443,82 +486,14 @@ function showToast(message, type = 'success') {
   }, 3000)
 }
 
-function createParamRow(overrides = {}) {
-  return {
-    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: '',
-    type: '',
-    mode: DEFAULT_PARAM_MODE,
-    default_value: '',
-    description: '',
-    choices: [],
-    locked: false,
-    value_source: '',
-    ...overrides
-  }
-}
-
-function buildParamsConfigFromRows(rows = []) {
-  const config = {}
-
-  for (const row of rows) {
-    const name = String(row.name || '').trim()
-    if (!name) continue
-    config[name] = {
-      mode: row.mode || DEFAULT_PARAM_MODE,
-      default_value: row.default_value ?? ''
-    }
-  }
-
-  return config
+function getParamTypeLabel(type = '') {
+  return t(`adminPages.jenkinsEntries.${getParamTypeLabelKey(type)}`)
 }
 
 function syncParamsConfigJsonFromRows() {
   const config = buildParamsConfigFromRows(paramRows.value)
   entryForm.value.params_config = config
   paramsConfigJson.value = JSON.stringify(config, null, 2)
-}
-
-function buildParamRowsFromConfig(config = {}) {
-  return Object.entries(config).map(([name, value]) =>
-    createParamRow({
-      name,
-      mode: value?.mode || DEFAULT_PARAM_MODE,
-      default_value: value?.default_value ?? '',
-      locked: false,
-      value_source: ''
-    })
-  )
-}
-
-function getConfigByParamName(config = {}, name = '') {
-  if (Object.prototype.hasOwnProperty.call(config, name)) {
-    return config[name]
-  }
-  const normalizedName = String(name).toLowerCase()
-  const matchedKey = Object.keys(config).find(
-    (key) => String(key).toLowerCase() === normalizedName
-  )
-  return matchedKey ? config[matchedKey] : undefined
-}
-
-function buildParamRowsFromDefinitions(params = [], existingConfig = {}) {
-  return params
-    .filter((param) => param?.name)
-    .map((param) => {
-      const existingParamConfig =
-        getConfigByParamName(existingConfig, param.name) || {}
-      return createParamRow({
-        name: param.name,
-        type: param.type || '',
-        mode: existingParamConfig.mode || param.mode || DEFAULT_PARAM_MODE,
-        default_value: param.default_value ?? '',
-        description: param.description || '',
-        choices: Array.isArray(param.choices) ? param.choices : [],
-        locked: true,
-        value_source: param.value_source || ''
-      })
-    })
 }
 
 function getValueSourceLabel(source) {

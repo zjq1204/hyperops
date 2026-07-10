@@ -2,9 +2,7 @@
   <AdminLayout>
     <PageFrame
       variant="soft"
-      :eyebrow="t('adminPages.jenkinsInstances.eyebrow')"
       :title="t('adminPages.jenkinsInstances.title')"
-      :subtitle="t('adminPages.jenkinsInstances.subtitle')"
     >
       <template #actions>
         <BaseButton @click="openCreateModal">{{
@@ -255,7 +253,6 @@
           v-else
           variant="admin"
           :title="t('adminPages.jenkinsInstances.emptyTitle')"
-          :description="t('adminPages.jenkinsInstances.emptySubtitle')"
         >
           <template #icon>
             <svg
@@ -350,9 +347,6 @@
                 required
                 class="admin-modal-control"
               />
-              <p class="admin-modal-help">
-                {{ t('adminPages.jenkinsInstances.cacheTtlDaysHint') }}
-              </p>
             </div>
 
             <div>
@@ -369,9 +363,6 @@
                 "
                 class="admin-modal-control"
               />
-              <p class="admin-modal-help">
-                {{ t('adminPages.jenkinsInstances.tokenHint') }}
-              </p>
             </div>
 
             <label class="admin-modal-toggle">
@@ -385,13 +376,6 @@
                 <p class="text-sm font-medium text-slate-700">
                   {{ t('adminPages.jenkinsInstances.activeLabel') }}
                 </p>
-                <p class="mt-1 text-xs text-slate-500">
-                  {{
-                    instanceForm.is_active
-                      ? t('adminPages.jenkinsInstances.activeStateEnabled')
-                      : t('adminPages.jenkinsInstances.activeStateDisabled')
-                  }}
-                </p>
               </div>
             </label>
 
@@ -400,9 +384,6 @@
                 <div>
                   <p class="admin-modal-section-title">
                     {{ t('adminPages.jenkinsInstances.testConnection') }}
-                  </p>
-                  <p class="admin-modal-section-copy">
-                    {{ t('adminPages.jenkinsInstances.connectionHint') }}
                   </p>
                 </div>
                 <BaseButton

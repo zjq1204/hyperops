@@ -47,7 +47,7 @@
           :key="lang.value"
           @click="selectLanguage(lang.value)"
           class="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-          :class="{ 'bg-gray-50 font-medium': locale === lang.value }"
+          :class="{ 'bg-gray-50 font-medium': locale === lang.value || locale.value === lang.value }"
         >
           <span class="mr-2 text-sm">{{ lang.flag }}</span>
           {{ lang.label }}

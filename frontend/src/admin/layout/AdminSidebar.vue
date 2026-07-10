@@ -391,6 +391,59 @@ const allNavSections = computed(() => [
         iconPaths: ['M4 6h16M4 12h16M4 18h10']
       }
     ]
+  },
+  {
+    key: 'monitoring',
+    requiredFeature: 'admin_monitoring',
+    requiredModuleFlag: 'enable_monitoring',
+    title: t('adminNav.monitoringManagement'),
+    iconClass: 'admin-section-icon-slate',
+    iconPaths: [
+      'M4 13a8 8 0 0116 0',
+      'M12 13l3-3',
+      'M5 19h14',
+      'M7 19a5 5 0 0110 0'
+    ],
+    items: [
+      {
+        path: '/management/monitoring/overview',
+        label: t('adminNav.monitoringOverview'),
+        iconPaths: [
+          'M4 13a8 8 0 0116 0',
+          'M12 13l3-3',
+          'M5 19h14',
+          'M7 19a5 5 0 0110 0'
+        ]
+      },
+      {
+        path: '/management/monitoring/assets',
+        label: t('adminNav.monitoringAssets'),
+        iconPaths: ['M4 6h16M4 12h16M4 18h16']
+      },
+      {
+        path: '/management/monitoring/probes',
+        label: t('adminNav.monitoringProbes'),
+        iconPaths: ['M4 12h4l2-6 4 12 2-6h4']
+      },
+      {
+        path: '/management/monitoring/rules',
+        label: t('adminNav.monitoringRules'),
+        iconPaths: ['M9 12l2 2 4-4', 'M5 4h14v16H5z']
+      },
+      {
+        path: '/management/monitoring/jobs',
+        label: t('adminNav.monitoringJobs'),
+        iconPaths: ['M4 6h16M4 10h16M4 14h10M4 18h8']
+      },
+      {
+        path: '/management/monitoring/settings',
+        label: t('adminNav.monitoringSettings'),
+        iconPaths: [
+          'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z',
+          'M15 12a3 3 0 11-6 0 3 3 0 016 0z'
+        ]
+      }
+    ]
   }
 ])
 
@@ -411,7 +464,8 @@ const openSections = ref({
   jenkins: false,
   gitlab: false,
   notifier: false,
-  actions: false
+  actions: false,
+  monitoring: false
 })
 
 const isSectionActive = (section) => {

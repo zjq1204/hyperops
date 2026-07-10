@@ -21,9 +21,6 @@
               />
             </svg>
           </button>
-          <h1 class="text-lg font-semibold text-slate-900 lg:hidden">
-            {{ pageTitle }}
-          </h1>
         </div>
 
         <div class="flex items-center space-x-4">
@@ -122,7 +119,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/store/user'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
@@ -130,20 +127,12 @@ import PlatformSwitcher from '@/components/layout/PlatformSwitcher.vue'
 
 defineEmits(['toggle-menu'])
 
-const { t, te } = useI18n()
-const route = useRoute()
+const { t } = useI18n()
 const router = useRouter()
 const userStore = useUserStore()
 
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
-
-const pageTitle = computed(() => {
-  const routeName = typeof route.name === 'string' ? route.name : ''
-  return routeName && te(`routeTitles.${routeName}`)
-    ? t(`routeTitles.${routeName}`)
-    : t('management.logoTitle')
-})
 
 const displayName = computed(() => {
   const userInfo = userStore.userInfo

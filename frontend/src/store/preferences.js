@@ -1,12 +1,17 @@
 import { defineStore } from 'pinia'
-import { detectTimezone, detectLanguage } from '@/utils/timezone'
-import i18n, { normalizeUiLanguage } from '@/i18n'
+import { detectTimezone } from '@/utils/timezone'
+import i18n from '@/i18n'
+import {
+  detectUiLanguage,
+  getStoredUiLanguage,
+  normalizeUiLanguage
+} from '@/utils/uiLanguage'
 
 export const usePreferencesStore = defineStore('preferences', {
   state: () => ({
-    language: detectLanguage(),
+    language: getStoredUiLanguage(),
     timezone: detectTimezone(),
-    detectedLanguage: detectLanguage(),
+    detectedLanguage: detectUiLanguage(),
     detectedTimezone: detectTimezone(),
     isLoaded: false
   }),

@@ -4,8 +4,13 @@ import en from '../locales/en.json'
 import zhCN from '../locales/zh-CN.json'
 import adminEn from '../admin/locales/en.json'
 import adminZhCN from '../admin/locales/zh-CN.json'
+import {
+  getStoredUiLanguage,
+  normalizeUiLanguage,
+  SUPPORTED_UI_LANGUAGES
+} from '../utils/uiLanguage'
 
-export const SUPPORTED_UI_LANGUAGES = ['en', 'zh-CN']
+export { normalizeUiLanguage, SUPPORTED_UI_LANGUAGES }
 
 const isPlainObject = (value) =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -24,31 +29,16 @@ const deepMergeMessages = (base, extra) => {
   return output
 }
 
-export const normalizeUiLanguage = (language) =>
-  SUPPORTED_UI_LANGUAGES.includes(language) ? language : 'en'
-
-// Get language from localStorage or default to 'en'.
-const getStoredLanguage = () => {
-  if (typeof localStorage === 'undefined') return 'en'
-  const stored = localStorage.getItem('userLanguage')
-  const normalized = normalizeUiLanguage(stored)
-
-  if (stored && stored !== normalized) {
-    localStorage.setItem('userLanguage', normalized)
-  }
-
-  return normalized
-}
-
-const buildMessages = () => ({
+const buildMessages = (source = {}) => ({
   en: deepMergeMessages(en, adminEn),
-  'zh-CN': deepMergeMessages(zhCN, adminZhCN)
+  'zh-CN': deepMergeMessages(zhCN, adminZhCN),
+  ...source
 })
 
 // Create Vue i18n instance
 const i18n = createI18n({
   legacy: false,
-  locale: getStoredLanguage(),
+  locale: getStoredUiLanguage(),
   fallbackLocale: 'en',
   messages: buildMessages()
 })
@@ -57,8 +47,14 @@ const i18n = createI18n({
 // and hot-replace them so the running app picks up the new strings
 // without a full page reload.
 if (import.meta.hot) {
-  const reloadMessages = () => {
-    const messages = buildMessages()
+  const reloadMessages = (modules = []) => {
+    const [nextEn, nextZhCN, nextAdminEn, nextAdminZhCN] = modules.map(
+      (mod) => mod?.default || null
+    )
+    const messages = buildMessages({
+      en: deepMergeMessages(nextEn || en, nextAdminEn || adminEn),
+      'zh-CN': deepMergeMessages(nextZhCN || zhCN, nextAdminZhCN || adminZhCN)
+    })
     Object.entries(messages).forEach(([locale, value]) => {
       i18n.global.setLocaleMessage(locale, value)
     })

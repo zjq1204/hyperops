@@ -55,28 +55,32 @@
 }
 
 .admin-job-filter__labelbar {
-  @apply grid items-center gap-3 border-t border-slate-200/70 pt-3;
-  grid-template-columns: max-content minmax(0, 1fr);
+  @apply flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-slate-200/70 pt-3;
 }
 
 .admin-job-filter__label-head {
-  @apply flex items-center gap-2;
+  @apply flex flex-shrink-0 items-center gap-2;
 }
 
 .admin-job-filter--toolbar .admin-filter-manage-link {
-  @apply h-8 rounded-xl px-2.5 text-[11.5px];
+  @apply h-8 rounded-lg border-slate-200 bg-white px-2.5 text-[11.5px] text-slate-600 hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700;
 }
 
 .admin-bulk-label-start {
-  @apply inline-flex h-8 items-center gap-1.5 rounded-xl border border-sky-200 bg-white px-2.5 text-[11.5px] font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900;
+  @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11.5px] font-semibold text-slate-600 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700;
 }
 
 .admin-job-filter--toolbar .admin-tag-filter-list {
-  @apply flex min-h-9 min-w-0 flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white/70 px-2 py-1;
+  @apply flex min-w-0 flex-1 flex-wrap items-center gap-1.5;
 }
 
 .admin-job-filter--toolbar .admin-tag-filter-chip {
-  @apply h-7 rounded-lg px-2.5 text-[12px];
+  @apply h-8 rounded-lg border-slate-200 bg-slate-50/80 px-2.5 text-[12px] font-semibold text-slate-600 shadow-none hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700;
+}
+
+.admin-job-filter--toolbar .admin-tag-filter-chip.is-active {
+  @apply border-sky-300 bg-sky-50 text-sky-800;
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.18);
 }
 
 .admin-job-filter--toolbar .admin-labels-empty-inline {
@@ -136,36 +140,39 @@
 }
 
 .admin-job-workbench-grid {
-  @apply grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(24rem,0.95fr)];
+  @apply grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(25rem,0.88fr)];
 }
 
 .admin-job-workbench-panel {
-  @apply overflow-hidden rounded-lg border backdrop-blur;
+  @apply overflow-hidden rounded-lg border;
   border-color: rgba(226, 232, 240, 0.66);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.035);
 }
 
 .admin-job-workbench-panel--detail {
-  @apply p-5;
+  @apply p-0;
 }
 
 .admin-job-panel-head {
-  @apply flex items-center justify-between gap-4 border-b px-5 py-4;
+  @apply flex items-center justify-between gap-4 border-b px-5 py-3.5;
   border-color: rgba(226, 232, 240, 0.62);
+  background: rgba(248, 250, 252, 0.72);
 }
 
 .admin-job-list-scroll {
-  @apply max-h-[44rem] overflow-y-auto p-3;
+  @apply max-h-[44rem] overflow-y-auto p-2.5;
 }
 
 .admin-job-list-item {
-  @apply mb-2 flex w-full items-stretch rounded-lg border px-4 py-4 text-left transition-all duration-200;
+  @apply mb-1.5 flex w-full items-stretch rounded-lg border px-3.5 py-3 text-left transition-all duration-200;
 }
 
 .admin-job-list-item--selected {
-  @apply border-sky-300 bg-sky-50/75;
-  box-shadow: 0 8px 16px rgba(56, 189, 248, 0.06);
+  @apply border-sky-300 bg-sky-50;
+  box-shadow:
+    inset 3px 0 0 #0284c7,
+    0 8px 16px rgba(56, 189, 248, 0.055);
 }
 
 .admin-job-list-item--bulk-selected {
@@ -178,11 +185,45 @@
 }
 
 .admin-job-list-item--default {
-  @apply border-slate-200/80 bg-white/75 hover:border-sky-200 hover:bg-white/90;
+  @apply border-slate-200/80 bg-white hover:border-sky-200 hover:bg-sky-50/40;
+}
+
+.admin-job-row {
+  @apply grid w-full min-w-0 items-start gap-3;
+  grid-template-columns: auto minmax(0, 1fr) minmax(8rem, auto);
+}
+
+.admin-job-row-main {
+  @apply min-w-0;
+}
+
+.admin-job-row-title {
+  @apply flex min-w-0 flex-wrap items-center gap-2;
+}
+
+.admin-job-row-title h3 {
+  @apply min-w-0 max-w-full truncate text-base font-semibold text-slate-950;
+}
+
+.admin-job-row-path {
+  @apply mt-1 min-w-0 truncate font-mono text-[12px] leading-5 text-slate-500;
+}
+
+.admin-job-row-tags,
+.admin-job-detail-tags {
+  @apply mt-2 flex min-w-0 flex-wrap gap-1.5;
+}
+
+.admin-job-row-side {
+  @apply flex min-w-0 flex-wrap items-start justify-end gap-2;
+}
+
+.admin-job-folder-badge {
+  @apply inline-flex rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700;
 }
 
 .admin-job-type-icon {
-  @apply flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border;
+  @apply flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border;
 }
 
 .admin-job-type-icon--folder {
@@ -194,22 +235,111 @@
 }
 
 .admin-job-quick-icon {
-  @apply inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700;
+  @apply inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors duration-150 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700;
 }
 
-.admin-job-detail-grid {
-  @apply mt-6 grid gap-3 sm:grid-cols-2;
+.admin-job-entry-list,
+.admin-job-detail-entry-list {
+  @apply flex flex-wrap gap-2;
 }
 
-.admin-job-detail-card {
-  @apply rounded-lg border px-4 py-3;
-  border-color: rgba(226, 232, 240, 0.66);
+.admin-job-detail-entry-list {
+  @apply mt-2;
+}
+
+.admin-job-entry-chip {
+  @apply inline-flex max-w-full items-center gap-1.5 truncate rounded-full border px-2.5 py-1 text-xs font-semibold;
+  border-color: rgba(165, 180, 252, 0.82);
+  background: rgba(238, 242, 255, 0.92);
+  color: #4338ca;
+}
+
+.admin-job-entry-chip em {
+  @apply text-[11px] font-semibold not-italic;
+  color: #64748b;
+}
+
+.admin-job-entry-chip.is-disabled {
+  border-color: rgba(203, 213, 225, 0.9);
+  background: rgba(248, 250, 252, 0.9);
+  color: #64748b;
+}
+
+.admin-job-entry-chip--more {
+  border-color: rgba(226, 232, 240, 0.9);
+  background: rgba(248, 250, 252, 0.92);
+  color: #64748b;
+}
+
+.admin-job-detail-head {
+  @apply flex items-start justify-between gap-4 border-b px-5 py-4;
+  border-color: rgba(226, 232, 240, 0.64);
   background: rgba(248, 250, 252, 0.72);
 }
 
+.admin-job-detail-title {
+  @apply min-w-0;
+}
+
+.admin-job-detail-title h2 {
+  @apply truncate text-xl font-semibold text-slate-950;
+}
+
+.admin-job-detail-title p {
+  @apply mt-1 truncate font-mono text-xs text-slate-500;
+}
+
+.admin-job-detail-status {
+  @apply flex flex-shrink-0 flex-wrap justify-end gap-2;
+}
+
+.admin-job-detail-stack {
+  @apply flex flex-col gap-3 p-5;
+}
+
+.admin-job-detail-section {
+  @apply rounded-lg border px-4 py-3;
+  border-color: rgba(226, 232, 240, 0.68);
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .admin-job-detail-label {
-  @apply text-[11px] font-semibold uppercase text-slate-400;
-  letter-spacing: 0.16em;
+  @apply text-[11px] font-semibold text-slate-500;
+}
+
+.admin-job-detail-path,
+.admin-job-detail-link {
+  @apply mt-2 block break-all font-mono text-sm leading-6;
+}
+
+.admin-job-detail-path {
+  @apply text-slate-800;
+}
+
+.admin-job-detail-link {
+  @apply text-sky-700 hover:text-sky-900;
+}
+
+.admin-job-detail-section-head {
+  @apply flex items-center justify-between gap-3;
+}
+
+.admin-job-detail-text-button {
+  @apply inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700;
+}
+
+.admin-job-detail-inline-meta {
+  @apply flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500;
+}
+
+.admin-job-detail-inline-meta code {
+  @apply rounded-md bg-white px-2 py-1 font-mono text-slate-700;
+}
+
+.admin-job-detail-actions {
+  @apply flex flex-wrap gap-3 border-t px-5 py-4;
+  border-color: rgba(226, 232, 240, 0.64);
+  background: rgba(248, 250, 252, 0.58);
 }
 
 .admin-job-detail-note {

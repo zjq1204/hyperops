@@ -9,6 +9,7 @@ HyperOps 是一个聚焦于 Jenkins 与 GitLab 运维管理的 Django + Vue 平�
 - Jenkins 实例管理与触发入口管理
 - Jenkins 构建触发与记录追踪
 - GitLab 实例、群组、项目、分支、Tag、Webhook 管理
+- Prometheus + n9e + Grafana 监控体系组件管理
 - 登录鉴权、个人资料、基于角色的访问控制
 
 ## 架构概览
@@ -21,6 +22,7 @@ hyperops/
 │   ├── jenkins_trigger/       # Jenkins 实例、入口、记录
 │   ├── gitlab_resource/       # GitLab 资源管理
 │   ├── action_orchestration/  # 可复用动作模板与执行
+│   ├── monitoring_stack/      # Prometheus/n9e/Grafana 组件管理
 │   ├── tests/                 # 跨 app 复用的 pytest 入口与配置
 │   └── agentcore/             # 可选集成（git submodule）
 └── frontend/                  # Vue 3 + Vite 前端
@@ -35,6 +37,9 @@ hyperops/
 - `ENABLE_AGENTCORE_METERING=true`
 
 只开启实际需要的模块即可。
+
+监控平台安装资源默认位于 `STORAGE_ROOT/monitoring_stack/`。后端通过
+`/api/v1/monitoring/` 暴露 Prometheus HTTP SD、安装资源下载和监控组件管理 API。
 
 ## 快速开始
 
@@ -69,5 +74,5 @@ npm run build
 
 ## 说明
 
-- 仓库里仍保留了一些历史实验阶段的模块和组件，但 HyperOps 的运行时入口已经收敛到 Jenkins、GitLab、鉴权和管理后台这几块能力。
+- 仓库里仍保留了一些历史实验阶段的模块和组件，但 HyperOps 的运行时入口已经收敛到 Jenkins、GitLab、监控平台、鉴权和管理后台这几块能力。
 - `agentcore_notifier` 仍可作为 Jenkins 构建通知的可选集成使用。

@@ -1,11 +1,6 @@
 <template>
   <AdminLayout>
-    <PageFrame
-      variant="soft"
-      :eyebrow="t('adminPages.jenkinsJobs.eyebrow')"
-      :title="t('adminPages.jenkinsJobs.title')"
-      :subtitle="t('adminPages.jenkinsJobs.subtitle')"
-    >
+    <PageFrame variant="soft" :title="t('adminPages.jenkinsJobs.title')">
       <section class="admin-job-filter admin-job-filter--toolbar">
         <div class="admin-job-filter__topbar">
           <div class="admin-job-filter__primary">
@@ -105,7 +100,7 @@
         <div class="admin-job-filter__labelbar">
           <div class="admin-job-filter__label-head">
             <span class="admin-job-filter__field-label">
-              {{ t('adminPages.jenkinsJobs.filterByLabel') }}
+              {{ t('adminPages.jenkinsJobs.detailLabels') }}
             </span>
             <button
               type="button"
@@ -160,22 +155,6 @@
               }"
               @click="toggleLabelFilter(label.id)"
             >
-              <span class="admin-tag-filter-chip__check">
-                <svg
-                  v-if="selectedLabelIds.includes(label.id)"
-                  class="h-3 w-3"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </span>
               {{ label.name }}
             </button>
           </div>
@@ -201,7 +180,6 @@
         v-else-if="!instances.length"
         variant="admin"
         :title="t('adminPages.jenkinsJobs.emptyNoInstanceTitle')"
-        :description="t('adminPages.jenkinsJobs.emptyNoInstanceSubtitle')"
       >
         <template #actions>
           <BaseButton @click="goToInstances">{{
@@ -214,7 +192,6 @@
         v-else-if="!selectedInstanceId"
         variant="admin"
         :title="t('adminPages.jenkinsJobs.emptySelectTitle')"
-        :description="t('adminPages.jenkinsJobs.emptySelectSubtitle')"
       >
         <template #actions>
           <BaseButton @click="selectDefaultInstance">{{
@@ -230,11 +207,6 @@
           showEnabledOnly
             ? t('adminPages.jenkinsJobs.emptyEnabledTitle')
             : t('adminPages.jenkinsJobs.emptyTitle')
-        "
-        :description="
-          showEnabledOnly
-            ? t('adminPages.jenkinsJobs.emptyEnabledSubtitle')
-            : t('adminPages.jenkinsJobs.emptySubtitle')
         "
       >
         <template #actions>
@@ -260,9 +232,6 @@
                   selectedInstance?.name ||
                   t('adminPages.jenkinsJobs.jobListTitle')
                 }}
-              </p>
-              <p class="mt-1 text-xs text-slate-500">
-                {{ t('adminPages.jenkinsJobs.jobListSubtitle') }}
               </p>
             </div>
             <span class="admin-status-badge admin-status-badge--muted"
@@ -354,7 +323,7 @@
               @click="selectJob(job)"
             >
               <div
-                class="flex w-full min-w-0 items-start gap-4"
+                class="admin-job-row"
                 :style="{ paddingLeft: `${job.depth * 1.1}rem` }"
               >
                 <label
@@ -408,42 +377,14 @@
                   </svg>
                 </div>
 
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="truncate text-lg font-semibold text-slate-900">
-                      {{ job.display_name }}
-                    </h3>
-                    <button
-                      v-if="!job.has_children"
-                      type="button"
-                      class="admin-job-quick-icon"
-                      :title="t('adminPages.jenkinsJobs.editLabel')"
-                      :aria-label="t('adminPages.jenkinsJobs.editLabel')"
-                      @click.stop="openEditJobLabelsModal(job)"
-                    >
-                      <svg
-                        class="h-3.5 w-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M7 7h.01M3 11l8.586-8.586a2 2 0 012.828 0L20 8l-9 9H3v-6z"
-                        />
-                      </svg>
-                    </button>
+                <div class="admin-job-row-main">
+                  <div class="admin-job-row-title">
+                    <h3>{{ job.display_name }}</h3>
                     <span
-                      class="rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]"
-                      :class="
-                        job.has_children
-                          ? 'bg-sky-100 text-sky-700'
-                          : 'bg-slate-100 text-slate-500'
-                      "
+                      v-if="job.has_children"
+                      class="admin-job-folder-badge"
                     >
-                      {{ job.type }}
+                      {{ t('adminPages.jenkinsJobs.folder') }}
                     </span>
                     <span
                       v-if="
@@ -465,10 +406,13 @@
                       }}
                     </span>
                   </div>
-                  <div
-                    v-if="job.labels?.length"
-                    class="admin-project-tag-list mt-2"
+                  <p
+                    v-if="job.full_name !== job.display_name"
+                    class="admin-job-row-path"
                   >
+                    {{ job.full_name }}
+                  </p>
+                  <div v-if="job.labels?.length" class="admin-job-row-tags">
                     <span
                       v-for="label in job.labels"
                       :key="label.id"
@@ -477,19 +421,60 @@
                       {{ label.name }}
                     </span>
                   </div>
-                  <p
-                    v-else-if="!job.has_children"
-                    class="admin-project-tag-empty mt-2"
+                </div>
+
+                <div class="admin-job-row-side">
+                  <div
+                    v-if="triggerEntriesForJob(job).length"
+                    class="admin-job-entry-list"
                   >
-                    {{ t('adminPages.jenkinsJobs.jobLabelsEmpty') }}
-                  </p>
-                  <div class="mt-3 flex flex-wrap gap-2">
                     <span
-                      v-if="job.has_children"
-                      class="admin-status-badge admin-status-badge--success"
-                      >{{ t('adminPages.jenkinsJobs.hasChildren') }}</span
+                      v-for="entry in triggerEntriesForJob(job).slice(0, 2)"
+                      :key="entry.id"
+                      class="admin-job-entry-chip"
+                      :class="{ 'is-disabled': !entry.is_active }"
                     >
+                      {{
+                        entry.name === job.display_name
+                          ? t('adminPages.jenkinsJobs.detailEntries')
+                          : entry.name
+                      }}
+                    </span>
+                    <span
+                      v-if="triggerEntriesForJob(job).length > 2"
+                      class="admin-job-entry-chip admin-job-entry-chip--more"
+                    >
+                      +{{ triggerEntriesForJob(job).length - 2 }}
+                    </span>
                   </div>
+                  <span
+                    v-else-if="job.has_children"
+                    class="admin-status-badge admin-status-badge--muted"
+                  >
+                    {{ t('adminPages.jenkinsJobs.hasChildren') }}
+                  </span>
+                  <button
+                    v-if="!job.has_children"
+                    type="button"
+                    class="admin-job-quick-icon"
+                    :title="t('adminPages.jenkinsJobs.editLabel')"
+                    :aria-label="t('adminPages.jenkinsJobs.editLabel')"
+                    @click.stop="openEditJobLabelsModal(job)"
+                  >
+                    <svg
+                      class="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M7 7h.01M3 11l8.586-8.586a2 2 0 012.828 0L20 8l-9 9H3v-6z"
+                      />
+                    </svg>
+                  </button>
                 </div>
               </div>
             </button>
@@ -500,25 +485,22 @@
           class="admin-job-workbench-panel admin-job-workbench-panel--detail"
         >
           <template v-if="selectedJob">
-            <div class="flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <p
-                  class="text-xs font-semibold uppercase tracking-[0.24em] text-sky-600"
-                >
-                  {{
-                    selectedJob.has_children
-                      ? t('adminPages.jenkinsJobs.folder')
-                      : t('adminPages.jenkinsJobs.job')
-                  }}
-                </p>
-                <h2 class="mt-2 truncate text-2xl font-semibold text-slate-900">
+            <div class="admin-job-detail-head">
+              <div class="admin-job-detail-title">
+                <h2>
                   {{ selectedJob.display_name }}
                 </h2>
+                <p v-if="selectedJob.full_name !== selectedJob.display_name">
+                  {{ selectedJob.full_name }}
+                </p>
               </div>
-              <div class="flex flex-wrap justify-end gap-2">
-                <span class="admin-status-badge admin-status-badge--success">{{
-                  selectedJob.type
-                }}</span>
+              <div class="admin-job-detail-status">
+                <span
+                  v-if="selectedJob.has_children"
+                  class="admin-job-folder-badge"
+                >
+                  {{ t('adminPages.jenkinsJobs.folder') }}
+                </span>
                 <span
                   v-if="
                     !selectedJob.has_children &&
@@ -541,24 +523,17 @@
               </div>
             </div>
 
-            <div class="admin-job-detail-grid">
-              <div class="admin-job-detail-card">
+            <div class="admin-job-detail-stack">
+              <section class="admin-job-detail-section">
                 <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailPath') }}
                 </p>
-                <p class="mt-2 break-all font-mono text-sm text-slate-700">
+                <p class="admin-job-detail-path">
                   {{ selectedJob.full_name }}
                 </p>
-              </div>
-              <div class="admin-job-detail-card">
-                <p class="admin-job-detail-label">
-                  {{ t('adminPages.jenkinsJobs.detailType') }}
-                </p>
-                <p class="mt-2 text-sm font-medium text-slate-700">
-                  {{ selectedJob.type }}
-                </p>
-              </div>
-              <div class="admin-job-detail-card">
+              </section>
+
+              <section class="admin-job-detail-section">
                 <p class="admin-job-detail-label">
                   {{ t('adminPages.jenkinsJobs.detailUrl') }}
                 </p>
@@ -566,61 +541,91 @@
                   :href="selectedJob.url"
                   target="_blank"
                   rel="noreferrer"
-                  class="mt-2 block break-all text-sm font-medium text-sky-700 hover:text-sky-900"
+                  class="admin-job-detail-link"
                 >
                   {{ selectedJob.url }}
                 </a>
-              </div>
-              <div class="admin-job-detail-card">
-                <p class="admin-job-detail-label">
-                  {{ t('adminPages.jenkinsJobs.detailChildren') }}
-                </p>
-                <p class="mt-2 text-sm font-medium text-slate-700">
-                  {{
-                    selectedJob.has_children
-                      ? t('adminPages.jenkinsJobs.hasChildren')
-                      : t('adminPages.jenkinsJobs.noChildren')
-                  }}
-                </p>
-              </div>
-              <div
-                v-if="
-                  !selectedJob.has_children &&
-                  selectedJob.enabled !== null &&
-                  selectedJob.enabled !== undefined
-                "
-                class="admin-job-detail-card"
+              </section>
+
+              <section
+                v-if="!selectedJob.has_children"
+                class="admin-job-detail-section"
               >
-                <p class="admin-job-detail-label">
-                  {{ t('adminPages.jenkinsJobs.detailStatus') }}
-                </p>
-                <p
-                  class="mt-2 text-sm font-medium"
-                  :class="
-                    selectedJob.enabled ? 'text-emerald-700' : 'text-amber-700'
-                  "
+                <div class="admin-job-detail-section-head">
+                  <p class="admin-job-detail-label">
+                    {{ t('adminPages.jenkinsJobs.detailLabels') }}
+                  </p>
+                  <button
+                    type="button"
+                    class="admin-job-detail-text-button"
+                    @click="openEditJobLabelsModal(selectedJob)"
+                  >
+                    {{ t('adminPages.jenkinsJobs.editLabel') }}
+                  </button>
+                </div>
+                <div
+                  v-if="selectedJob.labels?.length"
+                  class="admin-job-detail-tags"
                 >
-                  {{
-                    selectedJob.enabled
-                      ? t('adminPages.jenkinsJobs.enabled')
-                      : t('adminPages.jenkinsJobs.disabled')
-                  }}
+                  <span
+                    v-for="label in selectedJob.labels"
+                    :key="label.id"
+                    class="admin-project-tag-chip"
+                  >
+                    {{ label.name }}
+                  </span>
+                </div>
+                <p v-else class="admin-project-tag-empty">
+                  {{ t('adminPages.jenkinsJobs.jobLabelsEmpty') }}
                 </p>
-              </div>
+              </section>
+
               <div
                 v-if="!selectedJob.has_children && selectedJob.color"
-                class="admin-job-detail-card"
+                class="admin-job-detail-inline-meta"
+              >
+                <span>
+                  {{ t('adminPages.jenkinsJobs.detailColor') }}
+                </span>
+                <code>
+                  {{ selectedJob.color }}
+                </code>
+              </div>
+
+              <section
+                v-if="!selectedJob.has_children"
+                class="admin-job-detail-section"
               >
                 <p class="admin-job-detail-label">
-                  {{ t('adminPages.jenkinsJobs.detailColor') }}
+                  {{ t('adminPages.jenkinsJobs.detailEntries') }}
                 </p>
-                <p class="mt-2 font-mono text-sm text-slate-700">
-                  {{ selectedJob.color }}
+                <div
+                  v-if="triggerEntriesForJob(selectedJob).length"
+                  class="admin-job-detail-entry-list"
+                >
+                  <span
+                    v-for="entry in triggerEntriesForJob(selectedJob)"
+                    :key="entry.id"
+                    class="admin-job-entry-chip"
+                    :class="{ 'is-disabled': !entry.is_active }"
+                  >
+                    {{ entry.name }}
+                    <em>
+                      {{
+                        entry.is_active
+                          ? t('adminPages.jenkinsJobs.entryEnabled')
+                          : t('adminPages.jenkinsJobs.entryDisabled')
+                      }}
+                    </em>
+                  </span>
+                </div>
+                <p v-else class="mt-2 text-sm text-slate-400">
+                  {{ t('adminPages.jenkinsJobs.noEntries') }}
                 </p>
-              </div>
+              </section>
             </div>
 
-            <div class="mt-6 flex flex-wrap gap-3">
+            <div class="admin-job-detail-actions">
               <BaseButton @click="useForEntry(selectedJob)">{{
                 t('adminPages.jenkinsJobs.useForEntry')
               }}</BaseButton>
@@ -637,21 +642,11 @@
                 {{ t('adminPages.jenkinsJobs.openInJenkins') }}
               </BaseButton>
             </div>
-
-            <div class="admin-job-detail-note">
-              <p class="admin-job-detail-label">
-                {{ t('adminPages.jenkinsJobs.detailNoteTitle') }}
-              </p>
-              <p class="mt-2 text-sm leading-6 text-slate-600">
-                {{ t('adminPages.jenkinsJobs.detailNote') }}
-              </p>
-            </div>
           </template>
 
           <EmptyState
             v-else
             :title="t('adminPages.jenkinsJobs.emptyDetailTitle')"
-            :description="t('adminPages.jenkinsJobs.emptyDetailSubtitle')"
           >
             <template #icon>
               <svg
@@ -711,9 +706,6 @@
               }}
             </BaseButton>
           </div>
-          <p class="admin-bulk-input-hint">
-            {{ t('adminPages.jenkinsJobs.labelLibraryHint') }}
-          </p>
         </section>
 
         <section class="admin-modal-card">
@@ -722,9 +714,6 @@
               <h3 class="section-title">
                 {{ t('adminPages.jenkinsJobs.labelLibraryListTitle') }}
               </h3>
-              <p class="section-copy">
-                {{ t('adminPages.jenkinsJobs.labelLibraryListHint') }}
-              </p>
             </div>
           </div>
           <div v-if="resourceLabels.length" class="space-y-3">
@@ -777,9 +766,6 @@
       <div class="admin-modal-stack">
         <p v-if="jobLabelsTarget" class="text-sm text-slate-600">
           <span class="font-mono">{{ jobLabelsTarget.full_name }}</span>
-        </p>
-        <p class="admin-bulk-input-hint">
-          {{ t('adminPages.jenkinsJobs.editJobLabelsHint') }}
         </p>
         <div v-if="resourceLabels.length" class="admin-tag-filter-list">
           <button
@@ -837,6 +823,7 @@ const loadingJobs = ref(false)
 const selectedJobFullName = ref('')
 const toast = ref({ show: false, message: '', type: 'success' })
 const showEnabledOnly = ref(true)
+const triggerEntries = ref([])
 const resourceLabels = ref([])
 const selectedLabelIds = ref([])
 const showLabelLibraryModal = ref(false)
@@ -875,6 +862,37 @@ function flattenJobs(nodes, depth = 0, acc = []) {
 }
 
 const allJobsFlat = computed(() => flattenJobs(jobsTree.value))
+
+const triggerEntryMap = computed(() => {
+  const entryMap = new Map()
+  triggerEntries.value.forEach((entry) => {
+    if (!entry.instance || !entry.job_name) return
+    const key = triggerEntryKey(entry.instance, entry.job_name)
+    const entries = entryMap.get(key) || []
+    entries.push(entry)
+    entryMap.set(key, entries)
+  })
+  entryMap.forEach((entries) => {
+    entries.sort((a, b) => {
+      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1
+      return String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans')
+    })
+  })
+  return entryMap
+})
+
+function triggerEntryKey(instanceId, jobName) {
+  return `${Number(instanceId)}::${jobName}`
+}
+
+function triggerEntriesForJob(job) {
+  if (!job || job.has_children || !selectedInstanceId.value) return []
+  return (
+    triggerEntryMap.value.get(
+      triggerEntryKey(selectedInstanceId.value, job.full_name)
+    ) || []
+  )
+}
 
 const visibleJobs = computed(() => {
   const labelSet = new Set(selectedLabelIds.value)
@@ -1015,6 +1033,20 @@ async function loadJobs(options = {}) {
     )
   } finally {
     loadingJobs.value = false
+  }
+}
+
+async function loadTriggerEntries() {
+  try {
+    triggerEntries.value = await jenkinsApi.listEntries()
+  } catch (e) {
+    triggerEntries.value = []
+    showToast(
+      t('adminPages.jenkinsJobs.toast.loadEntriesFailed', {
+        message: e.message
+      }),
+      'error'
+    )
   }
 }
 
@@ -1400,6 +1432,6 @@ async function saveJobLabels() {
 
 onMounted(async () => {
   await loadInstances()
-  await loadResourceLabels()
+  await Promise.all([loadResourceLabels(), loadTriggerEntries()])
 })
 </script>

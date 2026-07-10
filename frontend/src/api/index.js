@@ -7,6 +7,7 @@ import {
   redirectToLogin,
   refreshAccessToken
 } from '@/api/token'
+import { getRequestUiLanguage } from '@/utils/uiLanguage'
 
 function getCookie(name) {
   const value = `; ${document.cookie}`
@@ -38,8 +39,7 @@ api.interceptors.request.use(
       config.headers['X-CSRFToken'] = csrfToken
     }
 
-    const uiLanguage = localStorage.getItem('userLanguage') || 'en'
-    config.headers['Accept-Language'] = uiLanguage
+    config.headers['Accept-Language'] = getRequestUiLanguage()
 
     return config
   },

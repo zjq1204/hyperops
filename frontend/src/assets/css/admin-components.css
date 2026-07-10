@@ -348,6 +348,23 @@
     @apply mt-1 text-xs leading-5 text-slate-500;
   }
 
+  .admin-record-subtitle,
+  .admin-modal-help,
+  .admin-modal-section-copy,
+  .admin-bulk-input-hint,
+  .admin-bulk-subtitle,
+  .admin-bulk-note,
+  .admin-scope-copy,
+  .admin-metric-hint,
+  .ldap-panel__header p,
+  .ldap-mapping-toolbar p,
+  .ldap-modal-section .admin-modal-toggle p.mt-1,
+  .admin-scope-step-card p.text-xs,
+  .admin-bulk-compose-panel header p.text-sm,
+  .admin-bulk-compose-panel p.text-xs.leading-5.text-slate-500 {
+    display: none !important;
+  }
+
   .admin-modal-card-title {
     @apply mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700;
   }
@@ -466,7 +483,7 @@
   }
 
   .admin-modal-chip {
-    @apply rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500;
+    @apply rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] font-medium text-slate-500;
   }
 
   .admin-modal-checklist {

@@ -81,5 +81,12 @@ if settings.ENABLE_AGENTCORE_METERING:
         path('api/v1/admin/', include('agentcore_metering.adapters.django.urls'))
     )
 
-    # SPA bootstrap meta (feature flags). Authenticated only.
-    path('api/v1/meta/', core_views.PlatformMetaView.as_view(), name='platform_meta'),
+if getattr(settings, 'ENABLE_MONITORING', True):
+    urlpatterns.append(
+        path('api/v1/monitoring/', include('monitoring_stack.urls'))
+    )
+
+# SPA bootstrap meta (feature flags). Authenticated only.
+urlpatterns.append(
+    path('api/v1/meta/', core_views.PlatformMetaView.as_view(), name='platform_meta')
+)
