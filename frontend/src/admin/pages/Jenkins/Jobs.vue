@@ -666,18 +666,6 @@
           </EmptyState>
         </aside>
       </section>
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'admin-toast',
-          toast.type === 'success'
-            ? 'admin-toast--success'
-            : 'admin-toast--error'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
 
     <BaseModal
@@ -809,8 +797,10 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import jenkinsApi from '@/api/jenkins'
+import { useToast } from '@/composables/useToast'
 
 const { t } = useI18n()
+const { showToast } = useToast()
 const route = useRoute()
 const router = useRouter()
 
@@ -821,7 +811,6 @@ const searchQuery = ref('')
 const loadingInstances = ref(false)
 const loadingJobs = ref(false)
 const selectedJobFullName = ref('')
-const toast = ref({ show: false, message: '', type: 'success' })
 const showEnabledOnly = ref(true)
 const triggerEntries = ref([])
 const resourceLabels = ref([])
@@ -843,13 +832,6 @@ const selectedInstance = computed(
       (item) => String(item.id) === selectedInstanceId.value
     ) || null
 )
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 3000)
-}
 
 function flattenJobs(nodes, depth = 0, acc = []) {
   for (const node of nodes || []) {

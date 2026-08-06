@@ -37,7 +37,7 @@ RUN set -eux; \
 # libmagic is for python-magic which is a library for file type detection
 # gettext is for Django i18n (makemessages, compilemessages)
 # postgresql-client is for PostgreSQL database support
-RUN apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
     python3.12-dev \
     python3-pip \
@@ -57,6 +57,8 @@ RUN apt-get install -y --no-install-recommends \
     procps \
     htop \
     net-tools \
+    openssh-client \
+    sshpass \
     iputils-ping \
     dnsutils \
     mariadb-client \

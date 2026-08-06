@@ -1,5 +1,6 @@
 import api from '@/config/api'
 import { getValidAccessToken, refreshAccessToken } from '@/api/token'
+import { normalizeApiError } from '@/utils/apiError'
 
 const GITLAB_API_BASE = `${api.apiBaseUrl}/v1/gitlab`
 
@@ -48,24 +49,6 @@ function buildUrl(path, params = {}) {
   return `${GITLAB_API_BASE}/${path}/${query.toString() ? `?${query.toString()}` : ''}`
 }
 
-function extractErrorMessage(payload, response) {
-  if (payload?.data?.detail) return payload.data.detail
-  if (payload?.data?.message) return payload.data.message
-  if (payload?.message) return payload.message
-
-  if (payload && typeof payload === 'object') {
-    const firstValue = Object.values(payload)[0]
-    if (Array.isArray(firstValue) && firstValue.length > 0) {
-      return String(firstValue[0])
-    }
-    if (typeof firstValue === 'string' && firstValue) {
-      return firstValue
-    }
-  }
-
-  return `HTTP ${response.status}: ${response.statusText}`
-}
-
 async function request(url, options = {}) {
   const { _retry, ...fetchOptions } = options
   const response = await fetch(url, {
@@ -92,8 +75,13 @@ async function request(url, options = {}) {
   const payload = rawText ? JSON.parse(rawText) : null
 
   if (!response.ok) {
-    const message = extractErrorMessage(payload, response)
-    throw new Error(message)
+    throw normalizeApiError({
+      response: {
+        status: response.status,
+        data: payload,
+        headers: response.headers
+      }
+    })
   }
 
   return normalizePayload(payload)

@@ -5,6 +5,21 @@ from django.conf import settings
 from platformkit.i18n import remap_accept_language_header
 
 
+class RequestIdMiddleware:
+    """Attach a correlation id to every request and response."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from core.api_errors import get_request_id
+
+        request_id = get_request_id(request)
+        response = self.get_response(request)
+        response["X-Request-ID"] = request_id
+        return response
+
+
 class LanguageCodeMappingMiddleware:
     """Map browser language codes to the project's configured Django codes."""
 

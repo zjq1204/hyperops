@@ -12,19 +12,20 @@ creates three product problems:
 2. SSH reachability is confused with component runtime health. SSH is a
    maintenance channel used to deploy or repair components, not a continuous
    health signal.
-3. Operators see several raw states but no prioritized next action.
+3. Operators cannot discover component installation until they select a host,
+   and status cells stack multiple concepts vertically.
 
-The redesign uses the selected "role-aware plus next action" approach. It keeps
-the table dense, separates intended configuration from runtime reality, and
-surfaces SSH only when it blocks an operator task.
+The redesign uses a single-line asset inventory approach. It keeps each cell to
+one concept, presents connection, installation, and service health as
+independent columns, and makes component installation permanently discoverable.
 
 ## Goals
 
 - Make real collection and probing problems scannable in one pass.
 - Stop reporting blackbox-exporter as missing on ordinary collection hosts.
 - Retain a safe, auditable record of the latest SSH verification result.
-- Show exactly one prioritized next action for each host.
-- Reduce toolbar noise and make bulk mode appear only after selection.
+- Keep every data row on one line with one status per cell.
+- Keep the component-install entry visible before host selection.
 - Preserve existing host editing, component installation, discovery, and job
   workflows.
 
@@ -53,8 +54,9 @@ The role is derived, not stored twice:
 Consequences:
 
 - Categraf status is relevant to every row.
-- blackbox-exporter status is relevant only to probe-node rows.
-- An ordinary host renders the probe-service cell as neutral `Not applicable`.
+- blackbox-exporter status is displayed for every host.
+- An ordinary host renders blackbox installation as neutral `Not enabled` and
+  blackbox service as a dash.
   It does not contribute a blackbox issue to filters, counts, or next actions.
 
 ### SSH Verification Semantics
@@ -127,13 +129,13 @@ Normal mode contains:
   `Collection issue`, and `Probe issue`.
 - Compact summary: total host count and attention count.
 - Icon-only refresh with tooltip.
-- Secondary `Install components` command.
-- Primary `Add host` command.
+- Primary, always-active `Install components` command.
+- Secondary `Add host` command.
 
-The selected-count pill is removed from normal mode. After selecting one or more
-rows, the toolbar switches to bulk mode and shows selected count, clear
-selection, and install components. It returns to normal mode when selection is
-cleared.
+The toolbar does not switch modes. When rows are selected it adds a compact
+selected count and clear action without hiding search, refresh, install, or add
+host. Opening `Install components` without a selection shows host selection in
+the chooser; existing row selection is prefilled.
 
 The existing discovered-assets section remains conditional and appears only
 when unmanaged discoveries exist.
@@ -141,36 +143,40 @@ when unmanaged discoveries exist.
 ### Columns
 
 1. Selection checkbox.
-2. **Host**: host name, address, SSH user/port, authentication label, and role
-   chips.
-3. **Collection service**: normalized Categraf state.
-4. **Probe service**: normalized blackbox state for probe nodes; otherwise
-   neutral `Not applicable`.
-5. **Next action**: one prioritized recommendation plus a short reason.
-6. **Actions**: edit icon and overflow menu. Delete moves into the overflow
-   menu.
+2. **Host**: host name and address on one line. SSH details remain in edit.
+3. **Connection status**: `Reachable`, `Connection failed`, or `Not verified`.
+   The latest verification time remains available as a tooltip.
+4. **Categraf / Installation**: one installation status.
+5. **Categraf / Service**: one runtime status or a dash.
+6. **blackbox / Installation**: one installation status; ordinary hosts show
+   `Not enabled`.
+7. **blackbox / Service**: one runtime status or a dash.
+8. **Actions**: edit and delete on one line.
+
+The header uses two rows: Categraf and blackbox are group headings, each with
+Installation and Service subcolumns. No body cell contains stacked labels,
+secondary explanations, or a next-action recommendation.
 
 The table uses the existing admin table and button vocabulary. Status color is
 semantic and restrained: green for healthy, red for runtime failure, amber for
 deployment or verification work, and gray for unknown/not applicable.
 
-### Row Actions
+### Installation Entry
 
-Only the single next action is interactive:
-
-- `Verify SSH`: open the host form and focus the connection section.
-- `Fix SSH connection`: open the host form with the last safe error reason.
-- `Deploy Categraf` or `Deploy blackbox`: enter the existing install flow for
-  the host and component.
-- `Inspect collection` or `Inspect probe`: open the relevant deployment job or
-  status detail when available.
-- `Running normally`: non-interactive.
-
-The row must not reintroduce separate install buttons for every component.
+The table does not reintroduce per-component install buttons. The persistent
+toolbar command opens a chooser with host selection followed by Categraf or
+blackbox selection, then reuses the existing component configuration flow.
 
 ## State Normalization
 
-Component presentation uses normalized states:
+The API preserves two independent component dimensions:
+
+- `installation_status`: `installed`, `not_installed`, `installing`, `failed`,
+  `unknown`, or `not_applicable`.
+- `runtime_status`: `online`, `abnormal`, `unknown`, or `not_applicable`.
+
+It also retains the aggregate normalized `code` used by filters and the
+next-action decision:
 
 - `healthy`: installed and runtime online.
 - `abnormal`: runtime explicitly failed or offline.

@@ -435,18 +435,6 @@
     @apply text-sm font-medium text-slate-900;
   }
 
-  .admin-toast {
-    @apply fixed bottom-5 right-5 z-[90] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.2)];
-  }
-
-  .admin-toast--success {
-    @apply bg-emerald-600;
-  }
-
-  .admin-toast--error {
-    @apply bg-rose-600;
-  }
-
   .admin-permission-option {
     @apply flex cursor-pointer items-start gap-3 rounded-lg border bg-white/80 px-3 py-2.5 transition-all duration-150;
     border-color: rgba(226, 232, 240, 0.54);

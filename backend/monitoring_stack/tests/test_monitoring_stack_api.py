@@ -1,4 +1,6 @@
+import io
 import json
+import subprocess
 
 import pytest
 from accounts.access import get_access_profile, normalize_feature_keys
@@ -10,6 +12,7 @@ from django.test import override_settings
 from django.utils import timezone
 from monitoring_stack.models import (
     AnsibleInstallJob,
+    BlackboxProbeNode,
     MonitoringComponentStatus,
     MonitoringIntegrationConfig,
     MonitoringHost,
@@ -17,8 +20,14 @@ from monitoring_stack.models import (
     ProbeTarget,
     RuleImportRecord,
 )
+from monitoring_stack.services.asset_state import (
+    choose_next_action,
+    normalize_component_state,
+)
 from monitoring_stack.services.core import (
+    MonitoringSshConnectionError,
     build_ansible_preview,
+    check_monitoring_ssh_connection,
     execute_ansible_job,
     snapshot_hosts,
 )
@@ -174,10 +183,17 @@ def test_prometheus_http_sd_uses_database_token_before_env_token(client):
     config = MonitoringIntegrationConfig.current()
     config.prometheus_http_sd_token = "database-token"
     config.save(update_fields=["prometheus_http_sd_token", "updated_at"])
+    node_model = apps.get_model("monitoring_stack", "BlackboxProbeNode")
+    node = node_model.objects.create(
+        name="blackbox-token-test",
+        address="10.0.0.12",
+        enabled=True,
+    )
     ProbeTarget.objects.create(
         type=ProbeTarget.TYPE_HTTP,
         target="https://database-token.example.com",
         enabled=True,
+        probe_node=node,
         labels={"service": "website"},
     )
 
@@ -205,7 +221,11 @@ def test_prometheus_http_sd_config_preview_returns_copyable_yaml(client):
     config.prometheus_http_sd_token = "database-token"
     config.save(update_fields=["prometheus_http_sd_token", "updated_at"])
 
-    response = client.get("/api/v1/monitoring/prometheus/http-sd/config/")
+    response = client.get(
+        "/api/v1/monitoring/prometheus/http-sd/config/",
+        HTTP_X_FORWARDED_HOST="192.168.7.168:18080",
+        HTTP_X_FORWARDED_PROTO="http",
+    )
 
     assert response.status_code == 200
     payload = _payload(response)
@@ -214,15 +234,24 @@ def test_prometheus_http_sd_config_preview_returns_copyable_yaml(client):
     assert payload["urls"]["http"].endswith(
         "/api/v1/monitoring/prometheus/http-sd/blackbox/http/"
     )
+    assert all(
+        url.startswith("http://192.168.7.168:18080/api/v1/monitoring/")
+        for url in payload["urls"].values()
+    )
     assert "job_name: blackbox-http" in payload["yaml"]
     assert "job_name: blackbox-tcp" in payload["yaml"]
     assert "job_name: blackbox-icmp" in payload["yaml"]
-    assert "credentials_file: /etc/prometheus/hyperops-http-sd.token" in payload["yaml"]
-    assert "database-token" not in payload["yaml"]
+    assert 'credentials: "database-token"' in payload["yaml"]
+    assert "credentials_file:" not in payload["yaml"]
 
 
 @pytest.mark.django_db
 def test_probe_nodes_can_route_probe_targets_through_http_sd(client):
+    from monitoring_stack.views import PrometheusHttpSdView
+    from rest_framework.renderers import JSONRenderer
+
+    assert PrometheusHttpSdView.__dict__.get("renderer_classes") == [JSONRenderer]
+
     node_response = client.post(
         "/api/v1/monitoring/probe-nodes/",
         {
@@ -261,6 +290,7 @@ def test_probe_nodes_can_route_probe_targets_through_http_sd(client):
     )
 
     assert sd_response.status_code == 200
+    assert isinstance(sd_response.json(), list)
     assert _payload(sd_response) == [
         {
             "targets": ["https://example.com"],
@@ -271,6 +301,48 @@ def test_probe_nodes_can_route_probe_targets_through_http_sd(client):
                 "blackbox_address": "192.168.7.159:9115",
             },
         }
+    ]
+
+
+@pytest.mark.django_db
+def test_http_sd_excludes_targets_without_enabled_probe_nodes(client):
+    node_model = apps.get_model("monitoring_stack", "BlackboxProbeNode")
+    enabled_node = node_model.objects.create(
+        name="blackbox-enabled",
+        address="10.0.0.10",
+        enabled=True,
+    )
+    disabled_node = node_model.objects.create(
+        name="blackbox-disabled",
+        address="10.0.0.11",
+        enabled=False,
+    )
+    ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_HTTP,
+        target="https://ready.example.com",
+        probe_node=enabled_node,
+    )
+    ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_HTTP,
+        target="https://missing.example.com",
+    )
+    ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_HTTP,
+        target="https://disabled.example.com",
+        probe_node=disabled_node,
+    )
+    config = MonitoringIntegrationConfig.current()
+    config.prometheus_http_sd_token = "database-token"
+    config.save(update_fields=["prometheus_http_sd_token", "updated_at"])
+
+    response = APIClient().get(
+        "/api/v1/monitoring/prometheus/http-sd/blackbox/http/",
+        HTTP_AUTHORIZATION="Bearer database-token",
+    )
+
+    assert response.status_code == 200
+    assert [group["targets"] for group in _payload(response)] == [
+        ["https://ready.example.com"]
     ]
 
 
@@ -324,12 +396,19 @@ def test_successful_blackbox_install_registers_probe_node(client):
 @pytest.mark.django_db
 def test_probe_targets_crud_and_prometheus_http_sd_token(client):
     with override_settings(MONITORING_ADMIN_TOKEN="monitor-secret"):
+        node_model = apps.get_model("monitoring_stack", "BlackboxProbeNode")
+        node = node_model.objects.create(
+            name="blackbox-crud-test",
+            address="10.0.0.13",
+            enabled=True,
+        )
         create_response = client.post(
             "/api/v1/monitoring/probe-targets/",
             {
                 "type": "http",
                 "target": "https://example.com",
                 "enabled": True,
+                "probe_node": node.id,
                 "labels": {
                     "region": "center",
                     "env": "prod",
@@ -383,6 +462,8 @@ def test_probe_targets_crud_and_prometheus_http_sd_token(client):
                     "team": "ops",
                     "service": "website",
                     "probe_type": "http",
+                    "probe_node": "blackbox-crud-test",
+                    "blackbox_address": "10.0.0.13:9115",
                 },
             }
         ]
@@ -482,6 +563,260 @@ def test_prometheus_targets_summary_matches_probe_targets(
             "last_error": "connection refused",
         }
     ]
+
+
+@pytest.mark.django_db
+def test_prometheus_probe_node_discovery_reports_unmanaged_exporters(
+    client, monkeypatch, settings
+):
+    settings.MONITORING_PROMETHEUS_URL = "http://prometheus"
+    ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_HTTP,
+        target="https://unbound.example.com",
+        enabled=True,
+    )
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeSession:
+        trust_env = True
+
+        def get(self, url, **kwargs):
+            if url == "http://prometheus/api/v1/targets":
+                return FakeResponse(
+                    {
+                        "status": "success",
+                        "data": {
+                            "activeTargets": [
+                                {
+                                    "health": "up",
+                                    "labels": {
+                                        "job": "blackbox-exporter",
+                                        "instance": "blackbox-exporter:9115",
+                                    },
+                                    "discoveredLabels": {
+                                        "__address__": "blackbox-exporter:9115",
+                                        "service": "blackbox-exporter",
+                                    },
+                                    "scrapePool": "blackbox-exporter",
+                                    "scrapeUrl": (
+                                        "http://blackbox-exporter:9115/metrics"
+                                    ),
+                                    "lastError": "",
+                                    "lastScrape": "2026-07-29T09:00:00Z",
+                                },
+                                {
+                                    "health": "up",
+                                    "labels": {
+                                        "job": "blackbox-http",
+                                        "instance": "https://example.com",
+                                        "probe_type": "http",
+                                    },
+                                    "discoveredLabels": {
+                                        "__address__": "blackbox-exporter:9115",
+                                        "__param_target__": "https://example.com",
+                                    },
+                                    "scrapePool": "blackbox-http",
+                                    "scrapeUrl": (
+                                        "http://blackbox-exporter:9115/probe"
+                                        "?target=https://example.com"
+                                    ),
+                                },
+                            ]
+                        },
+                    }
+                )
+            if url == "http://prometheus/api/v1/status/config":
+                return FakeResponse(
+                    {
+                        "status": "success",
+                        "data": {
+                            "yaml": (
+                                "http_sd_configs:\n"
+                                "- url: http://host.docker.internal:18081/"
+                                "api/prometheus/http-sd/blackbox/http\n"
+                            )
+                        },
+                    }
+                )
+            raise AssertionError(url)
+
+    monkeypatch.setattr("monitoring_stack.services.core.requests.Session", FakeSession)
+
+    response = client.get(
+        "/api/v1/monitoring/prometheus/probe-nodes/discoveries/"
+    )
+
+    assert response.status_code == 200
+    payload = _payload(response)
+    assert payload["connected"] is True
+    assert payload["unbound_target_count"] == 1
+    assert payload["legacy_http_sd"]["detected"] is True
+    assert payload["discoveries"] == [
+        {
+            "address": "blackbox-exporter",
+            "port": "9115",
+            "endpoint": "blackbox-exporter:9115",
+            "health": "up",
+            "job": "blackbox-exporter",
+            "last_error": "",
+            "last_scrape": "2026-07-29T09:00:00Z",
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_prometheus_probe_node_discovery_excludes_registered_endpoint(
+    client, monkeypatch, settings
+):
+    settings.MONITORING_PROMETHEUS_URL = "http://prometheus"
+    node_model = apps.get_model("monitoring_stack", "BlackboxProbeNode")
+    node = node_model.objects.create(
+        name="existing-blackbox",
+        address="blackbox-exporter",
+        port="9115",
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "status": "success",
+                "data": {
+                    "activeTargets": [
+                        {
+                            "health": "up",
+                            "labels": {
+                                "job": "blackbox-http",
+                                "instance": "https://example.com",
+                                "blackbox_address": "blackbox-exporter:9115",
+                            },
+                            "discoveredLabels": {
+                                "__address__": "https://example.com",
+                                "__param_target__": "https://example.com",
+                                "blackbox_address": "blackbox-exporter:9115",
+                            },
+                            "scrapePool": "blackbox-http",
+                            "scrapeUrl": (
+                                "http://blackbox-exporter:9115/probe"
+                                "?target=https://example.com"
+                            ),
+                        }
+                    ]
+                },
+            }
+
+    class FakeSession:
+        trust_env = True
+
+        def get(self, url, **kwargs):
+            if url.endswith("/api/v1/status/config"):
+                return FakeResponseWithConfig()
+            return FakeResponse()
+
+    class FakeResponseWithConfig(FakeResponse):
+        def json(self):
+            return {"status": "success", "data": {"yaml": ""}}
+
+    monkeypatch.setattr("monitoring_stack.services.core.requests.Session", FakeSession)
+
+    response = client.get(
+        "/api/v1/monitoring/prometheus/probe-nodes/discoveries/"
+    )
+
+    assert response.status_code == 200
+    payload = _payload(response)
+    assert payload["discoveries"] == []
+    assert payload["managed_nodes"] == [
+        {
+            "node_id": node.id,
+            "endpoint": "blackbox-exporter:9115",
+            "health": "up",
+            "last_error": "",
+            "last_scrape": "",
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_prometheus_probe_node_onboarding_can_bind_only_unbound_targets(client):
+    node_model = apps.get_model("monitoring_stack", "BlackboxProbeNode")
+    existing_node = node_model.objects.create(
+        name="existing-blackbox",
+        address="10.0.0.20",
+        port="9115",
+    )
+    unbound_enabled = ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_HTTP,
+        target="https://unbound.example.com",
+        enabled=True,
+    )
+    unbound_disabled = ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_HTTP,
+        target="https://disabled.example.com",
+        enabled=False,
+    )
+    already_bound = ProbeTarget.objects.create(
+        type=ProbeTarget.TYPE_TCP,
+        target="db.example.com:3306",
+        enabled=True,
+        probe_node=existing_node,
+    )
+
+    response = client.post(
+        "/api/v1/monitoring/prometheus/probe-nodes/onboard/",
+        {
+            "address": "blackbox-exporter",
+            "port": "9115",
+            "name": "blackbox-prometheus",
+            "bind_unassigned_targets": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    payload = _payload(response)
+    node = node_model.objects.get(pk=payload["node"]["id"])
+    assert node.source == "prometheus"
+    assert payload["bound_target_count"] == 1
+    unbound_enabled.refresh_from_db()
+    unbound_disabled.refresh_from_db()
+    already_bound.refresh_from_db()
+    assert unbound_enabled.probe_node == node
+    assert unbound_disabled.probe_node is None
+    assert already_bound.probe_node == existing_node
+
+
+@pytest.mark.django_db
+def test_prometheus_probe_node_onboarding_rejects_registered_endpoint(client):
+    node_model = apps.get_model("monitoring_stack", "BlackboxProbeNode")
+    node_model.objects.create(
+        name="existing-blackbox",
+        address="blackbox-exporter",
+        port="9115",
+    )
+
+    response = client.post(
+        "/api/v1/monitoring/prometheus/probe-nodes/onboard/",
+        {
+            "address": "blackbox-exporter",
+            "port": "9115",
+            "name": "duplicate-blackbox",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 409
 
 
 @pytest.mark.django_db
@@ -1078,7 +1413,7 @@ def test_host_component_statuses_include_external_discovery(client, monkeypatch)
         item["component"]: item for item in _payload(response)["component_statuses"]
     }
     assert statuses["categraf"]["status"] == "external"
-    assert statuses["categraf"]["runtime_status"] == "online"
+    assert statuses["categraf"]["runtime_status"] == "unknown"
     assert statuses["blackbox"]["status"] == "external"
     assert statuses["blackbox"]["runtime_status"] == "online"
     assert statuses["blackbox"]["runtime_endpoint"] == "http://10.0.0.11:9115/-/healthy"
@@ -1174,6 +1509,153 @@ def test_blackbox_instances_endpoint_aggregates_hosts_and_prometheus_targets(cli
     assert rows["bb-02"]["prometheus_status"] == "not_discovered"
     assert rows["bb-02"]["install_status"] == "failed"
     assert rows["bb-02"]["last_error"] == "ssh failed"
+
+
+@pytest.mark.django_db
+def test_categraf_runtime_uses_n9e_offline_state(client, monkeypatch, settings):
+    settings.MONITORING_N9E_URL = "http://n9e"
+    settings.MONITORING_N9E_USERNAME = "root"
+    settings.MONITORING_N9E_PASSWORD = "pw"
+    host = MonitoringHost.objects.create(
+        hostname="app-01",
+        address="10.0.0.11",
+        ssh_user="root",
+    )
+    job = AnsibleInstallJob.objects.create(
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        status=AnsibleInstallJob.STATUS_SUCCESS,
+        host_ids=[host.id],
+        base_url="http://hyperops/api/v1/monitoring/installer",
+        n9e_url="http://n9e",
+        install_dir="/opt/categraf",
+        image="flashcatcloud/categraf:v1",
+    )
+    MonitoringComponentStatus.objects.create(
+        host=host,
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        status=MonitoringComponentStatus.STATUS_SUCCESS,
+        last_job=job,
+    )
+
+    class FakeResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class FakeSession:
+        trust_env = True
+        headers = {}
+
+        def post(self, url, **kwargs):
+            return FakeResponse({"dat": {"access_token": "token-1"}})
+
+        def get(self, url, **kwargs):
+            if url.endswith("/api/n9e/targets"):
+                return FakeResponse(
+                    {
+                        "dat": {
+                            "list": [
+                                {
+                                    "ident": "app-01",
+                                    "host": "10.0.0.11",
+                                    "status": "offline",
+                                }
+                            ]
+                        }
+                    }
+                )
+            return FakeResponse({"dat": []})
+
+    monkeypatch.setattr("monitoring_stack.services.core.requests.Session", FakeSession)
+
+    response = client.get(f"/api/v1/monitoring/hosts/{host.id}/")
+
+    assert response.status_code == 200
+    statuses = {
+        item["component"]: item for item in _payload(response)["component_statuses"]
+    }
+    assert statuses["categraf"]["runtime_status"] == "abnormal"
+    assert "offline" in statuses["categraf"]["runtime_reason"]
+
+
+@pytest.mark.django_db
+def test_categraf_runtime_uses_n9e_target_up_snapshot(client, settings):
+    settings.MONITORING_N9E_URL = ""
+    settings.MONITORING_N9E_USERNAME = ""
+    settings.MONITORING_N9E_PASSWORD = ""
+    run_model = apps.get_model("monitoring_stack", "MonitoringSnapshotRun")
+    n9e_model = apps.get_model("monitoring_stack", "N9eTargetSnapshot")
+    snapshot_run = run_model.objects.create(
+        source="n9e",
+        status="success",
+        started_at=timezone.now(),
+        finished_at=timezone.now(),
+        summary={"n9e_targets": 2},
+    )
+    online_host = MonitoringHost.objects.create(
+        hostname="app-online",
+        address="10.0.0.21",
+        ssh_user="root",
+    )
+    offline_host = MonitoringHost.objects.create(
+        hostname="app-offline",
+        address="10.0.0.22",
+        ssh_user="root",
+    )
+    job = AnsibleInstallJob.objects.create(
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        status=AnsibleInstallJob.STATUS_SUCCESS,
+        host_ids=[online_host.id, offline_host.id],
+        base_url="http://hyperops/api/v1/monitoring/installer",
+        n9e_url="http://n9e",
+        install_dir="/opt/categraf",
+        image="flashcatcloud/categraf:v1",
+    )
+    for host in (online_host, offline_host):
+        MonitoringComponentStatus.objects.create(
+            host=host,
+            component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+            status=MonitoringComponentStatus.STATUS_SUCCESS,
+            last_job=job,
+        )
+    n9e_model.objects.create(
+        identity="app-online",
+        hostname="app-online",
+        address="10.0.0.21",
+        raw={"ident": "app-online", "host_ip": "10.0.0.21", "target_up": 2},
+        last_seen_run=snapshot_run,
+        last_seen_at=timezone.now(),
+    )
+    n9e_model.objects.create(
+        identity="app-offline",
+        hostname="app-offline",
+        address="10.0.0.22",
+        raw={"ident": "app-offline", "host_ip": "10.0.0.22", "target_up": 0},
+        last_seen_run=snapshot_run,
+        last_seen_at=timezone.now(),
+    )
+
+    online_response = client.get(f"/api/v1/monitoring/hosts/{online_host.id}/")
+    offline_response = client.get(f"/api/v1/monitoring/hosts/{offline_host.id}/")
+
+    assert online_response.status_code == 200
+    assert offline_response.status_code == 200
+    online_statuses = {
+        item["component"]: item
+        for item in _payload(online_response)["component_statuses"]
+    }
+    offline_statuses = {
+        item["component"]: item
+        for item in _payload(offline_response)["component_statuses"]
+    }
+    assert online_statuses["categraf"]["runtime_status"] == "online"
+    assert offline_statuses["categraf"]["runtime_status"] == "abnormal"
+    assert "target_up=0" in offline_statuses["categraf"]["runtime_reason"]
 
 
 @pytest.mark.django_db
@@ -2317,6 +2799,511 @@ def test_host_supports_password_or_saved_ssh_key_inventory(client):
 
 
 @pytest.mark.django_db
+def test_host_connection_test_uses_transient_password_without_saving(
+    client, monkeypatch
+):
+    calls = []
+
+    def fake_connection_test(**kwargs):
+        calls.append(kwargs)
+        return {"latency_ms": 12}
+
+    import monitoring_stack.views as monitoring_views
+
+    monkeypatch.setattr(
+        monitoring_views,
+        "check_monitoring_ssh_connection",
+        fake_connection_test,
+        raising=False,
+    )
+    before_count = MonitoringHost.objects.count()
+
+    response = client.post(
+        "/api/v1/monitoring/hosts/test-connection/",
+        {
+            "address": "192.168.7.159",
+            "ssh_user": "root",
+            "ssh_port": 22,
+            "ssh_auth_type": "password",
+            "ssh_password": "transient-secret",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    response_payload = _payload(response)
+    assert response_payload["success"] is True
+    assert response_payload["latency_ms"] == 12
+    assert response_payload["verification_receipt"]
+    assert MonitoringHost.objects.count() == before_count
+    assert calls == [
+        {
+            "address": "192.168.7.159",
+            "ssh_user": "root",
+            "ssh_port": 22,
+            "password": "transient-secret",
+            "key_path": None,
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_host_connection_test_can_reuse_saved_password(client, monkeypatch):
+    host = MonitoringHost.objects.create(
+        hostname="password-host",
+        address="192.168.7.160",
+        ssh_user="ops",
+        ssh_port=2222,
+        ssh_auth_type=MonitoringHost.SSH_AUTH_PASSWORD,
+        ssh_password="stored-secret",
+    )
+    calls = []
+
+    def fake_connection_test(**kwargs):
+        calls.append(kwargs)
+        return {"latency_ms": 9}
+
+    import monitoring_stack.views as monitoring_views
+
+    monkeypatch.setattr(
+        monitoring_views,
+        "check_monitoring_ssh_connection",
+        fake_connection_test,
+        raising=False,
+    )
+
+    response = client.post(
+        "/api/v1/monitoring/hosts/test-connection/",
+        {
+            "host_id": host.id,
+            "address": host.address,
+            "ssh_user": host.ssh_user,
+            "ssh_port": host.ssh_port,
+            "ssh_auth_type": "password",
+            "ssh_password": "",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert calls[0]["password"] == "stored-secret"
+    host.refresh_from_db()
+    assert host.ssh_password == "stored-secret"
+
+
+@pytest.mark.django_db
+def test_host_connection_test_resolves_saved_ssh_key(client, monkeypatch):
+    credential = MonitoringSshKey.objects.create(
+        name="connection-test-key",
+        file_name="connection-test-key.pem",
+    )
+    calls = []
+
+    def fake_connection_test(**kwargs):
+        calls.append(kwargs)
+        return {"latency_ms": 7}
+
+    import monitoring_stack.views as monitoring_views
+
+    monkeypatch.setattr(
+        monitoring_views,
+        "check_monitoring_ssh_connection",
+        fake_connection_test,
+        raising=False,
+    )
+
+    response = client.post(
+        "/api/v1/monitoring/hosts/test-connection/",
+        {
+            "address": "192.168.7.161",
+            "ssh_user": "root",
+            "ssh_port": 22,
+            "ssh_auth_type": "key",
+            "ssh_key_id": credential.id,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert calls[0]["password"] is None
+    assert calls[0]["key_path"] == credential.storage_path
+
+
+def test_host_connection_test_classifies_refused_port_as_unreachable(monkeypatch):
+    monkeypatch.setattr(
+        "monitoring_stack.services.core.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0],
+            255,
+            stdout="",
+            stderr=(
+                "ssh: connect to host 192.168.7.250 port 22: Connection refused"
+            ),
+        )
+    )
+
+    with pytest.raises(MonitoringSshConnectionError) as exc_info:
+        check_monitoring_ssh_connection(
+            address="192.168.7.250",
+            ssh_user="root",
+            ssh_port=22,
+            password="secret",
+        )
+
+    assert exc_info.value.code == "SSH_UNREACHABLE"
+    assert exc_info.value.status_code == 502
+
+
+def test_host_connection_test_classifies_missing_key_as_key_error(monkeypatch):
+    with pytest.raises(MonitoringSshConnectionError) as exc_info:
+        check_monitoring_ssh_connection(
+            address="192.168.7.251",
+            ssh_user="root",
+            ssh_port=22,
+            key_path="/missing/monitoring-key.pem",
+        )
+
+    assert exc_info.value.code == "SSH_KEY_OR_PROTOCOL_FAILED"
+    assert exc_info.value.status_code == 400
+
+
+def test_host_connection_test_rejects_key_not_supported_by_openssh(
+    monkeypatch, tmp_path
+):
+    key_path = tmp_path / "invalid.pem"
+    key_path.write_text("not-an-openssh-key", encoding="utf-8")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            255,
+            stdout="",
+            stderr="Load key invalid.pem: error in libcrypto",
+        )
+
+    monkeypatch.setattr(
+        "monitoring_stack.services.core.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(MonitoringSshConnectionError) as exc_info:
+        check_monitoring_ssh_connection(
+            address="192.168.7.251",
+            ssh_user="root",
+            ssh_port=22,
+            key_path=key_path,
+        )
+
+    assert calls[0][:2] == ["ssh-keygen", "-y"]
+    assert exc_info.value.code == "SSH_KEY_OR_PROTOCOL_FAILED"
+    assert exc_info.value.status_code == 400
+
+
+def test_host_connection_test_uses_sshpass_without_password_in_arguments(
+    monkeypatch,
+):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="hyperops-ssh-ok",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "monitoring_stack.services.core.subprocess.run",
+        fake_run,
+    )
+
+    result = check_monitoring_ssh_connection(
+        address="192.168.7.251",
+        ssh_user="root",
+        ssh_port=22,
+        password="stored-secret",
+    )
+
+    command, kwargs = calls[0]
+    assert command[:2] == ["sshpass", "-e"]
+    assert "stored-secret" not in command
+    assert kwargs["env"]["SSHPASS"] == "stored-secret"
+    assert result["latency_ms"] >= 1
+
+
+@pytest.mark.django_db
+def test_host_list_exposes_unverified_ssh_snapshot_by_default(client):
+    host = MonitoringHost.objects.create(
+        hostname="asset-ssh-unverified",
+        address="10.0.0.21",
+        ssh_auth_type=MonitoringHost.SSH_AUTH_PASSWORD,
+        ssh_password="secret",
+    )
+
+    response = client.get("/api/v1/monitoring/hosts/")
+    payload = _payload(response)
+    rows = payload.get("results", []) if isinstance(payload, dict) else payload
+    row = next(item for item in rows if item["id"] == host.id)
+
+    assert row["ssh_verification"] == {
+        "status": "unverified",
+        "checked_at": None,
+        "latency_ms": None,
+        "error_code": "",
+        "matches_current_settings": False,
+    }
+
+
+@pytest.mark.django_db
+def test_host_save_accepts_verification_receipt_for_exact_settings(
+    client, monkeypatch
+):
+    import monitoring_stack.views as monitoring_views
+
+    monkeypatch.setattr(
+        monitoring_views,
+        "check_monitoring_ssh_connection",
+        lambda **kwargs: {"latency_ms": 12},
+    )
+    connection = {
+        "address": "10.0.0.31",
+        "ssh_user": "root",
+        "ssh_port": 22,
+        "ssh_auth_type": "password",
+        "ssh_password": "secret",
+    }
+    test_response = client.post(
+        "/api/v1/monitoring/hosts/test-connection/",
+        connection,
+        format="json",
+    )
+
+    assert test_response.status_code == 200
+    receipt = _payload(test_response)["verification_receipt"]
+    create_response = client.post(
+        "/api/v1/monitoring/hosts/",
+        {
+            "hostname": "receipt-exact",
+            **connection,
+            "ssh_verification_receipt": receipt,
+        },
+        format="json",
+    )
+
+    assert create_response.status_code == 201
+    host = MonitoringHost.objects.get(id=_payload(create_response)["id"])
+    assert host.ssh_verification_status == MonitoringHost.SSH_VERIFICATION_VERIFIED
+    assert host.ssh_verification_latency_ms == 12
+    assert host.ssh_verification_signature
+
+
+@pytest.mark.django_db
+def test_host_save_rejects_verification_receipt_after_address_changes(
+    client, monkeypatch
+):
+    import monitoring_stack.views as monitoring_views
+
+    monkeypatch.setattr(
+        monitoring_views,
+        "check_monitoring_ssh_connection",
+        lambda **kwargs: {"latency_ms": 8},
+    )
+    test_response = client.post(
+        "/api/v1/monitoring/hosts/test-connection/",
+        {
+            "address": "10.0.0.41",
+            "ssh_user": "root",
+            "ssh_port": 22,
+            "ssh_auth_type": "password",
+            "ssh_password": "secret",
+        },
+        format="json",
+    )
+
+    create_response = client.post(
+        "/api/v1/monitoring/hosts/",
+        {
+            "hostname": "receipt-mismatch",
+            "address": "10.0.0.42",
+            "ssh_user": "root",
+            "ssh_port": 22,
+            "ssh_auth_type": "password",
+            "ssh_password": "secret",
+            "ssh_verification_receipt": _payload(test_response)[
+                "verification_receipt"
+            ],
+        },
+        format="json",
+    )
+
+    assert create_response.status_code == 400
+    payload = _payload(create_response)
+    field_errors = payload.get("field_errors", payload)
+    assert "ssh_verification_receipt" in field_errors
+
+
+@pytest.mark.django_db
+def test_failed_unsaved_settings_do_not_replace_saved_verification(
+    client, monkeypatch
+):
+    host = MonitoringHost.objects.create(
+        hostname="saved-verification",
+        address="10.0.0.51",
+        ssh_user="root",
+        ssh_port=22,
+        ssh_auth_type=MonitoringHost.SSH_AUTH_PASSWORD,
+        ssh_password="saved-secret",
+        ssh_verification_status=MonitoringHost.SSH_VERIFICATION_VERIFIED,
+        ssh_verification_signature="saved-fingerprint",
+    )
+    import monitoring_stack.views as monitoring_views
+
+    def fail_connection(**kwargs):
+        raise MonitoringSshConnectionError("SSH_UNREACHABLE", 502)
+
+    monkeypatch.setattr(
+        monitoring_views,
+        "check_monitoring_ssh_connection",
+        fail_connection,
+    )
+    response = client.post(
+        "/api/v1/monitoring/hosts/test-connection/",
+        {
+            "host_id": host.id,
+            "address": "10.0.0.99",
+            "ssh_user": "root",
+            "ssh_port": 22,
+            "ssh_auth_type": "password",
+            "ssh_password": "new-secret",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 502
+    host.refresh_from_db()
+    assert host.ssh_verification_status == MonitoringHost.SSH_VERIFICATION_VERIFIED
+    assert host.ssh_verification_signature == "saved-fingerprint"
+
+
+@pytest.mark.parametrize(
+    ("categraf", "probe_required", "blackbox", "ssh", "expected"),
+    [
+        ("healthy", False, "not_applicable", "unverified", "running_normally"),
+        ("pending_deployment", False, "not_applicable", "unverified", "verify_ssh"),
+        ("pending_deployment", False, "not_applicable", "failed", "fix_ssh"),
+        ("pending_deployment", False, "not_applicable", "verified", "deploy_categraf"),
+        ("healthy", True, "pending_deployment", "verified", "deploy_blackbox"),
+        ("abnormal", False, "not_applicable", "verified", "inspect_collection"),
+    ],
+)
+def test_asset_next_action_priority(
+    categraf, probe_required, blackbox, ssh, expected
+):
+    checked_at = timezone.now() if ssh == "verified" else None
+    result = choose_next_action(
+        collection_state={
+            "code": categraf,
+            "component": "categraf",
+            "job_id": None,
+        },
+        probe_state={
+            "code": blackbox if probe_required else "not_applicable",
+            "component": "blackbox",
+            "job_id": None,
+        },
+        ssh_state={
+            "status": ssh,
+            "checked_at": checked_at,
+            "matches_current_settings": True,
+        },
+        now=timezone.now(),
+    )
+
+    assert result["code"] == expected
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected_code", "expected_installation", "expected_runtime"),
+    [
+        (
+            [
+                {
+                    "component": "categraf",
+                    "status": "success",
+                    "runtime_status": "online",
+                }
+            ],
+            "healthy",
+            "installed",
+            "online",
+        ),
+        (
+            [
+                {
+                    "component": "categraf",
+                    "status": "external",
+                    "runtime_status": "abnormal",
+                }
+            ],
+            "abnormal",
+            "installed",
+            "abnormal",
+        ),
+        ([], "pending_deployment", "not_installed", "not_applicable"),
+    ],
+)
+def test_component_state_preserves_installation_and_runtime_dimensions(
+    rows,
+    expected_code,
+    expected_installation,
+    expected_runtime,
+):
+    result = normalize_component_state(rows, "categraf")
+
+    assert result["code"] == expected_code
+    assert result["installation_status"] == expected_installation
+    assert result["runtime_status"] == expected_runtime
+
+
+def test_non_required_component_has_no_installation_or_runtime_state():
+    result = normalize_component_state([], "blackbox", required=False)
+
+    assert result["installation_status"] == "not_applicable"
+    assert result["runtime_status"] == "not_applicable"
+
+
+@pytest.mark.django_db
+def test_host_roles_make_blackbox_not_applicable_for_ordinary_hosts(client):
+    ordinary = MonitoringHost.objects.create(
+        hostname="ordinary-collection-host",
+        address="10.0.0.61",
+    )
+    probe = MonitoringHost.objects.create(
+        hostname="probe-host",
+        address="10.0.0.62",
+    )
+    BlackboxProbeNode.objects.create(
+        name="probe-node-62",
+        address=probe.address,
+        host=probe,
+        enabled=True,
+    )
+
+    response = client.get("/api/v1/monitoring/hosts/")
+    payload = _payload(response)
+    rows = payload.get("results", []) if isinstance(payload, dict) else payload
+    by_id = {row["id"]: row for row in rows}
+
+    assert by_id[ordinary.id]["roles"] == ["collection_host"]
+    assert by_id[ordinary.id]["probe_state"]["code"] == "not_applicable"
+    assert by_id[probe.id]["roles"] == ["collection_host", "probe_node"]
+    assert by_id[probe.id]["probe_state"]["code"] != "not_applicable"
+
+
+@pytest.mark.django_db
 def test_blackbox_ansible_preview_uses_blackbox_installer(client):
     host_response = client.post(
         "/api/v1/monitoring/hosts/",
@@ -2503,6 +3490,68 @@ def test_execute_ansible_job_marks_component_status_failed_when_ansible_missing(
 
 
 @pytest.mark.django_db
+def test_execute_ansible_job_uses_recap_failure_when_process_returns_zero(
+    monkeypatch,
+):
+    host = MonitoringHost.objects.create(
+        hostname="nexus",
+        address="10.0.0.43",
+        ssh_user="root",
+        enabled=True,
+    )
+    job = AnsibleInstallJob.objects.create(
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        host_ids=[host.id],
+        base_url="http://hyperops.local/api/v1/monitoring/installer",
+        n9e_url="http://n9e",
+        install_dir="/opt/categraf",
+        image="flashcatcloud/categraf:v1",
+    )
+    stdout = """PLAY [Install Categraf by unified installer] *******************
+[ERROR]: Task failed: the connection plugin 'paramiko' was not found
+fatal: [nexus]: FAILED! => {\"changed\": false}
+PLAY RECAP *******************************************************
+nexus : ok=0 changed=0 unreachable=0 failed=1 skipped=0 rescued=0 ignored=0
+"""
+    monkeypatch.setattr(
+        "monitoring_stack.services.core.shutil.which",
+        lambda _: "/usr/bin/ansible-playbook",
+    )
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = io.StringIO(stdout)
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -15
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        "monitoring_stack.services.core.subprocess.Popen",
+        lambda *args, **kwargs: FakeProcess(),
+    )
+
+    execute_ansible_job(job.id)
+
+    job.refresh_from_db()
+    component_status = MonitoringComponentStatus.objects.get(
+        host=host,
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+    )
+    assert job.status == AnsibleInstallJob.STATUS_FAILED
+    assert job.returncode == 1
+    assert job.results == [{"hostname": "nexus", "status": "failed"}]
+    assert component_status.status == MonitoringComponentStatus.STATUS_FAILED
+    assert "failed=1" in component_status.last_error
+
+
+@pytest.mark.django_db
 def test_host_component_statuses_include_runtime_health(
     client,
     monkeypatch,
@@ -2572,7 +3621,17 @@ def test_host_component_statuses_include_runtime_health(
         def get(self, url, **kwargs):
             if url.endswith("/api/n9e/targets"):
                 return FakeResponse(
-                    {"dat": {"list": [{"ident": "app-01", "host": "10.0.0.11"}]}}
+                    {
+                        "dat": {
+                            "list": [
+                                {
+                                    "ident": "app-01",
+                                    "host": "10.0.0.11",
+                                    "status": "online",
+                                }
+                            ]
+                        }
+                    }
                 )
             if url == "http://10.0.0.11:9115/-/healthy":
                 assert self.trust_env is False

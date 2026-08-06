@@ -1,5 +1,6 @@
 import api from '@/config/api'
 import { getValidAccessToken, refreshAccessToken } from '@/api/token'
+import { normalizeApiError } from '@/utils/apiError'
 
 const JENKINS_API_BASE = `${api.apiBaseUrl}/v1/jenkins`
 
@@ -64,12 +65,13 @@ async function request(url, options = {}) {
   const payload = rawText ? JSON.parse(rawText) : null
 
   if (!response.ok) {
-    const message =
-      payload?.data?.detail ||
-      payload?.data?.message ||
-      payload?.message ||
-      `HTTP ${response.status}: ${response.statusText}`
-    throw new Error(message)
+    throw normalizeApiError({
+      response: {
+        status: response.status,
+        data: payload,
+        headers: response.headers
+      }
+    })
   }
 
   return normalizePayload(payload)

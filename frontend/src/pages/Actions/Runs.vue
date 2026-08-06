@@ -6,8 +6,15 @@
       :subtitle="t('actions.runs.subtitle')"
     >
       <template #actions>
-        <BaseButton variant="secondary" @click="goToWorkspace">{{ t('actions.runs.backToWorkspace') }}</BaseButton>
-        <BaseButton variant="secondary" :loading="loadingRuns" @click="loadRuns">{{ t('actions.runs.refresh') }}</BaseButton>
+        <BaseButton variant="secondary" @click="goToWorkspace">{{
+          t('actions.runs.backToWorkspace')
+        }}</BaseButton>
+        <BaseButton
+          variant="secondary"
+          :loading="loadingRuns"
+          @click="loadRuns"
+          >{{ t('actions.runs.refresh') }}</BaseButton
+        >
       </template>
 
       <section class="workspace-panel workspace-panel--padded">
@@ -18,11 +25,17 @@
           </div>
         </div>
 
-        <div v-if="loadingRuns" class="py-12 text-center text-sm text-slate-500">
+        <div
+          v-if="loadingRuns"
+          class="py-12 text-center text-sm text-slate-500"
+        >
           {{ t('actions.runs.loading') }}
         </div>
 
-        <div v-else-if="runs.length" class="workspace-list workspace-list--runs">
+        <div
+          v-else-if="runs.length"
+          class="workspace-list workspace-list--runs"
+        >
           <div class="workspace-list__head workspace-list__head--runs">
             <span>{{ t('actions.runs.table.template') }}</span>
             <span>{{ t('actions.runs.table.status') }}</span>
@@ -69,18 +82,28 @@
       <BaseModal
         :show="showDetailModal"
         size="xl"
-        :title="selectedRun ? t('actions.runs.detail.titleWithId', { id: selectedRun.id }) : t('actions.runs.detail.title')"
+        :title="
+          selectedRun
+            ? t('actions.runs.detail.titleWithId', { id: selectedRun.id })
+            : t('actions.runs.detail.title')
+        "
         @close="closeDetailModal"
       >
         <div v-if="selectedRun" class="space-y-5">
-          <section class="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
+          <section
+            class="rounded-lg border border-slate-200 bg-slate-50/80 p-4"
+          >
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 class="text-base font-semibold text-slate-900">
                   {{ selectedRun.template_name }}
                 </h3>
                 <p class="mt-1 text-sm text-slate-500">
-                  {{ t('actions.runs.detail.triggeredBy', { name: selectedRun.triggered_by_name || '-' }) }}
+                  {{
+                    t('actions.runs.detail.triggeredBy', {
+                      name: selectedRun.triggered_by_name || '-'
+                    })
+                  }}
                   {{ formatDate(selectedRun.created_at) }}
                 </p>
               </div>
@@ -88,7 +111,10 @@
                 {{ runStatusText(selectedRun.status) }}
               </span>
             </div>
-            <div v-if="selectedRun.error_message" class="mt-3 text-sm text-rose-600">
+            <div
+              v-if="selectedRun.error_message"
+              class="mt-3 text-sm text-rose-600"
+            >
               {{ selectedRun.error_message }}
             </div>
           </section>
@@ -107,7 +133,12 @@
                   <div class="mt-1 text-xs text-slate-500">
                     {{ actionTypeText(stepRun.action_type) }}
                     <span v-if="stepRun.jenkins_record_id">
-                      · {{ t('actions.runs.detail.jenkinsRecordLink', { id: stepRun.jenkins_record_id }) }}
+                      ·
+                      {{
+                        t('actions.runs.detail.jenkinsRecordLink', {
+                          id: stepRun.jenkins_record_id
+                        })
+                      }}
                     </span>
                   </div>
                 </div>
@@ -118,8 +149,12 @@
               <pre
                 v-if="Object.keys(stepRun.output || {}).length"
                 class="mt-3 max-h-40 overflow-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-100"
-              >{{ JSON.stringify(stepRun.output, null, 2) }}</pre>
-              <div v-if="stepRun.error_message" class="mt-3 text-sm text-rose-600">
+                >{{ JSON.stringify(stepRun.output, null, 2) }}</pre
+              >
+              <div
+                v-if="stepRun.error_message"
+                class="mt-3 text-sm text-rose-600"
+              >
                 {{ stepRun.error_message }}
               </div>
             </article>
@@ -129,7 +164,9 @@
             v-if="selectedRun.status === 'waiting_approval'"
             class="rounded-lg border border-amber-200 bg-amber-50 p-4"
           >
-            <h3 class="text-sm font-semibold text-amber-900">{{ t('actions.runs.detail.waitingApproval') }}</h3>
+            <h3 class="text-sm font-semibold text-amber-900">
+              {{ t('actions.runs.detail.waitingApproval') }}
+            </h3>
             <textarea
               v-model="approvalComment"
               rows="2"
@@ -161,20 +198,12 @@
             <BaseButton variant="secondary" @click="refreshSelectedRun">
               {{ t('actions.runs.refreshDetail') }}
             </BaseButton>
-            <BaseButton @click="closeDetailModal">{{ t('actions.runs.close') }}</BaseButton>
+            <BaseButton @click="closeDetailModal">{{
+              t('actions.runs.close')
+            }}</BaseButton>
           </div>
         </template>
       </BaseModal>
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'fixed bottom-5 right-5 z-[90] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
-          toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AppLayout>
 </template>
@@ -189,25 +218,18 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import actionsApi from '@/api/actions'
+import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const { showToast } = useToast()
 const runs = ref([])
 const loadingRuns = ref(false)
 const showDetailModal = ref(false)
 const selectedRun = ref(null)
 const approvalComment = ref('')
 const approvalLoading = ref('')
-const toast = ref({ show: false, message: '', type: 'success' })
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 2600)
-}
-
 function normalizeList(payload) {
   if (Array.isArray(payload)) return payload
   if (payload?.results) return payload.results
@@ -219,7 +241,10 @@ async function loadRuns() {
   try {
     runs.value = normalizeList(await actionsApi.listRuns())
   } catch (error) {
-    showToast(t('actions.runs.toast.loadFailed', { message: error.message || '' }), 'error')
+    showToast(
+      t('actions.runs.toast.loadFailed', { message: error.message || '' }),
+      'error'
+    )
   } finally {
     loadingRuns.value = false
   }
@@ -235,7 +260,12 @@ async function openRunDetail(run) {
     approvalComment.value = ''
     showDetailModal.value = true
   } catch (error) {
-    showToast(t('actions.runs.toast.loadDetailFailed', { message: error.message || '' }), 'error')
+    showToast(
+      t('actions.runs.toast.loadDetailFailed', {
+        message: error.message || ''
+      }),
+      'error'
+    )
   }
 }
 
@@ -263,7 +293,10 @@ async function approveRun() {
     showToast(t('actions.runs.toast.approved'))
     await loadRuns()
   } catch (error) {
-    showToast(t('actions.runs.toast.approveFailed', { message: error.message || '' }), 'error')
+    showToast(
+      t('actions.runs.toast.approveFailed', { message: error.message || '' }),
+      'error'
+    )
   } finally {
     approvalLoading.value = ''
   }
@@ -280,7 +313,10 @@ async function rejectRun() {
     showToast(t('actions.runs.toast.rejected'))
     await loadRuns()
   } catch (error) {
-    showToast(t('actions.runs.toast.rejectFailed', { message: error.message || '' }), 'error')
+    showToast(
+      t('actions.runs.toast.rejectFailed', { message: error.message || '' }),
+      'error'
+    )
   } finally {
     approvalLoading.value = ''
   }
@@ -296,9 +332,13 @@ function actionTypeText(type) {
   const map = {
     jenkins_trigger: t('actions.runs.actionTypes.jenkins_trigger'),
     gitlab_branch_create: t('actions.runs.actionTypes.gitlab_branch_create'),
-    gitlab_branch_operation: t('actions.runs.actionTypes.gitlab_branch_operation'),
+    gitlab_branch_operation: t(
+      'actions.runs.actionTypes.gitlab_branch_operation'
+    ),
     gitlab_tag_operation: t('actions.runs.actionTypes.gitlab_tag_operation'),
-    gitlab_webhook_operation: t('actions.runs.actionTypes.gitlab_webhook_operation'),
+    gitlab_webhook_operation: t(
+      'actions.runs.actionTypes.gitlab_webhook_operation'
+    ),
     manual_approval: t('actions.runs.actionTypes.manual_approval'),
     conditional_branch: t('actions.runs.actionTypes.conditional_branch')
   }

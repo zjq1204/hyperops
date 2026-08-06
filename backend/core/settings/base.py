@@ -235,6 +235,7 @@ SITE_ID = 1
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.RequestIdMiddleware',
 
     # CORS middleware should be placed as high as possible in the
     # middleware stack, especially before any middleware that can

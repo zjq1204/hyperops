@@ -114,9 +114,11 @@ class BlackboxProbeNode(models.Model):
 
     SOURCE_MANUAL = "manual"
     SOURCE_INSTALL = "install"
+    SOURCE_PROMETHEUS = "prometheus"
     SOURCE_CHOICES = [
         (SOURCE_MANUAL, "Manual"),
         (SOURCE_INSTALL, "HyperOps install"),
+        (SOURCE_PROMETHEUS, "Prometheus discovery"),
     ]
 
     name = models.CharField(max_length=120, unique=True)
@@ -194,6 +196,14 @@ class MonitoringHost(models.Model):
         (SSH_AUTH_KEY, "SSH key"),
         (SSH_AUTH_PASSWORD, "Password"),
     ]
+    SSH_VERIFICATION_UNVERIFIED = "unverified"
+    SSH_VERIFICATION_VERIFIED = "verified"
+    SSH_VERIFICATION_FAILED = "failed"
+    SSH_VERIFICATION_CHOICES = [
+        (SSH_VERIFICATION_UNVERIFIED, "Unverified"),
+        (SSH_VERIFICATION_VERIFIED, "Verified"),
+        (SSH_VERIFICATION_FAILED, "Failed"),
+    ]
 
     external_id = models.CharField(max_length=80, unique=True, null=True, blank=True)
     hostname = models.CharField(max_length=160)
@@ -212,6 +222,17 @@ class MonitoringHost(models.Model):
         related_name="hosts",
     )
     ssh_key = models.CharField(max_length=255, blank=True, default="")
+    ssh_verification_status = models.CharField(
+        max_length=16,
+        choices=SSH_VERIFICATION_CHOICES,
+        default=SSH_VERIFICATION_UNVERIFIED,
+    )
+    ssh_verification_checked_at = models.DateTimeField(null=True, blank=True)
+    ssh_verification_latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    ssh_verification_error_code = models.CharField(
+        max_length=64, blank=True, default=""
+    )
+    ssh_verification_signature = models.CharField(max_length=64, blank=True, default="")
     profiles = models.JSONField(default=list, blank=True)
     labels = models.JSONField(default=dict, blank=True)
     params = models.JSONField(default=dict, blank=True)
@@ -223,6 +244,10 @@ class MonitoringHost(models.Model):
         ordering = ["hostname", "id"]
         indexes = [
             models.Index(fields=["enabled"], name="monitoring__enabled_940a22_idx"),
+            models.Index(
+                fields=["ssh_verification_status"],
+                name="monitoring__ssh_ver_4dcbda_idx",
+            ),
         ]
 
     def __str__(self):
@@ -274,6 +299,7 @@ class AnsibleInstallJob(models.Model):
     returncode = models.IntegerField(null=True, blank=True)
     logs = models.JSONField(default=list, blank=True)
     results = models.JSONField(default=list, blank=True)
+    progress = models.JSONField(default=dict, blank=True)
     retry_of = models.ForeignKey(
         "self",
         null=True,

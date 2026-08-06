@@ -42,6 +42,16 @@ export const monitoringStackApi = {
       .get('/v1/monitoring/probe-nodes/', { params })
       .then(extractData)
   },
+  getProbeNodeDiscoveries() {
+    return apiClient
+      .get('/v1/monitoring/prometheus/probe-nodes/discoveries/')
+      .then(extractData)
+  },
+  onboardProbeNode(body) {
+    return apiClient
+      .post('/v1/monitoring/prometheus/probe-nodes/onboard/', body)
+      .then(extractData)
+  },
   createProbeNode(body) {
     return apiClient.post('/v1/monitoring/probe-nodes/', body).then(extractData)
   },
@@ -66,6 +76,11 @@ export const monitoringStackApi = {
   },
   getHosts(params = {}) {
     return apiClient.get('/v1/monitoring/hosts/', { params }).then(extractData)
+  },
+  testHostConnection(body) {
+    return apiClient
+      .post('/v1/monitoring/hosts/test-connection/', body)
+      .then(extractData)
   },
   getSshKeys() {
     return apiClient.get('/v1/monitoring/ssh-keys/').then(extractData)
@@ -93,6 +108,11 @@ export const monitoringStackApi = {
   getJobs(params = {}) {
     return apiClient
       .get('/v1/monitoring/ansible/jobs/', { params })
+      .then(extractData)
+  },
+  getJob(id) {
+    return apiClient
+      .get(`/v1/monitoring/ansible/jobs/${id}/`)
       .then(extractData)
   },
   createJob(body) {

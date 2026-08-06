@@ -818,6 +818,9 @@ def test_jobs_force_refresh_returns_stale_cache_on_failure(
     assert payload["cached"] is True
     assert payload["stale"] is True
     assert "warning" in payload
+    assert payload["warning_code"] == "JENKINS_REQUEST_FAILED"
+    assert "jenkins unavailable" not in payload["warning"]
+    assert payload["request_id"]
 
 
 @pytest.mark.django_db
@@ -835,8 +838,38 @@ def test_jobs_returns_400_when_refresh_fails_without_cache(
         )
 
     assert response.status_code == 400
-    payload = response.json()["data"]
-    assert "获取 Job 列表失败" in payload["message"]
+    body = response.json()
+    payload = body["data"] if "data" in body else body
+    assert "获取 Job 列表失败" in payload.get("detail", payload.get("message", ""))
+
+
+@pytest.mark.django_db
+def test_jobs_auth_failure_returns_safe_error_without_upstream_url(
+    authenticated_client, jenkins_instance
+):
+    response = Mock(status_code=401)
+    error = requests.HTTPError(
+        "401 Client Error: Unauthorized for url: "
+        "http://jenkins.internal/api/json?tree=jobs"
+    )
+    error.response = response
+    mock_client = Mock()
+    mock_client.list_jobs.side_effect = error
+
+    with patch(
+        "jenkins_trigger.views.get_jenkins_client", return_value=mock_client
+    ):
+        api_response = authenticated_client.get(
+            f"/api/v1/jenkins/instances/{jenkins_instance.id}/jobs/?force_refresh=true"
+        )
+
+    assert api_response.status_code == 422
+    payload = api_response.json()
+    payload = payload["data"] if "data" in payload else payload
+    assert payload["error_code"] == "JENKINS_AUTH_FAILED"
+    assert "API Token" in payload["detail"]
+    assert "jenkins.internal" not in str(payload)
+    assert payload["request_id"]
 
 
 @pytest.mark.django_db

@@ -625,18 +625,6 @@
         @close="closeConfirmDialog"
         @confirm="runConfirmedAction"
       />
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'admin-toast',
-          toast.type === 'success'
-            ? 'admin-toast--success'
-            : 'admin-toast--error'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AdminLayout>
 </template>
@@ -654,9 +642,11 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
+import { useToast } from '@/composables/useToast'
 import gitlabApi from '@/api/gitlab'
 
 const { t } = useI18n()
+const { showToast } = useToast()
 const {
   confirmDialog,
   requestConfirm,
@@ -688,8 +678,6 @@ const bulkTagForm = ref({
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalCount = ref(0)
-
-const toast = ref({ show: false, message: '', type: 'success' })
 
 const currentProject = computed(() =>
   projects.value.find(
@@ -738,13 +726,6 @@ const bulkTagSubmitLabel = computed(() =>
     ? t('adminPages.gitlabTags.executeDelete')
     : t('adminPages.gitlabTags.create')
 )
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 3000)
-}
 
 function normalizeCollection(data) {
   return Array.isArray(data) ? data : (data?.results ?? [])

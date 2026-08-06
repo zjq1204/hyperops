@@ -6,22 +6,34 @@
       :subtitle="t('actions.workspace.subtitle')"
     >
       <template #actions>
-        <BaseButton variant="secondary" @click="refreshAll">{{ t('actions.workspace.refresh') }}</BaseButton>
+        <BaseButton variant="secondary" @click="refreshAll">{{
+          t('actions.workspace.refresh')
+        }}</BaseButton>
       </template>
 
       <section class="space-y-5">
         <section class="workspace-panel workspace-panel--padded">
           <div class="section-heading">
             <div>
-              <h2 class="section-title">{{ t('actions.workspace.availableTitle') }}</h2>
-              <p class="section-copy">{{ t('actions.workspace.availableHint') }}</p>
+              <h2 class="section-title">
+                {{ t('actions.workspace.availableTitle') }}
+              </h2>
+              <p class="section-copy">
+                {{ t('actions.workspace.availableHint') }}
+              </p>
             </div>
           </div>
 
-          <div v-if="loadingTemplates" class="py-12 text-center text-sm text-slate-500">
+          <div
+            v-if="loadingTemplates"
+            class="py-12 text-center text-sm text-slate-500"
+          >
             {{ t('actions.workspace.loading') }}
           </div>
-          <div v-else-if="templates.length" class="workspace-list workspace-list--actions">
+          <div
+            v-else-if="templates.length"
+            class="workspace-list workspace-list--actions"
+          >
             <div class="workspace-list__head workspace-list__head--actions">
               <span>{{ t('actions.workspace.table.template') }}</span>
               <span>{{ t('actions.workspace.table.config') }}</span>
@@ -34,17 +46,35 @@
             >
               <div class="workspace-list-row__main">
                 <strong>{{ template.name }}</strong>
-                <small>{{ template.description || t('actions.workspace.table.noDescription') }}</small>
+                <small>{{
+                  template.description ||
+                  t('actions.workspace.table.noDescription')
+                }}</small>
               </div>
 
               <div class="workspace-list-row__meta">
-                <span>{{ t('actions.workspace.templateMeta.steps', { count: stepCount(template) }) }}</span>
-                <span>{{ t('actions.workspace.templateMeta.parameters', { count: parameterCount(template) }) }}</span>
+                <span>{{
+                  t('actions.workspace.templateMeta.steps', {
+                    count: stepCount(template)
+                  })
+                }}</span>
+                <span>{{
+                  t('actions.workspace.templateMeta.parameters', {
+                    count: parameterCount(template)
+                  })
+                }}</span>
               </div>
 
               <div class="workspace-list-row__actions">
-                <BaseButton variant="secondary" size="sm" @click="openPreviewModal(template)">{{ t('actions.workspace.table.preview') }}</BaseButton>
-                <BaseButton size="sm" @click="openRunModal(template)">{{ t('actions.workspace.table.run') }}</BaseButton>
+                <BaseButton
+                  variant="secondary"
+                  size="sm"
+                  @click="openPreviewModal(template)"
+                  >{{ t('actions.workspace.table.preview') }}</BaseButton
+                >
+                <BaseButton size="sm" @click="openRunModal(template)">{{
+                  t('actions.workspace.table.run')
+                }}</BaseButton>
               </div>
             </article>
           </div>
@@ -59,17 +89,30 @@
       <BaseModal
         :show="showRunModal"
         size="lg"
-        :title="selectedTemplate ? t('actions.workspace.runModal.titleWithTemplate', { name: selectedTemplate.name }) : t('actions.workspace.runModal.titleFallback')"
+        :title="
+          selectedTemplate
+            ? t('actions.workspace.runModal.titleWithTemplate', {
+                name: selectedTemplate.name
+              })
+            : t('actions.workspace.runModal.titleFallback')
+        "
         @close="closeRunModal"
       >
         <div v-if="selectedTemplate" class="space-y-6">
-          <section class="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-            <h3 class="text-sm font-semibold text-slate-900">{{ t('actions.workspace.runModal.paramsTitle') }}</h3>
+          <section
+            class="rounded-lg border border-slate-200 bg-slate-50/80 p-4"
+          >
+            <h3 class="text-sm font-semibold text-slate-900">
+              {{ t('actions.workspace.runModal.paramsTitle') }}
+            </h3>
             <p class="mt-1 text-sm text-slate-500">
               {{ t('actions.workspace.runModal.paramsHint') }}
             </p>
 
-            <div v-if="parameterFields.length" class="mt-4 grid gap-4 md:grid-cols-2">
+            <div
+              v-if="parameterFields.length"
+              class="mt-4 grid gap-4 md:grid-cols-2"
+            >
               <label
                 v-for="field in parameterFields"
                 :key="field.name"
@@ -91,31 +134,47 @@
             </p>
 
             <label v-if="needsRuntimeProjects" class="mt-4 block space-y-2">
-              <span class="admin-filter-label">{{ t('actions.workspace.runModal.runtimeProjectsLabel') }}</span>
+              <span class="admin-filter-label">{{
+                t('actions.workspace.runModal.runtimeProjectsLabel')
+              }}</span>
               <input
                 v-model="runtimeProjectIdsText"
                 class="admin-filter-control"
-                :placeholder="t('actions.workspace.runModal.runtimeProjectsPlaceholder')"
+                :placeholder="
+                  t('actions.workspace.runModal.runtimeProjectsPlaceholder')
+                "
               />
             </label>
           </section>
 
           <section class="rounded-lg border border-slate-200 bg-white p-4">
-            <h3 class="text-sm font-semibold text-slate-900">{{ t('actions.workspace.runModal.previewTitle') }}</h3>
+            <h3 class="text-sm font-semibold text-slate-900">
+              {{ t('actions.workspace.runModal.previewTitle') }}
+            </h3>
             <ol class="mt-4 space-y-3">
               <li
                 v-for="step in selectedTemplate.steps"
                 :key="step.id"
                 class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-3"
               >
-                <span class="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
+                <span
+                  class="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white"
+                >
                   {{ step.order }}
                 </span>
                 <div class="min-w-0 flex-1">
-                  <div class="font-semibold text-slate-900">{{ step.name }}</div>
+                  <div class="font-semibold text-slate-900">
+                    {{ step.name }}
+                  </div>
                   <div class="mt-1 text-sm text-slate-500">
                     {{ actionTypeText(step.action_type) }} ·
-                    {{ t(step.failure_policy === 'continue' ? 'actions.workspace.stepSummary.policyContinue' : 'actions.workspace.stepSummary.policyStop') }}
+                    {{
+                      t(
+                        step.failure_policy === 'continue'
+                          ? 'actions.workspace.stepSummary.policyContinue'
+                          : 'actions.workspace.stepSummary.policyStop'
+                      )
+                    }}
                   </div>
                 </div>
               </li>
@@ -132,8 +191,12 @@
 
         <template #footer>
           <div class="flex w-full justify-end gap-3">
-            <BaseButton variant="secondary" @click="closeRunModal">{{ t('actions.workspace.runModal.cancel') }}</BaseButton>
-            <BaseButton :loading="startingRun" @click="startRun">{{ t('actions.workspace.runModal.startRun') }}</BaseButton>
+            <BaseButton variant="secondary" @click="closeRunModal">{{
+              t('actions.workspace.runModal.cancel')
+            }}</BaseButton>
+            <BaseButton :loading="startingRun" @click="startRun">{{
+              t('actions.workspace.runModal.startRun')
+            }}</BaseButton>
           </div>
         </template>
       </BaseModal>
@@ -141,17 +204,27 @@
       <BaseModal
         :show="showPreviewModal"
         size="lg"
-        :title="previewTemplate ? t('actions.workspace.previewModal.titleWithTemplate', { name: previewTemplate.name }) : t('actions.workspace.previewModal.titleFallback')"
+        :title="
+          previewTemplate
+            ? t('actions.workspace.previewModal.titleWithTemplate', {
+                name: previewTemplate.name
+              })
+            : t('actions.workspace.previewModal.titleFallback')
+        "
         @close="closePreviewModal"
       >
         <div v-if="previewTemplate" class="action-workspace-preview">
           <section class="action-workspace-preview__summary">
             <div>
-              <span>{{ t('actions.workspace.previewModal.summarySteps') }}</span>
+              <span>{{
+                t('actions.workspace.previewModal.summarySteps')
+              }}</span>
               <strong>{{ previewSteps.length }}</strong>
             </div>
             <div>
-              <span>{{ t('actions.workspace.previewModal.summaryParams') }}</span>
+              <span>{{
+                t('actions.workspace.previewModal.summaryParams')
+              }}</span>
               <strong>{{ parameterCount(previewTemplate) }}</strong>
             </div>
           </section>
@@ -172,7 +245,13 @@
                 </div>
                 <p>{{ previewStepSummary(step) }}</p>
                 <small>
-                  {{ t(step.failure_policy === 'continue' ? 'actions.workspace.stepSummary.policyContinue' : 'actions.workspace.stepSummary.policyStop') }}
+                  {{
+                    t(
+                      step.failure_policy === 'continue'
+                        ? 'actions.workspace.stepSummary.policyContinue'
+                        : 'actions.workspace.stepSummary.policyStop'
+                    )
+                  }}
                 </small>
               </div>
             </li>
@@ -181,27 +260,23 @@
           <EmptyState
             v-else
             :title="t('actions.workspace.previewModal.noStepsTitle')"
-            :description="t('actions.workspace.previewModal.noStepsDescription')"
+            :description="
+              t('actions.workspace.previewModal.noStepsDescription')
+            "
           />
         </div>
 
         <template #footer>
           <div class="flex w-full justify-end gap-3">
-            <BaseButton variant="secondary" @click="closePreviewModal">{{ t('actions.workspace.previewModal.close') }}</BaseButton>
-            <BaseButton v-if="previewTemplate" @click="openRunFromPreview">{{ t('actions.workspace.previewModal.run') }}</BaseButton>
+            <BaseButton variant="secondary" @click="closePreviewModal">{{
+              t('actions.workspace.previewModal.close')
+            }}</BaseButton>
+            <BaseButton v-if="previewTemplate" @click="openRunFromPreview">{{
+              t('actions.workspace.previewModal.run')
+            }}</BaseButton>
           </div>
         </template>
       </BaseModal>
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'fixed bottom-5 right-5 z-[90] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
-          toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AppLayout>
 </template>
@@ -216,9 +291,11 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import actionsApi from '@/api/actions'
+import { useToast } from '@/composables/useToast'
 
 const router = useRouter()
 const { t } = useI18n()
+const { showToast } = useToast()
 const templates = ref([])
 const loadingTemplates = ref(false)
 const showRunModal = ref(false)
@@ -229,8 +306,6 @@ const runParams = ref({})
 const runtimeProjectIdsText = ref('')
 const runError = ref('')
 const startingRun = ref(false)
-const toast = ref({ show: false, message: '', type: 'success' })
-
 const parameterFields = computed(() => {
   const schema = selectedTemplate.value?.parameter_schema
   return Array.isArray(schema) ? schema.filter((item) => item?.name) : []
@@ -249,21 +324,21 @@ const needsRuntimeProjects = computed(() =>
   )
 )
 
-const previewSteps = computed(() => sortedSteps(previewTemplate.value?.steps || []))
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 2600)
-}
+const previewSteps = computed(() =>
+  sortedSteps(previewTemplate.value?.steps || [])
+)
 
 async function loadTemplates() {
   loadingTemplates.value = true
   try {
     templates.value = await actionsApi.listWorkspaceTemplates()
   } catch (error) {
-    showToast(t('actions.workspace.runModal.toast.loadFailed', { message: error.message || '' }), 'error')
+    showToast(
+      t('actions.workspace.runModal.toast.loadFailed', {
+        message: error.message || ''
+      }),
+      'error'
+    )
   } finally {
     loadingTemplates.value = false
   }
@@ -333,7 +408,9 @@ async function startRun() {
   runError.value = ''
   for (const field of parameterFields.value) {
     if (field.required && !String(runParams.value[field.name] || '').trim()) {
-      runError.value = t('actions.workspace.runModal.errorParamRequired', { field: field.label || field.name })
+      runError.value = t('actions.workspace.runModal.errorParamRequired', {
+        field: field.label || field.name
+      })
       return
     }
   }
@@ -353,7 +430,8 @@ async function startRun() {
     showToast(t('actions.workspace.runModal.toast.started'))
     router.push({ path: '/actions/runs', query: { run: run.id } })
   } catch (error) {
-    runError.value = error.message || t('actions.workspace.runModal.toast.startFailed')
+    runError.value =
+      error.message || t('actions.workspace.runModal.toast.startFailed')
   } finally {
     startingRun.value = false
   }
@@ -363,9 +441,13 @@ function actionTypeText(type) {
   const map = {
     jenkins_trigger: t('actions.runs.actionTypes.jenkins_trigger'),
     gitlab_branch_create: t('actions.runs.actionTypes.gitlab_branch_create'),
-    gitlab_branch_operation: t('actions.runs.actionTypes.gitlab_branch_operation'),
+    gitlab_branch_operation: t(
+      'actions.runs.actionTypes.gitlab_branch_operation'
+    ),
     gitlab_tag_operation: t('actions.runs.actionTypes.gitlab_tag_operation'),
-    gitlab_webhook_operation: t('actions.runs.actionTypes.gitlab_webhook_operation'),
+    gitlab_webhook_operation: t(
+      'actions.runs.actionTypes.gitlab_webhook_operation'
+    ),
     manual_approval: t('actions.runs.actionTypes.manual_approval'),
     conditional_branch: t('actions.runs.actionTypes.conditional_branch')
   }
@@ -375,14 +457,18 @@ function actionTypeText(type) {
 function gitlabOperationText(step) {
   const operation = step.config?.operation || 'create'
   if (step.action_type === 'gitlab_branch_operation') {
-    return {
-      create: t('actions.workspace.operations.create'),
-      protect: t('actions.workspace.operations.protect'),
-      unprotect: t('actions.workspace.operations.unprotect')
-    }[operation] || operation
+    return (
+      {
+        create: t('actions.workspace.operations.create'),
+        protect: t('actions.workspace.operations.protect'),
+        unprotect: t('actions.workspace.operations.unprotect')
+      }[operation] || operation
+    )
   }
-  if (step.action_type === 'gitlab_tag_operation') return t('actions.workspace.operations.tagCreate')
-  if (step.action_type === 'gitlab_webhook_operation') return t('actions.workspace.operations.webhookCreate')
+  if (step.action_type === 'gitlab_tag_operation')
+    return t('actions.workspace.operations.tagCreate')
+  if (step.action_type === 'gitlab_webhook_operation')
+    return t('actions.workspace.operations.webhookCreate')
   return operation
 }
 
@@ -403,51 +489,79 @@ function previewStepSummary(step) {
     })
   }
   if (step.action_type === 'jenkins_trigger') {
-    return config.wait_for_completion ? t('actions.workspace.stepSummary.jenkinsWait') : t('actions.workspace.stepSummary.jenkinsNoWait')
+    return config.wait_for_completion
+      ? t('actions.workspace.stepSummary.jenkinsWait')
+      : t('actions.workspace.stepSummary.jenkinsNoWait')
   }
   if (step.action_type === 'gitlab_branch_create') {
-    const branch = config.branch_name || t('actions.workspace.stepSummary.branchMissing')
+    const branch =
+      config.branch_name || t('actions.workspace.stepSummary.branchMissing')
     const ref = config.ref || t('actions.workspace.stepSummary.refDefault')
     return t('actions.workspace.stepSummary.branch', { branch, ref })
   }
   if (step.action_type === 'gitlab_branch_operation') {
-    const branch = config.branch_name || t('actions.workspace.stepSummary.branchMissing')
+    const branch =
+      config.branch_name || t('actions.workspace.stepSummary.branchMissing')
     const isCreate = (config.operation || 'create') === 'create'
-    const refPart = isCreate ? t('actions.workspace.stepSummary.branch', { branch: '', ref: config.ref || t('actions.workspace.stepSummary.refDefault') }) : ''
-    return t('actions.workspace.stepSummary.branchOperation', { operation: gitlabOperationText(step), branch, ref: refPart })
+    const refPart = isCreate
+      ? t('actions.workspace.stepSummary.branch', {
+          branch: '',
+          ref: config.ref || t('actions.workspace.stepSummary.refDefault')
+        })
+      : ''
+    return t('actions.workspace.stepSummary.branchOperation', {
+      operation: gitlabOperationText(step),
+      branch,
+      ref: refPart
+    })
   }
   if (step.action_type === 'gitlab_tag_operation') {
-    return t('actions.workspace.stepSummary.tagCreate', { tag: config.tag_name || t('actions.workspace.stepSummary.tagMissing'), ref: config.ref || t('actions.workspace.stepSummary.refDefault') })
+    return t('actions.workspace.stepSummary.tagCreate', {
+      tag: config.tag_name || t('actions.workspace.stepSummary.tagMissing'),
+      ref: config.ref || t('actions.workspace.stepSummary.refDefault')
+    })
   }
   if (step.action_type === 'gitlab_webhook_operation') {
-    return t('actions.workspace.stepSummary.webhookCreate', { url: config.url || t('actions.workspace.stepSummary.urlMissing') })
+    return t('actions.workspace.stepSummary.webhookCreate', {
+      url: config.url || t('actions.workspace.stepSummary.urlMissing')
+    })
   }
   if (step.action_type === 'manual_approval') {
     const userCount = (config.approver_user_ids || []).length
     const groupCount = (config.approver_group_ids || []).length
-    return t('actions.workspace.stepSummary.approverSummary', { userCount, groupCount })
+    return t('actions.workspace.stepSummary.approverSummary', {
+      userCount,
+      groupCount
+    })
   }
   return t('actions.workspace.stepSummary.unknown')
 }
 
 function branchConditionText(branch) {
   const condition = branch?.condition || {}
-  if (!condition.param) return t('actions.workspace.stepSummary.conditionMissing')
+  if (!condition.param)
+    return t('actions.workspace.stepSummary.conditionMissing')
   if (condition.operator === 'is_empty') return `${condition.param} is empty`
-  if (condition.operator === 'is_not_empty') return `${condition.param} is not empty`
-  const operatorText = {
-    equals: '=',
-    not_equals: '!=',
-    contains: 'contains'
-  }[condition.operator || 'equals'] || condition.operator
+  if (condition.operator === 'is_not_empty')
+    return `${condition.param} is not empty`
+  const operatorText =
+    {
+      equals: '=',
+      not_equals: '!=',
+      contains: 'contains'
+    }[condition.operator || 'equals'] || condition.operator
   return `${condition.param} ${operatorText} ${condition.value || ''}`
 }
 
 function branchNestedStepNames(branch) {
   const names = (branch?.steps || [])
-    .map((nestedStep) => nestedStep.name || actionTypeText(nestedStep.action_type))
+    .map(
+      (nestedStep) => nestedStep.name || actionTypeText(nestedStep.action_type)
+    )
     .filter(Boolean)
-  return names.length ? names.join(', ') : t('actions.workspace.stepSummary.unknown')
+  return names.length
+    ? names.join(', ')
+    : t('actions.workspace.stepSummary.unknown')
 }
 
 onMounted(() => {
@@ -557,5 +671,4 @@ onMounted(() => {
   color: #94a3b8;
   font-size: 0.75rem;
 }
-
 </style>

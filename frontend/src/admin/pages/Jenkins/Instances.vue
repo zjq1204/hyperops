@@ -1,9 +1,6 @@
 <template>
   <AdminLayout>
-    <PageFrame
-      variant="soft"
-      :title="t('adminPages.jenkinsInstances.title')"
-    >
+    <PageFrame variant="soft" :title="t('adminPages.jenkinsInstances.title')">
       <template #actions>
         <BaseButton @click="openCreateModal">{{
           t('adminPages.jenkinsInstances.add')
@@ -48,6 +45,15 @@
               class="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500"
             ></div>
           </div>
+        </section>
+
+        <section v-else-if="pageError" class="admin-workbench-panel">
+          <PageErrorState
+            :message="pageError.message"
+            :request-id="pageError.requestId"
+            :retryable="pageError.retryable"
+            @retry="loadInstances"
+          />
         </section>
 
         <section
@@ -152,6 +158,25 @@
                 </div>
               </div>
             </div>
+
+            <InlineAlert
+              v-if="instanceErrors[instance.id]"
+              :variant="
+                instanceErrors[instance.id].warning ? 'warning' : 'error'
+              "
+              :title="t('adminPages.jenkinsInstances.refreshErrorTitle')"
+              :message="instanceErrors[instance.id].message"
+              :request-id="instanceErrors[instance.id].requestId"
+            >
+              <template #actions>
+                <button type="button" @click="editInstance(instance)">
+                  {{ t('adminPages.jenkinsInstances.edit') }}
+                </button>
+                <button type="button" @click="refreshJobCache(instance)">
+                  {{ t('common.tryAgain') }}
+                </button>
+              </template>
+            </InlineAlert>
 
             <div class="admin-instance-actions">
               <button
@@ -288,6 +313,13 @@
       >
         <form @submit.prevent="saveInstance">
           <div class="admin-modal-stack">
+            <InlineAlert
+              v-if="modalError"
+              :title="t('common.error')"
+              :message="modalError.message"
+              :request-id="modalError.requestId"
+            />
+
             <div>
               <label class="admin-modal-field-label">
                 {{ t('adminPages.jenkinsInstances.nameLabel') }}
@@ -311,9 +343,7 @@
                 v-model="instanceForm.url"
                 type="url"
                 required
-                :placeholder="
-                  t('adminPages.jenkinsInstances.urlPlaceholder')
-                "
+                :placeholder="t('adminPages.jenkinsInstances.urlPlaceholder')"
                 class="admin-modal-control"
               />
             </div>
@@ -358,9 +388,7 @@
                 v-model="instanceForm.token"
                 type="password"
                 :required="!editingInstance"
-                :placeholder="
-                  t('adminPages.jenkinsInstances.tokenPlaceholder')
-                "
+                :placeholder="t('adminPages.jenkinsInstances.tokenPlaceholder')"
                 class="admin-modal-control"
               />
             </div>
@@ -439,18 +467,6 @@
         @close="closeConfirmDialog"
         @confirm="runConfirmedAction"
       />
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'admin-toast',
-          toast.type === 'success'
-            ? 'admin-toast--success'
-            : 'admin-toast--error'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AdminLayout>
 </template>
@@ -464,9 +480,13 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import InlineAlert from '@/components/ui/InlineAlert.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import PageErrorState from '@/components/ui/PageErrorState.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
+import { useToast } from '@/composables/useToast'
 import jenkinsApi from '@/api/jenkins'
+import { normalizeApiError } from '@/utils/apiError'
 
 const { t, locale } = useI18n()
 const {
@@ -475,6 +495,7 @@ const {
   closeConfirmDialog,
   runConfirmedAction
 } = useConfirmDialog()
+const { showSuccess, showError } = useToast()
 
 const instances = ref([])
 const showInstanceModal = ref(false)
@@ -486,6 +507,9 @@ const testingDraftConnection = ref(false)
 const draftConnectionVerified = ref(false)
 const draftConnectionMessage = ref('')
 const lastVerifiedSignature = ref('')
+const pageError = ref(null)
+const modalError = ref(null)
+const instanceErrors = ref({})
 
 const instanceForm = ref({
   name: '',
@@ -495,8 +519,6 @@ const instanceForm = ref({
   job_catalog_cache_ttl_days: 1,
   is_active: true
 })
-
-const toast = ref({ show: false, message: '', type: 'success' })
 
 const canTestDraftConnection = computed(() => {
   if (!instanceForm.value.url || !instanceForm.value.username) return false
@@ -514,13 +536,6 @@ const filteredInstances = computed(() => {
   )
 })
 
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 3000)
-}
-
 function formatCacheFetchedAt(dateStr) {
   if (!dateStr) return t('adminPages.jenkinsInstances.cacheNeverFetched')
   const date = new Date(dateStr)
@@ -536,13 +551,15 @@ function formatCacheFetchedAt(dateStr) {
 
 async function loadInstances() {
   loading.value = true
+  pageError.value = null
   try {
     instances.value = await jenkinsApi.listInstances()
   } catch (e) {
-    showToast(
-      t('adminPages.jenkinsInstances.toast.loadFailed', { message: e.message }),
-      'error'
-    )
+    pageError.value = normalizeApiError(e, {
+      fallbackMessage: t('adminPages.jenkinsInstances.toast.loadFailed', {
+        message: ''
+      })
+    })
   } finally {
     loading.value = false
   }
@@ -554,6 +571,7 @@ function editInstance(instance) {
   draftConnectionVerified.value = false
   draftConnectionMessage.value = ''
   lastVerifiedSignature.value = ''
+  modalError.value = null
   showInstanceModal.value = true
 }
 
@@ -570,6 +588,7 @@ function openCreateModal() {
   draftConnectionVerified.value = false
   draftConnectionMessage.value = ''
   lastVerifiedSignature.value = ''
+  modalError.value = null
   showInstanceModal.value = true
 }
 
@@ -587,32 +606,38 @@ function closeInstanceModal() {
   draftConnectionVerified.value = false
   draftConnectionMessage.value = ''
   lastVerifiedSignature.value = ''
+  modalError.value = null
 }
 
 async function saveInstance() {
   if (!draftConnectionVerified.value) {
-    showToast(t('adminPages.jenkinsInstances.toast.testBeforeSave'), 'error')
+    modalError.value = normalizeApiError(
+      new Error(t('adminPages.jenkinsInstances.toast.testBeforeSave')),
+      { retryable: false }
+    )
     return
   }
 
+  modalError.value = null
   try {
     if (editingInstance.value) {
       await jenkinsApi.updateInstance(
         editingInstance.value.id,
         instanceForm.value
       )
-      showToast(t('adminPages.jenkinsInstances.toast.updated'))
+      showSuccess(t('adminPages.jenkinsInstances.toast.updated'))
     } else {
       await jenkinsApi.createInstance(instanceForm.value)
-      showToast(t('adminPages.jenkinsInstances.toast.created'))
+      showSuccess(t('adminPages.jenkinsInstances.toast.created'))
     }
     closeInstanceModal()
     loadInstances()
   } catch (e) {
-    showToast(
-      t('adminPages.jenkinsInstances.toast.saveFailed', { message: e.message }),
-      'error'
-    )
+    modalError.value = normalizeApiError(e, {
+      fallbackMessage: t('adminPages.jenkinsInstances.toast.saveFailed', {
+        message: ''
+      })
+    })
   }
 }
 
@@ -627,14 +652,15 @@ function getDraftSignature() {
 
 async function validateDraftConnection() {
   if (!canTestDraftConnection.value) {
-    showToast(
-      t('adminPages.jenkinsInstances.toast.fillConnectionFields'),
-      'error'
+    modalError.value = normalizeApiError(
+      new Error(t('adminPages.jenkinsInstances.toast.fillConnectionFields')),
+      { retryable: false }
     )
     return
   }
 
   testingDraftConnection.value = true
+  modalError.value = null
   try {
     await jenkinsApi.validateConnection({
       url: instanceForm.value.url,
@@ -647,17 +673,18 @@ async function validateDraftConnection() {
     draftConnectionMessage.value = t(
       'adminPages.jenkinsInstances.connectionVerified'
     )
-    showToast(t('adminPages.jenkinsInstances.toast.testSucceeded'))
+    showSuccess(t('adminPages.jenkinsInstances.toast.testSucceeded'))
   } catch (e) {
     draftConnectionVerified.value = false
     lastVerifiedSignature.value = ''
     draftConnectionMessage.value = t(
       'adminPages.jenkinsInstances.connectionFailed'
     )
-    showToast(
-      t('adminPages.jenkinsInstances.toast.testFailed', { message: e.message }),
-      'error'
-    )
+    modalError.value = normalizeApiError(e, {
+      fallbackMessage: t('adminPages.jenkinsInstances.toast.testFailed', {
+        message: ''
+      })
+    })
   } finally {
     testingDraftConnection.value = false
   }
@@ -665,29 +692,43 @@ async function validateDraftConnection() {
 
 async function refreshJobCache(instance) {
   refreshingInstanceId.value = instance.id
+  const nextErrors = { ...instanceErrors.value }
+  delete nextErrors[instance.id]
+  instanceErrors.value = nextErrors
   try {
     const data = await jenkinsApi.listJobs(instance.id, { forceRefresh: true })
     const count = Array.isArray(data.jobs) ? data.jobs.length : 0
     instance.job_catalog_cache_fetched_at =
       data.fetched_at || instance.job_catalog_cache_fetched_at || null
     if (data.warning) {
-      showToast(data.warning, 'error')
+      instanceErrors.value = {
+        ...instanceErrors.value,
+        [instance.id]: {
+          message: data.warning,
+          requestId: data.request_id || '',
+          code: data.warning_code || 'JENKINS_REQUEST_FAILED',
+          retryable: true,
+          warning: true
+        }
+      }
       return
     }
-    showToast(
+    showSuccess(
       t('adminPages.jenkinsInstances.toast.refreshJobsSucceeded', {
         name: instance.name,
         count
       })
     )
   } catch (e) {
-    showToast(
-      t('adminPages.jenkinsInstances.toast.refreshJobsFailed', {
-        name: instance.name,
-        message: e.message
-      }),
-      'error'
-    )
+    instanceErrors.value = {
+      ...instanceErrors.value,
+      [instance.id]: normalizeApiError(e, {
+        fallbackMessage: t(
+          'adminPages.jenkinsInstances.toast.refreshJobsFailed',
+          { name: instance.name, message: '' }
+        )
+      })
+    }
   } finally {
     refreshingInstanceId.value = null
   }
@@ -703,15 +744,14 @@ async function deleteInstance(instance) {
     onConfirm: async () => {
       try {
         await jenkinsApi.deleteInstance(instance.id)
-        showToast(t('adminPages.jenkinsInstances.toast.deleteSucceeded'))
+        showSuccess(t('adminPages.jenkinsInstances.toast.deleteSucceeded'))
         loadInstances()
       } catch (e) {
-        showToast(
-          t('adminPages.jenkinsInstances.toast.deleteFailed', {
-            message: e.message
-          }),
-          'error'
-        )
+        showError(e, 6000, {
+          fallbackMessage: t('adminPages.jenkinsInstances.toast.deleteFailed', {
+            message: ''
+          })
+        })
       }
     }
   })
@@ -727,6 +767,7 @@ watch(
     const currentSignature = getDraftSignature()
     if (currentSignature !== lastVerifiedSignature.value) {
       draftConnectionVerified.value = false
+      modalError.value = null
       draftConnectionMessage.value =
         currentSignature ===
         JSON.stringify({

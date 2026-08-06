@@ -193,6 +193,26 @@ export const adminRoutes = [
     }
   },
   {
+    path: '/management/monitoring/probes/nodes',
+    name: 'AdminMonitoringProbeNodes',
+    component: () => import('@/admin/pages/Monitoring/ProbeSettings.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/probes/settings',
+    name: 'AdminMonitoringProbeSettings',
+    component: () => import('@/admin/pages/Monitoring/ProbeSettings.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
     path: '/management/monitoring/blackbox',
     name: 'AdminMonitoringBlackbox',
     component: () => import('@/admin/pages/Monitoring/BlackboxInstances.vue'),

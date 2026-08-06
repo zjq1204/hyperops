@@ -56,7 +56,7 @@ Ansible connection path and avoids another version-sensitive plugin dependency.
   "current": 1,
   "total": 6,
   "percent": 0,
-  "message": "queued",
+  "reason_code": "queued",
   "current_host": "",
   "updated_at": "2026-07-31T00:00:00Z"
 }

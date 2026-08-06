@@ -1,67 +1,109 @@
 <template>
   <AdminLayout>
-    <PageFrame
-      variant="soft"
-      :title="t('adminPages.monitoring.assetsTitle')"
-    >
+    <PageFrame variant="soft" :title="t('adminPages.monitoring.assetsTitle')">
       <AdminListSection>
-        <template #filterFields>
-          <label class="admin-filter-field min-w-[11.5rem]">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.alignmentStatus') }}</span>
-            <select v-model="filters.alignmentStatus" class="admin-filter-control">
-              <option value="all">{{ t('common.all') }}</option>
-              <option value="n9e_missing">{{ t('adminPages.monitoring.n9eNotVisible') }}</option>
-              <option value="categraf_missing">{{ t('adminPages.monitoring.categoryCategrafNotInstalled') }}</option>
-              <option value="prometheus_missing">{{ t('adminPages.monitoring.categoryHostNotScrapedByPrometheus') }}</option>
-            </select>
-          </label>
-          <label class="admin-filter-field min-w-[11.5rem]">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.categrafStatus') }}</span>
-            <select v-model="filters.categrafStatus" class="admin-filter-control">
-              <option value="all">{{ t('common.all') }}</option>
-              <option value="unknown">{{ t('adminPages.monitoring.installStatusNotInstalled') }}</option>
-              <option value="installing">{{ t('adminPages.monitoring.statusInstalling') }}</option>
-              <option value="success">{{ t('adminPages.monitoring.statusSuccess') }}</option>
-              <option value="failed">{{ t('adminPages.monitoring.statusFailed') }}</option>
-            </select>
-          </label>
-          <label class="admin-filter-field min-w-[11.5rem]">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.blackboxStatus') }}</span>
-            <select v-model="filters.blackboxStatus" class="admin-filter-control">
-              <option value="all">{{ t('common.all') }}</option>
-              <option value="unknown">{{ t('adminPages.monitoring.installStatusNotInstalled') }}</option>
-              <option value="installing">{{ t('adminPages.monitoring.statusInstalling') }}</option>
-              <option value="success">{{ t('adminPages.monitoring.statusSuccess') }}</option>
-              <option value="failed">{{ t('adminPages.monitoring.statusFailed') }}</option>
-            </select>
-          </label>
+        <template #toolbar>
+          <div class="flex w-full flex-wrap items-center justify-between gap-3">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <label class="min-w-[13rem] flex-1 sm:max-w-xs">
+                <span class="sr-only">{{
+                  t('adminPages.monitoring.assetSearch')
+                }}</span>
+                <input
+                  v-model="filters.query"
+                  class="admin-filter-control"
+                  :placeholder="
+                    t('adminPages.monitoring.assetSearchPlaceholder')
+                  "
+                />
+              </label>
+              <label class="min-w-[10rem]">
+                <span class="sr-only">{{
+                  t('adminPages.monitoring.assetScope')
+                }}</span>
+                <select v-model="filters.scope" class="admin-filter-control">
+                  <option value="all">{{ t('common.all') }}</option>
+                  <option value="needs_attention">
+                    {{ t('adminPages.monitoring.scopeNeedsAttention') }}
+                  </option>
+                  <option value="healthy">
+                    {{ t('adminPages.monitoring.scopeHealthy') }}
+                  </option>
+                  <option value="ssh_issue">
+                    {{ t('adminPages.monitoring.scopeSshIssue') }}
+                  </option>
+                  <option value="collection_issue">
+                    {{ t('adminPages.monitoring.scopeCollectionIssue') }}
+                  </option>
+                </select>
+              </label>
+              <span class="text-xs font-medium text-slate-500">
+                {{ assetListSummary }}
+              </span>
+              <span
+                v-if="selectedHostIds.length"
+                class="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700"
+              >
+                {{
+                  t('adminPages.monitoring.selectedHostCount', {
+                    count: selectedHostIds.length
+                  })
+                }}
+                <button
+                  type="button"
+                  class="text-blue-500 hover:text-blue-800"
+                  @click="clearSelection"
+                >
+                  {{ t('common.clear') }}
+                </button>
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <BaseButton
+                variant="outline"
+                size="sm"
+                :loading="loading"
+                :aria-label="t('common.refresh')"
+                :title="t('common.refresh')"
+                @click="load"
+              >
+                <span aria-hidden="true" class="text-base leading-none">↻</span>
+              </BaseButton>
+              <BaseButton
+                variant="primary"
+                size="sm"
+                @click="openBulkInstallChooser"
+              >
+                {{ t('adminPages.monitoring.installCategraf') }}
+              </BaseButton>
+              <BaseButton variant="outline" size="sm" @click="openCreateHost">
+                {{ t('adminPages.monitoring.addHost') }}
+              </BaseButton>
+            </div>
+          </div>
         </template>
-        <template #toolbarEnd>
-          <BaseButton variant="outline" size="sm" :loading="loading" @click="load">
-            {{ t('common.refresh') }}
+        <div
+          v-if="error && hosts.length"
+          class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <span>{{ t('adminPages.monitoring.refreshPreservedError') }}</span>
+          <BaseButton variant="ghost" size="sm" @click="load">
+            {{ t('adminPages.monitoring.retryLoad') }}
           </BaseButton>
-          <span class="inline-flex min-h-9 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-600">
-            {{ t('adminPages.monitoring.selectedHostCount', { count: selectedHostIds.length }) }}
-          </span>
-          <BaseButton
-            variant="outline"
-            size="sm"
-            :disabled="!selectedHostIds.length"
-            @click="openBulkInstallChooser"
-          >
-            {{ t('adminPages.monitoring.installComponents') }}
-          </BaseButton>
-          <BaseButton variant="primary" size="sm" @click="openCreateHost">
-            {{ t('adminPages.monitoring.addHost') }}
-          </BaseButton>
-        </template>
-        <AdminPageState :loading="loading" :error="error" :empty="false">
+        </div>
+        <AdminPageState
+          :loading="loading && !hosts.length"
+          :error="hosts.length ? '' : error"
+          :empty="false"
+        >
           <section class="grid gap-4">
             <section
               v-if="discoveredAssets.length"
               class="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm"
             >
-              <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div
+                class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
+              >
                 <div class="min-w-0">
                   <h2 class="text-sm font-semibold text-slate-900">
                     {{ t('adminPages.monitoring.discoveredAssets') }}
@@ -84,10 +126,18 @@
               <div class="mt-4 overflow-x-auto">
                 <table class="min-w-full text-left text-sm">
                   <thead>
-                    <tr class="border-b border-slate-100 text-xs font-semibold text-slate-500">
-                      <th class="py-2 pr-4">{{ t('adminPages.monitoring.source') }}</th>
-                      <th class="py-2 pr-4">{{ t('adminPages.monitoring.hostname') }}</th>
-                      <th class="py-2 pr-4">{{ t('adminPages.monitoring.address') }}</th>
+                    <tr
+                      class="border-b border-slate-100 text-xs font-semibold text-slate-500"
+                    >
+                      <th class="py-2 pr-4">
+                        {{ t('adminPages.monitoring.source') }}
+                      </th>
+                      <th class="py-2 pr-4">
+                        {{ t('adminPages.monitoring.hostname') }}
+                      </th>
+                      <th class="py-2 pr-4">
+                        {{ t('adminPages.monitoring.address') }}
+                      </th>
                       <th class="py-2 pr-4">{{ t('common.status') }}</th>
                       <th class="py-2 pr-4">{{ t('common.actions') }}</th>
                     </tr>
@@ -111,7 +161,9 @@
                       </td>
                       <td class="py-3 pr-4 text-slate-600">
                         {{ asset.address || t('common.emptyValue') }}
-                        <span v-if="asset.port" class="text-slate-400">:{{ asset.port }}</span>
+                        <span v-if="asset.port" class="text-slate-400"
+                          >:{{ asset.port }}</span
+                        >
                       </td>
                       <td class="py-3 pr-4 text-slate-500">
                         {{ discoveredStatusText(asset) }}
@@ -121,7 +173,9 @@
                           variant="outline"
                           size="sm"
                           :disabled="!asset.can_import"
-                          :loading="importingAssetKey === `${asset.source}:${asset.key}`"
+                          :loading="
+                            importingAssetKey === `${asset.source}:${asset.key}`
+                          "
                           @click="importDiscoveredAsset(asset)"
                         >
                           {{ t('adminPages.monitoring.importToHyperOps') }}
@@ -133,15 +187,36 @@
               </div>
             </section>
 
-            <AdminTable>
+            <AdminTable class="asset-status-table">
               <thead>
                 <tr>
-                  <th class="admin-table-head"></th>
-                  <th class="admin-table-head">{{ t('adminPages.monitoring.hostname') }}</th>
-                  <th class="admin-table-head">{{ t('adminPages.monitoring.address') }}</th>
-                  <th class="admin-table-head">{{ t('adminPages.monitoring.componentCategraf') }}</th>
-                  <th class="admin-table-head">{{ t('adminPages.monitoring.componentBlackbox') }}</th>
-                  <th class="admin-table-head">{{ t('common.actions') }}</th>
+                  <th rowspan="2" class="admin-table-head w-10"></th>
+                  <th rowspan="2" class="admin-table-head min-w-[10.5rem]">
+                    {{ t('adminPages.monitoring.hostIdentity') }}
+                  </th>
+                  <th rowspan="2" class="admin-table-head min-w-[6.5rem]">
+                    {{ t('adminPages.monitoring.connectionStatus') }}
+                  </th>
+                  <th
+                    colspan="2"
+                    class="admin-table-head text-center normal-case tracking-normal"
+                  >
+                    {{ t('adminPages.monitoring.componentCategraf') }}
+                  </th>
+                  <th
+                    rowspan="2"
+                    class="admin-table-head min-w-[7.5rem] text-right"
+                  >
+                    {{ t('common.actions') }}
+                  </th>
+                </tr>
+                <tr>
+                  <th class="admin-table-head min-w-[6rem] text-center">
+                    {{ t('adminPages.monitoring.installStatus') }}
+                  </th>
+                  <th class="admin-table-head min-w-[6rem] text-center">
+                    {{ t('adminPages.monitoring.serviceStatus') }}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -150,7 +225,11 @@
                     {{ t('common.noData') }}
                   </td>
                 </tr>
-                <tr v-for="host in filteredHosts" :key="host.id" class="admin-table-row align-top">
+                <tr
+                  v-for="host in filteredHosts"
+                  :key="host.id"
+                  class="admin-table-row align-middle"
+                >
                   <td class="admin-table-cell">
                     <input
                       type="checkbox"
@@ -158,72 +237,73 @@
                       @change="toggleHost(host.id, $event.target.checked)"
                     />
                   </td>
-                  <td class="admin-table-cell font-medium text-slate-900">{{ host.hostname }}</td>
-                  <td class="admin-table-cell text-slate-600">
-                    {{ host.address }}
-                    <p class="mt-1 text-xs text-slate-400">
-                      {{ host.ssh_user || 'root' }}:{{ host.ssh_port || 22 }}
-                      <span> / {{ sshAuthText(host) }}</span>
-                    </p>
-                  </td>
                   <td class="admin-table-cell">
-                    <div class="grid gap-1.5">
-                      <span
-                        v-for="finding in hostComponentFindings(host, 'categraf')"
-                        :key="finding.id"
-                        class="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
+                    <div
+                      class="w-[10rem] max-w-full truncate whitespace-nowrap"
+                      :title="`${host.hostname} · ${host.address}`"
+                    >
+                      <span class="font-semibold text-slate-900">{{
+                        host.hostname
+                      }}</span>
+                      <span class="ml-1 text-xs text-slate-500"
+                        >· {{ host.address }}</span
                       >
-                        {{ hostComponentFindingLabel(finding, 'categraf') }}
-                      </span>
-                      <span
-                        v-if="shouldShowComponentStatus(host, 'categraf')"
-                        class="inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold"
-                        :class="componentDisplayClass(host, 'categraf')"
-                        :title="componentDisplayTitle(host, 'categraf')"
-                      >
-                        {{ componentDisplayText(host, 'categraf') }}
-                      </span>
-                      <router-link
-                        v-if="statusFor(host, 'categraf').last_job_id"
-                        class="text-xs font-medium text-slate-500 hover:text-slate-900"
-                        to="/management/monitoring/jobs"
-                      >
-                        #{{ statusFor(host, 'categraf').last_job_id }}
-                      </router-link>
                     </div>
                   </td>
-                  <td class="admin-table-cell">
-                    <div class="grid gap-1.5">
-                      <span
-                        v-for="finding in hostComponentFindings(host, 'blackbox')"
-                        :key="finding.id"
-                        class="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
-                      >
-                        {{ hostComponentFindingLabel(finding, 'blackbox') }}
-                      </span>
-                      <span
-                        v-if="shouldShowComponentStatus(host, 'blackbox')"
-                        class="inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold"
-                        :class="componentDisplayClass(host, 'blackbox')"
-                        :title="componentDisplayTitle(host, 'blackbox')"
-                      >
-                        {{ componentDisplayText(host, 'blackbox') }}
-                      </span>
-                      <router-link
-                        v-if="statusFor(host, 'blackbox').last_job_id"
-                        class="text-xs font-medium text-slate-500 hover:text-slate-900"
-                        to="/management/monitoring/jobs"
-                      >
-                        #{{ statusFor(host, 'blackbox').last_job_id }}
-                      </router-link>
-                    </div>
+                  <td
+                    class="admin-table-cell"
+                    :title="connectionStateTitle(host.ssh_verification)"
+                  >
+                    <span
+                      class="inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-xs font-semibold"
+                      :class="connectionStateClass(host.ssh_verification)"
+                    >
+                      <span class="h-1.5 w-1.5 rounded-full bg-current" />
+                      {{ connectionStateText(host.ssh_verification) }}
+                    </span>
                   </td>
-                  <td class="admin-table-cell">
-                    <div class="admin-row-actions">
-                      <BaseButton variant="outline" size="sm" @click="editHost(host)">
+                  <td
+                    class="admin-table-cell text-center"
+                    :title="componentStateTitle(host.collection_state)"
+                  >
+                    <span
+                      class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-xs font-semibold"
+                      :class="componentInstallationClass(host.collection_state)"
+                    >
+                      <span class="h-1.5 w-1.5 rounded-full bg-current" />
+                      {{ componentInstallationText(host.collection_state) }}
+                    </span>
+                  </td>
+                  <td
+                    class="admin-table-cell text-center"
+                    :title="componentStateTitle(host.collection_state)"
+                  >
+                    <span
+                      v-if="componentRuntimeVisible(host.collection_state)"
+                      class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold"
+                      :class="componentRuntimeClass(host.collection_state)"
+                    >
+                      <span class="h-1.5 w-1.5 rounded-full bg-current" />
+                      {{ componentRuntimeText(host.collection_state) }}
+                    </span>
+                    <span v-else class="text-xs text-slate-300">—</span>
+                  </td>
+                  <td class="admin-table-cell text-right">
+                    <div
+                      class="admin-row-actions flex-nowrap justify-end whitespace-nowrap"
+                    >
+                      <BaseButton
+                        variant="outline"
+                        size="sm"
+                        @click="editHost(host)"
+                      >
                         {{ t('common.edit') }}
                       </BaseButton>
-                      <BaseButton variant="ghost" size="sm" @click="deleteHost(host)">
+                      <BaseButton
+                        variant="ghost"
+                        size="sm"
+                        @click="deleteHost(host)"
+                      >
                         {{ t('common.delete') }}
                       </BaseButton>
                     </div>
@@ -238,39 +318,60 @@
 
     <BaseModal
       :show="showHostForm"
-      :title="form.id ? t('adminPages.monitoring.editHost') : t('adminPages.monitoring.addHost')"
+      :title="
+        form.id
+          ? t('adminPages.monitoring.editHost')
+          : t('adminPages.monitoring.addHost')
+      "
       size="md"
       @close="closeHostForm"
     >
       <form class="grid gap-4" @submit.prevent="saveHost">
         <div class="grid gap-3 sm:grid-cols-2">
           <label class="admin-filter-field">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.hostname') }}</span>
+            <span class="admin-filter-label">{{
+              t('adminPages.monitoring.hostname')
+            }}</span>
             <input v-model="form.hostname" class="admin-filter-control" />
           </label>
           <label class="admin-filter-field">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.address') }}</span>
+            <span class="admin-filter-label">{{
+              t('adminPages.monitoring.address')
+            }}</span>
             <input v-model="form.address" class="admin-filter-control" />
           </label>
           <label class="admin-filter-field">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.sshUser') }}</span>
+            <span class="admin-filter-label">{{
+              t('adminPages.monitoring.sshUser')
+            }}</span>
             <input v-model="form.sshUser" class="admin-filter-control" />
           </label>
           <label class="admin-filter-field">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.sshPort') }}</span>
+            <span class="admin-filter-label">{{
+              t('adminPages.monitoring.sshPort')
+            }}</span>
             <input v-model.number="form.sshPort" class="admin-filter-control" />
           </label>
         </div>
-        <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+        <section
+          data-host-connection-section
+          class="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+        >
           <div class="flex flex-wrap items-center justify-between gap-3">
             <p class="text-sm font-semibold text-slate-900">
               {{ t('adminPages.monitoring.sshAuthMethod') }}
             </p>
-            <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+            <div
+              class="inline-flex rounded-lg border border-slate-200 bg-white p-1"
+            >
               <button
                 type="button"
                 class="rounded-md px-3 py-1.5 text-sm font-semibold transition"
-                :class="form.sshAuthType === 'password' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'"
+                :class="
+                  form.sshAuthType === 'password'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900'
+                "
                 @click="form.sshAuthType = 'password'"
               >
                 {{ t('adminPages.monitoring.sshAuthPassword') }}
@@ -278,7 +379,11 @@
               <button
                 type="button"
                 class="rounded-md px-3 py-1.5 text-sm font-semibold transition"
-                :class="form.sshAuthType === 'key' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'"
+                :class="
+                  form.sshAuthType === 'key'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900'
+                "
                 @click="form.sshAuthType = 'key'"
               >
                 {{ t('adminPages.monitoring.sshAuthKey') }}
@@ -290,7 +395,10 @@
             <label class="admin-filter-field">
               <span class="admin-filter-label">
                 {{ t('adminPages.monitoring.sshPassword') }}
-                <span v-if="form.id && form.hasSshPassword" class="ml-2 text-xs font-normal text-emerald-600">
+                <span
+                  v-if="form.id && form.hasSshPassword"
+                  class="ml-2 text-xs font-normal text-emerald-600"
+                >
                   {{ t('adminPages.monitoring.passwordConfigured') }}
                 </span>
               </span>
@@ -298,29 +406,48 @@
                 v-model="form.sshPassword"
                 type="password"
                 class="admin-filter-control"
-                :placeholder="form.id && form.hasSshPassword ? t('adminPages.monitoring.passwordKeepHint') : ''"
+                :placeholder="
+                  form.id && form.hasSshPassword
+                    ? t('adminPages.monitoring.passwordKeepHint')
+                    : ''
+                "
               />
             </label>
           </div>
 
           <div v-else class="mt-4 grid gap-4">
             <label class="admin-filter-field">
-              <span class="admin-filter-label">{{ t('adminPages.monitoring.savedSshKey') }}</span>
+              <span class="admin-filter-label">{{
+                t('adminPages.monitoring.savedSshKey')
+              }}</span>
               <select v-model="form.sshKeyId" class="admin-filter-control">
-                <option value="">{{ t('adminPages.monitoring.selectSshKey') }}</option>
+                <option value="">
+                  {{ t('adminPages.monitoring.selectSshKey') }}
+                </option>
                 <option v-for="key in sshKeys" :key="key.id" :value="key.id">
                   {{ key.name }}
                 </option>
               </select>
             </label>
-            <div class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3">
-              <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div
+              class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3"
+            >
+              <div
+                class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+              >
                 <label class="admin-filter-field">
-                  <span class="admin-filter-label">{{ t('adminPages.monitoring.sshKeyName') }}</span>
-                  <input v-model="form.sshKeyUploadName" class="admin-filter-control" />
+                  <span class="admin-filter-label">{{
+                    t('adminPages.monitoring.sshKeyName')
+                  }}</span>
+                  <input
+                    v-model="form.sshKeyUploadName"
+                    class="admin-filter-control"
+                  />
                 </label>
                 <label class="admin-filter-field">
-                  <span class="admin-filter-label">{{ t('adminPages.monitoring.uploadSshKey') }}</span>
+                  <span class="admin-filter-label">{{
+                    t('adminPages.monitoring.uploadSshKey')
+                  }}</span>
                   <input
                     type="file"
                     class="admin-filter-control"
@@ -329,7 +456,9 @@
                   />
                 </label>
               </div>
-              <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div
+                class="mt-3 flex flex-wrap items-center justify-between gap-3"
+              >
                 <p class="text-xs text-slate-500">
                   {{ t('adminPages.monitoring.sshKeyUploadHint') }}
                 </p>
@@ -337,7 +466,9 @@
                   variant="outline"
                   type="button"
                   size="sm"
-                  :disabled="!form.sshKeyUploadName || !form.sshKeyUploadContent"
+                  :disabled="
+                    !form.sshKeyUploadName || !form.sshKeyUploadContent
+                  "
                   :loading="uploadingSshKey"
                   @click="uploadSshKey"
                 >
@@ -347,11 +478,44 @@
             </div>
           </div>
         </section>
+        <div
+          class="flex flex-col gap-3 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          :class="hostConnectionStatusClass"
+        >
+          <div class="min-w-0">
+            <p class="flex items-center gap-2 text-sm font-semibold">
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+              {{ hostConnectionStatusText }}
+            </p>
+            <p
+              v-if="hostConnectionMessage"
+              class="mt-1 text-xs leading-5 opacity-80"
+            >
+              {{ hostConnectionMessage }}
+            </p>
+          </div>
+          <BaseButton
+            class="shrink-0"
+            variant="outline"
+            type="button"
+            size="sm"
+            :disabled="!canTestHostConnection"
+            :loading="testingHostConnection"
+            @click="testHostConnection"
+          >
+            {{ t('adminPages.monitoring.testSshConnection') }}
+          </BaseButton>
+        </div>
         <div class="flex flex-wrap justify-end gap-2 pt-2">
           <BaseButton variant="outline" type="button" @click="closeHostForm">
             {{ t('common.cancel') }}
           </BaseButton>
-          <BaseButton variant="primary" type="submit" :loading="saving">
+          <BaseButton
+            variant="primary"
+            type="submit"
+            :disabled="saving || !isHostConnectionVerified"
+            :loading="saving"
+          >
             {{ t('common.save') }}
           </BaseButton>
         </div>
@@ -360,23 +524,54 @@
 
     <BaseModal
       :show="showBulkInstallChooser"
-      :title="t('adminPages.monitoring.bulkInstall')"
+      :title="t('adminPages.monitoring.installCategraf')"
       size="md"
       @close="closeBulkInstallChooser"
     >
       <div class="grid gap-4">
-        <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <p class="text-sm font-semibold text-slate-900">
-            {{ t('adminPages.monitoring.selectedHostsForInstall', { count: selectedHostIds.length }) }}
+        <section
+          class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-sm font-semibold text-slate-900">
+              {{ t('adminPages.monitoring.selectInstallHosts') }}
+            </p>
+            <span class="text-xs font-semibold text-slate-500">
+              {{
+                t('adminPages.monitoring.selectedHostsForInstall', {
+                  count: selectedHostIds.length
+                })
+              }}
+            </span>
+          </div>
+          <div class="mt-3 grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+            <label
+              v-for="host in hosts"
+              :key="`install-host-${host.id}`"
+              class="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 transition hover:border-blue-200 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50"
+            >
+              <input
+                v-model="selectedHostIds"
+                type="checkbox"
+                :value="host.id"
+              />
+              <span
+                class="min-w-0 truncate text-xs font-medium text-slate-700"
+                :title="`${host.hostname} · ${host.address}`"
+              >
+                {{ host.hostname }} · {{ host.address }}
+              </span>
+            </label>
+          </div>
+          <p v-if="!selectedHostIds.length" class="mt-3 text-xs text-amber-700">
+            {{ t('adminPages.monitoring.selectInstallHostHint') }}
           </p>
-          <p class="mt-1 text-xs text-slate-500">
-            {{ selectedHostSummary }}
-          </p>
-        </div>
-        <div class="grid gap-3 sm:grid-cols-2">
+        </section>
+        <div class="grid gap-3">
           <button
             type="button"
-            class="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+            class="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition enabled:hover:border-blue-300 enabled:hover:bg-blue-50/40 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!selectedHostIds.length"
             @click="chooseBulkInstall('categraf')"
           >
             <span class="text-sm font-semibold text-slate-900">
@@ -386,21 +581,13 @@
               {{ t('adminPages.monitoring.installChoiceCategrafHint') }}
             </span>
           </button>
-          <button
-            type="button"
-            class="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-            @click="chooseBulkInstall('blackbox')"
-          >
-            <span class="text-sm font-semibold text-slate-900">
-              {{ t('adminPages.monitoring.installBlackbox') }}
-            </span>
-            <span class="mt-2 block text-xs leading-5 text-slate-500">
-              {{ t('adminPages.monitoring.installChoiceBlackboxHint') }}
-            </span>
-          </button>
         </div>
         <div class="flex justify-end">
-          <BaseButton variant="outline" type="button" @click="closeBulkInstallChooser">
+          <BaseButton
+            variant="outline"
+            type="button"
+            @click="closeBulkInstallChooser"
+          >
             {{ t('common.cancel') }}
           </BaseButton>
         </div>
@@ -422,25 +609,39 @@
               type="button"
               class="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition"
               :class="[
-                index === categrafStep ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-white/70',
-                canEnterCategrafStep(index) ? '' : 'cursor-not-allowed opacity-50 hover:bg-transparent'
+                index === categrafStep
+                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white/70',
+                canEnterCategrafStep(index)
+                  ? ''
+                  : 'cursor-not-allowed opacity-50 hover:bg-transparent'
               ]"
               :disabled="!canEnterCategrafStep(index)"
               @click="goCategrafStep(index)"
             >
               <span
                 class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-                :class="index === categrafStep ? 'bg-blue-600 text-white' : index < categrafStep ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'"
+                :class="
+                  index === categrafStep
+                    ? 'bg-blue-600 text-white'
+                    : index < categrafStep
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-slate-200 text-slate-500'
+                "
               >
                 {{ index + 1 }}
               </span>
               <span class="min-w-0">
-                <span class="block text-sm font-semibold">{{ step.title }}</span>
+                <span class="block text-sm font-semibold">{{
+                  step.title
+                }}</span>
               </span>
             </button>
           </aside>
 
-          <section class="min-h-[28rem] rounded-xl border border-slate-200 bg-white p-5">
+          <section
+            class="min-h-[28rem] rounded-xl border border-slate-200 bg-white p-5"
+          >
             <div v-if="categrafStep === 0" class="grid gap-4">
               <div>
                 <h3 class="text-base font-semibold text-slate-900">
@@ -453,9 +654,13 @@
                   :key="host.id"
                   class="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3"
                 >
-                  <p class="truncate text-sm font-semibold text-slate-900">{{ host.hostname }}</p>
+                  <p class="truncate text-sm font-semibold text-slate-900">
+                    {{ host.hostname }}
+                  </p>
                   <p class="mt-1 truncate text-xs text-slate-500">
-                    {{ host.address }} / {{ host.ssh_user || 'root' }}:{{ host.ssh_port || 22 }}
+                    {{ host.address }} / {{ host.ssh_user || 'root' }}:{{
+                      host.ssh_port || 22
+                    }}
                   </p>
                 </div>
               </div>
@@ -471,12 +676,23 @@
                   </div>
                   <span
                     class="rounded-full px-3 py-1 text-xs font-semibold"
-                    :class="categrafForm.profiles.length ? 'bg-blue-50 text-blue-700' : 'bg-rose-50 text-rose-700'"
+                    :class="
+                      categrafForm.profiles.length
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'bg-rose-50 text-rose-700'
+                    "
                   >
-                    {{ t('adminPages.monitoring.selectedProfileCount', { count: categrafForm.profiles.length }) }}
+                    {{
+                      t('adminPages.monitoring.selectedProfileCount', {
+                        count: categrafForm.profiles.length
+                      })
+                    }}
                   </span>
                 </div>
-                <p v-if="!categrafForm.profiles.length" class="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                <p
+                  v-if="!categrafForm.profiles.length"
+                  class="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                >
                   {{ t('adminPages.monitoring.profileRequiredHint') }}
                 </p>
               </div>
@@ -486,9 +702,15 @@
                   :key="profile.id"
                   class="group flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 transition hover:border-blue-200 hover:bg-blue-50/40 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50"
                 >
-                  <input v-model="categrafForm.profiles" type="checkbox" :value="profile.id" />
+                  <input
+                    v-model="categrafForm.profiles"
+                    type="checkbox"
+                    :value="profile.id"
+                  />
                   <span class="min-w-0">
-                    <span class="block text-sm font-semibold text-slate-900">{{ profile.name || profile.id }}</span>
+                    <span class="block text-sm font-semibold text-slate-900">{{
+                      profile.name || profile.id
+                    }}</span>
                   </span>
                 </label>
               </div>
@@ -500,106 +722,210 @@
                   {{ t('adminPages.monitoring.stepParamsTitle') }}
                 </h3>
               </div>
-              <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+              <section
+                class="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+              >
                 <h4 class="text-sm font-semibold text-slate-900">
                   {{ t('adminPages.monitoring.installLabels') }}
                 </h4>
                 <div class="mt-3 grid gap-3 sm:grid-cols-2">
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.region') }}</span>
-                    <input v-model="categrafForm.region" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.region')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.region"
+                      class="admin-filter-control"
+                    />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.env') }}</span>
-                    <input v-model="categrafForm.env" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.env')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.env"
+                      class="admin-filter-control"
+                    />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.team') }}</span>
-                    <input v-model="categrafForm.team" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.team')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.team"
+                      class="admin-filter-control"
+                    />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.service') }}</span>
-                    <input v-model="categrafForm.service" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.service')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.service"
+                      class="admin-filter-control"
+                    />
                   </label>
                 </div>
               </section>
 
               <section v-if="showCategrafProfileSettings" class="grid gap-3">
-                <div v-if="needsCategrafMysqlConfig" class="rounded-xl border border-slate-200 bg-white p-4">
+                <div
+                  v-if="needsCategrafMysqlConfig"
+                  class="rounded-xl border border-slate-200 bg-white p-4"
+                >
                   <h4 class="text-sm font-semibold text-slate-800">
                     {{ t('adminPages.monitoring.mysqlConfig') }}
                   </h4>
                   <div class="mt-3 grid gap-3 sm:grid-cols-2">
                     <label class="admin-filter-field">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.mysqlAddress') }}</span>
-                      <input v-model="categrafForm.mysqlAddress" class="admin-filter-control" placeholder="127.0.0.1:3306" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.mysqlAddress')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.mysqlAddress"
+                        class="admin-filter-control"
+                        placeholder="127.0.0.1:3306"
+                      />
                     </label>
                     <label class="admin-filter-field">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.mysqlUser') }}</span>
-                      <input v-model="categrafForm.mysqlUser" class="admin-filter-control" placeholder="exporter" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.mysqlUser')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.mysqlUser"
+                        class="admin-filter-control"
+                        placeholder="exporter"
+                      />
                     </label>
                     <label class="admin-filter-field">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.mysqlPassword') }}</span>
-                      <input v-model="categrafForm.mysqlPassword" type="password" class="admin-filter-control" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.mysqlPassword')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.mysqlPassword"
+                        type="password"
+                        class="admin-filter-control"
+                      />
                     </label>
                     <label class="admin-filter-field">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.mysqlParameters') }}</span>
-                      <input v-model="categrafForm.mysqlParameters" class="admin-filter-control" placeholder="tls=false" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.mysqlParameters')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.mysqlParameters"
+                        class="admin-filter-control"
+                        placeholder="tls=false"
+                      />
                     </label>
                   </div>
                 </div>
-                <div v-if="needsCategrafRedisConfig" class="rounded-xl border border-slate-200 bg-white p-4">
+                <div
+                  v-if="needsCategrafRedisConfig"
+                  class="rounded-xl border border-slate-200 bg-white p-4"
+                >
                   <h4 class="text-sm font-semibold text-slate-800">
                     {{ t('adminPages.monitoring.redisConfig') }}
                   </h4>
                   <div class="mt-3 grid gap-3 sm:grid-cols-2">
                     <label class="admin-filter-field">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.redisAddress') }}</span>
-                      <input v-model="categrafForm.redisAddress" class="admin-filter-control" placeholder="127.0.0.1:6379" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.redisAddress')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.redisAddress"
+                        class="admin-filter-control"
+                        placeholder="127.0.0.1:6379"
+                      />
                     </label>
                     <label class="admin-filter-field">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.redisUsername') }}</span>
-                      <input v-model="categrafForm.redisUsername" class="admin-filter-control" placeholder="default" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.redisUsername')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.redisUsername"
+                        class="admin-filter-control"
+                        placeholder="default"
+                      />
                     </label>
                     <label class="admin-filter-field sm:col-span-2">
-                      <span class="admin-filter-label">{{ t('adminPages.monitoring.redisPassword') }}</span>
-                      <input v-model="categrafForm.redisPassword" type="password" class="admin-filter-control" />
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.redisPassword')
+                      }}</span>
+                      <input
+                        v-model="categrafForm.redisPassword"
+                        type="password"
+                        class="admin-filter-control"
+                      />
                     </label>
                   </div>
                 </div>
-                <div v-if="needsCategrafNginxConfig" class="rounded-xl border border-slate-200 bg-white p-4">
+                <div
+                  v-if="needsCategrafNginxConfig"
+                  class="rounded-xl border border-slate-200 bg-white p-4"
+                >
                   <h4 class="text-sm font-semibold text-slate-800">
                     {{ t('adminPages.monitoring.nginxConfig') }}
                   </h4>
                   <label class="admin-filter-field mt-3">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.nginxStatusUrl') }}</span>
-                    <input v-model="categrafForm.nginxStatusUrl" class="admin-filter-control" placeholder="http://127.0.0.1/nginx_status" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.nginxStatusUrl')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.nginxStatusUrl"
+                      class="admin-filter-control"
+                      placeholder="http://127.0.0.1/nginx_status"
+                    />
                   </label>
                 </div>
               </section>
-              <section v-else class="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+              <section
+                v-else
+                class="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500"
+              >
                 {{ t('adminPages.monitoring.noProfileParams') }}
               </section>
-              <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+              <section
+                class="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+              >
                 <h4 class="text-sm font-semibold text-slate-900">
                   {{ t('adminPages.monitoring.deploySettings') }}
                 </h4>
                 <div class="mt-3 grid gap-3 sm:grid-cols-2">
                   <label class="admin-filter-field sm:col-span-2">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.n9eUrl') }}</span>
-                    <input v-model="categrafForm.n9eUrl" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.n9eUrl')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.n9eUrl"
+                      class="admin-filter-control"
+                    />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.installDir') }}</span>
-                    <input v-model="categrafForm.installDir" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.installDir')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.installDir"
+                      class="admin-filter-control"
+                    />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.image') }}</span>
-                    <input v-model="categrafForm.image" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.image')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.image"
+                      class="admin-filter-control"
+                    />
                   </label>
                   <label class="admin-filter-field sm:col-span-2">
-                    <span class="admin-filter-label">{{ t('adminPages.monitoring.baseUrl') }}</span>
-                    <input v-model="categrafForm.baseUrl" class="admin-filter-control" />
+                    <span class="admin-filter-label">{{
+                      t('adminPages.monitoring.baseUrl')
+                    }}</span>
+                    <input
+                      v-model="categrafForm.baseUrl"
+                      class="admin-filter-control"
+                    />
                   </label>
                 </div>
               </section>
@@ -611,20 +937,37 @@
                   {{ t('adminPages.monitoring.stepPreviewTitle') }}
                 </h3>
               </div>
-              <section class="grid gap-3 rounded-xl border border-slate-200 bg-white p-4">
+              <section
+                class="grid gap-3 rounded-xl border border-slate-200 bg-white p-4"
+              >
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h4 class="text-sm font-semibold text-slate-900">
                       {{ t('adminPages.monitoring.ansiblePreview') }}
                     </h4>
                   </div>
-                  <BaseButton variant="outline" type="button" :loading="previewingCategraf" @click="previewCategraf">
-                    {{ showAnsiblePreview ? t('adminPages.monitoring.collapsePreview') : t('adminPages.monitoring.previewAnsible') }}
+                  <BaseButton
+                    variant="outline"
+                    type="button"
+                    :loading="previewingCategraf"
+                    @click="previewCategraf"
+                  >
+                    {{
+                      showAnsiblePreview
+                        ? t('adminPages.monitoring.collapsePreview')
+                        : t('adminPages.monitoring.previewAnsible')
+                    }}
                   </BaseButton>
                 </div>
-                <pre v-if="showAnsiblePreview && categrafPreviewText" class="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-6 text-slate-100">{{ categrafPreviewText }}</pre>
+                <pre
+                  v-if="showAnsiblePreview && categrafPreviewText"
+                  class="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-6 text-slate-100"
+                  >{{ categrafPreviewText }}</pre
+                >
               </section>
-              <section class="grid gap-3 rounded-xl border border-slate-200 bg-white p-4">
+              <section
+                class="grid gap-3 rounded-xl border border-slate-200 bg-white p-4"
+              >
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h4 class="text-sm font-semibold text-slate-900">
@@ -632,31 +975,71 @@
                     </h4>
                   </div>
                   <div class="flex flex-wrap gap-2">
-                    <BaseButton variant="outline" type="button" :loading="previewingCategraf" @click="generateCategrafCommands">
-                      {{ showManualCommands ? t('adminPages.monitoring.collapsePreview') : t('adminPages.monitoring.generateManualCommands') }}
+                    <BaseButton
+                      variant="outline"
+                      type="button"
+                      :loading="previewingCategraf"
+                      @click="generateCategrafCommands"
+                    >
+                      {{
+                        showManualCommands
+                          ? t('adminPages.monitoring.collapsePreview')
+                          : t('adminPages.monitoring.generateManualCommands')
+                      }}
                     </BaseButton>
-                    <BaseButton variant="outline" type="button" :disabled="!manualInstallCommands" @click="copyManualCategrafCommands">
-                      {{ manualCommandsCopied ? t('adminPages.monitoring.commandCopied') : t('adminPages.monitoring.copyCommand') }}
+                    <BaseButton
+                      variant="outline"
+                      type="button"
+                      :disabled="!manualInstallCommands"
+                      @click="copyManualCategrafCommands"
+                    >
+                      {{
+                        manualCommandsCopied
+                          ? t('adminPages.monitoring.commandCopied')
+                          : t('adminPages.monitoring.copyCommand')
+                      }}
                     </BaseButton>
                   </div>
                 </div>
-                <div v-if="showManualCommands && manualInstallCommands" class="overflow-hidden rounded-xl">
-                  <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words bg-slate-950 p-4 text-xs leading-6 text-slate-100">{{ manualInstallCommands }}</pre>
+                <div
+                  v-if="showManualCommands && manualInstallCommands"
+                  class="overflow-hidden rounded-xl"
+                >
+                  <pre
+                    class="max-h-72 overflow-auto whitespace-pre-wrap break-words bg-slate-950 p-4 text-xs leading-6 text-slate-100"
+                    >{{ manualInstallCommands }}</pre
+                  >
                 </div>
               </section>
             </div>
           </section>
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4"
+        >
           <span class="text-xs text-slate-500">
-            {{ t('adminPages.monitoring.stepProgress', { current: categrafStep + 1, total: categrafSteps.length }) }}
+            {{
+              t('adminPages.monitoring.stepProgress', {
+                current: categrafStep + 1,
+                total: categrafSteps.length
+              })
+            }}
           </span>
           <div class="flex flex-wrap justify-end gap-2">
-            <BaseButton variant="outline" type="button" @click="closeCategrafInstall">
+            <BaseButton
+              variant="outline"
+              type="button"
+              @click="closeCategrafInstall"
+            >
               {{ t('common.cancel') }}
             </BaseButton>
-            <BaseButton variant="outline" type="button" :disabled="categrafStep === 0" @click="prevCategrafStep">
+            <BaseButton
+              variant="outline"
+              type="button"
+              :disabled="categrafStep === 0"
+              @click="prevCategrafStep"
+            >
               {{ t('adminPages.monitoring.previousStep') }}
             </BaseButton>
             <BaseButton
@@ -668,54 +1051,15 @@
             >
               {{ t('adminPages.monitoring.nextStep') }}
             </BaseButton>
-            <BaseButton v-else variant="primary" type="submit" :loading="runningCategraf">
+            <BaseButton
+              v-else
+              variant="primary"
+              type="submit"
+              :loading="runningCategraf"
+            >
               {{ t('adminPages.monitoring.runInstall') }}
             </BaseButton>
           </div>
-        </div>
-      </form>
-    </BaseModal>
-
-    <BaseModal
-      :show="showBlackboxForm"
-      :title="t('adminPages.monitoring.installBlackbox')"
-      size="md"
-      @close="closeBlackboxInstall"
-    >
-      <form class="grid gap-4" @submit.prevent="runBlackboxInstall">
-        <label class="admin-filter-field">
-          <span class="admin-filter-label">{{ t('adminPages.monitoring.probeName') }}</span>
-          <input v-model="blackboxForm.probeName" class="admin-filter-control" />
-        </label>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label class="admin-filter-field">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.blackboxPort') }}</span>
-            <input v-model="blackboxForm.blackboxPort" class="admin-filter-control" />
-          </label>
-          <label class="admin-filter-field">
-            <span class="admin-filter-label">{{ t('adminPages.monitoring.installDir') }}</span>
-            <input v-model="blackboxForm.installDir" class="admin-filter-control" />
-          </label>
-        </div>
-        <label class="admin-filter-field">
-          <span class="admin-filter-label">{{ t('adminPages.monitoring.image') }}</span>
-          <input v-model="blackboxForm.image" class="admin-filter-control" />
-        </label>
-        <label class="admin-filter-field">
-          <span class="admin-filter-label">{{ t('adminPages.monitoring.baseUrl') }}</span>
-          <input v-model="blackboxForm.baseUrl" class="admin-filter-control" />
-        </label>
-        <pre v-if="blackboxPreviewText" class="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-6 text-slate-100">{{ blackboxPreviewText }}</pre>
-        <div class="flex flex-wrap justify-end gap-2 pt-2">
-          <BaseButton variant="outline" type="button" @click="closeBlackboxInstall">
-            {{ t('common.cancel') }}
-          </BaseButton>
-          <BaseButton variant="outline" type="button" :loading="previewingBlackbox" @click="previewBlackbox">
-            {{ t('adminPages.monitoring.previewAnsible') }}
-          </BaseButton>
-          <BaseButton variant="primary" type="submit" :loading="runningBlackbox">
-            {{ t('adminPages.monitoring.runInstall') }}
-          </BaseButton>
         </div>
       </form>
     </BaseModal>
@@ -723,8 +1067,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
 import AdminPageState from '@/admin/components/AdminPageState.vue'
@@ -732,28 +1077,40 @@ import AdminTable from '@/admin/components/AdminTable.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import { useToast } from '@/composables/useToast'
 import { monitoringStackApi } from '@/admin/api/monitoringStack'
+import {
+  attentionCount,
+  componentStatePresentation,
+  connectionStatePresentation,
+  filterHosts
+} from '@/admin/pages/Monitoring/assets/hostListState'
+import { getApiErrorMessage } from '@/utils/apiError'
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const router = useRouter()
+const { showSuccess } = useToast()
 const loading = ref(false)
 const saving = ref(false)
 const previewingCategraf = ref(false)
 const runningCategraf = ref(false)
-const previewingBlackbox = ref(false)
-const runningBlackbox = ref(false)
 const error = ref('')
 const profiles = ref([])
 const hosts = ref([])
 const sshKeys = ref([])
-const hostFindings = ref([])
 const assetReconciliation = ref({})
 const selectedHostIds = ref([])
 const importingAssetKey = ref('')
 const uploadingSshKey = ref(false)
+const testingHostConnection = ref(false)
+const hostConnectionStatus = ref('idle')
+const attemptedHostConnectionSignature = ref('')
+const testedHostConnectionSignature = ref('')
+const hostConnectionMessage = ref('')
+const hostVerificationReceipt = ref('')
 const filters = reactive({
-  alignmentStatus: 'all',
-  categrafStatus: 'all',
-  blackboxStatus: 'all'
+  query: '',
+  scope: 'all'
 })
 const categrafStep = ref(0)
 const categrafPreviewData = ref(null)
@@ -762,25 +1119,82 @@ const categrafPreviewText = ref('')
 const showAnsiblePreview = ref(false)
 const showManualCommands = ref(false)
 const manualCommandsCopied = ref(false)
-const blackboxPreviewText = ref('')
 const showHostForm = ref(false)
 const showBulkInstallChooser = ref(false)
 const showCategrafForm = ref(false)
-const showBlackboxForm = ref(false)
 const form = reactive(defaultHostForm())
-const needsCategrafMysqlConfig = computed(() => categrafForm.profiles.includes('mysql-rds') || categrafForm.profiles.includes('mysql'))
-const needsCategrafRedisConfig = computed(() => categrafForm.profiles.includes('redis'))
-const needsCategrafNginxConfig = computed(() => categrafForm.profiles.includes('nginx'))
-const showCategrafProfileSettings = computed(() =>
-  needsCategrafMysqlConfig.value || needsCategrafRedisConfig.value || needsCategrafNginxConfig.value
+const hostConnectionSignature = computed(() =>
+  JSON.stringify({
+    hostId: form.id || '',
+    address: String(form.address || '').trim(),
+    sshUser: String(form.sshUser || '').trim(),
+    sshPort: Number(form.sshPort || 22),
+    sshAuthType: form.sshAuthType,
+    sshPassword: form.sshAuthType === 'password' ? form.sshPassword : '',
+    hasSavedPassword:
+      form.sshAuthType === 'password' && !form.sshPassword
+        ? Boolean(form.hasSshPassword)
+        : false,
+    sshKeyId: form.sshAuthType === 'key' ? String(form.sshKeyId || '') : ''
+  })
 )
-const filteredHosts = computed(() =>
-  hosts.value.filter((host) => {
-    return (
-      alignmentMatches(host, filters.alignmentStatus) &&
-      statusMatches(componentInstallStatus(host, 'categraf'), filters.categrafStatus) &&
-      statusMatches(componentInstallStatus(host, 'blackbox'), filters.blackboxStatus)
-    )
+const isHostConnectionVerified = computed(
+  () =>
+    hostConnectionStatus.value === 'success' &&
+    testedHostConnectionSignature.value === hostConnectionSignature.value
+)
+const canTestHostConnection = computed(() => {
+  if (
+    !String(form.address || '').trim() ||
+    !String(form.sshUser || '').trim() ||
+    !Number(form.sshPort)
+  )
+    return false
+  if (form.sshAuthType === 'password')
+    return Boolean(form.sshPassword || (form.id && form.hasSshPassword))
+  return Boolean(form.sshKeyId)
+})
+const hostConnectionStatusText = computed(() => {
+  const keys = {
+    idle: 'sshConnectionRequired',
+    testing: 'sshConnectionTesting',
+    success: 'sshConnectionSuccess',
+    error: 'sshConnectionFailed'
+  }
+  return t(`adminPages.monitoring.${keys[hostConnectionStatus.value]}`)
+})
+const hostConnectionStatusClass = computed(() => {
+  if (hostConnectionStatus.value === 'success')
+    return 'border-emerald-200 bg-emerald-50 text-emerald-800'
+  if (hostConnectionStatus.value === 'error')
+    return 'border-rose-200 bg-rose-50 text-rose-800'
+  if (hostConnectionStatus.value === 'testing')
+    return 'border-sky-200 bg-sky-50 text-sky-800'
+  return 'border-slate-200 bg-slate-50 text-slate-600'
+})
+const needsCategrafMysqlConfig = computed(
+  () =>
+    categrafForm.profiles.includes('mysql-rds') ||
+    categrafForm.profiles.includes('mysql')
+)
+const needsCategrafRedisConfig = computed(() =>
+  categrafForm.profiles.includes('redis')
+)
+const needsCategrafNginxConfig = computed(() =>
+  categrafForm.profiles.includes('nginx')
+)
+const showCategrafProfileSettings = computed(
+  () =>
+    needsCategrafMysqlConfig.value ||
+    needsCategrafRedisConfig.value ||
+    needsCategrafNginxConfig.value
+)
+const filteredHosts = computed(() => filterHosts(hosts.value, filters))
+const hostAttentionCount = computed(() => attentionCount(hosts.value))
+const assetListSummary = computed(() =>
+  t('adminPages.monitoring.assetListSummary', {
+    total: hosts.value.length,
+    attention: hostAttentionCount.value
   })
 )
 const selectedHosts = computed(() =>
@@ -788,14 +1202,9 @@ const selectedHosts = computed(() =>
     .map((id) => hosts.value.find((host) => host.id === id))
     .filter(Boolean)
 )
-const selectedHostSummary = computed(() => {
-  if (!selectedHosts.value.length) return t('adminPages.monitoring.noSelectedHosts')
-  return selectedHosts.value
-    .slice(0, 4)
-    .map((host) => `${host.hostname} / ${host.address}`)
-    .join('，')
-})
-const discoveredAssets = computed(() => assetReconciliation.value?.results || [])
+const discoveredAssets = computed(
+  () => assetReconciliation.value?.results || []
+)
 const discoveredAssetStats = computed(() => [
   {
     label: t('adminPages.monitoring.n9eOnlyAssets'),
@@ -829,9 +1238,14 @@ const canGoNextCategraf = computed(() => {
   if (categrafStep.value === 1) return categrafForm.profiles.length > 0
   return true
 })
-const currentCategrafSignature = computed(() => JSON.stringify(categrafJobPayload()))
+const currentCategrafSignature = computed(() =>
+  JSON.stringify(categrafJobPayload())
+)
 const isCategrafPreviewCurrent = computed(() =>
-  Boolean(categrafPreviewData.value && categrafPreviewSignature.value === currentCategrafSignature.value)
+  Boolean(
+    categrafPreviewData.value &&
+    categrafPreviewSignature.value === currentCategrafSignature.value
+  )
 )
 const manualInstallCommands = computed(() => {
   if (!isCategrafPreviewCurrent.value) return ''
@@ -863,14 +1277,6 @@ const categrafForm = reactive({
   redisPassword: '',
   nginxStatusUrl: ''
 })
-const blackboxForm = reactive({
-  baseUrl: '',
-  probeName: 'blackbox-center',
-  blackboxPort: '9115',
-  installDir: '/opt/blackbox-exporter',
-  image: 'prom/blackbox-exporter:latest'
-})
-
 function defaultHostForm() {
   return {
     id: '',
@@ -891,74 +1297,6 @@ function normalizeList(data) {
   return data?.results || data || []
 }
 
-function statusFor(host, component) {
-  return (
-    (host.component_statuses || []).find((item) => item.component === component) || {
-      component,
-      status: 'unknown',
-      runtime_status: 'unknown',
-      runtime_reason: '',
-      runtime_endpoint: '',
-      runtime_checked_at: '',
-      last_job_id: '',
-      last_error: ''
-    }
-  )
-}
-
-function componentInstallStatus(host, component) {
-  const value = String(statusFor(host, component).status || 'unknown').toLowerCase()
-  return value === 'external' ? 'success' : value
-}
-
-function statusMatches(actual, expected) {
-  return expected === 'all' || actual === expected
-}
-
-function alignmentMatches(host, expected) {
-  if (expected === 'all') return true
-  if (expected === 'n9e_missing') return hostN9eFindings(host).length > 0
-  if (expected === 'categraf_missing') {
-    return hostFindingsFor(host).some((finding) => finding.category === 'categraf_not_installed')
-  }
-  if (expected === 'prometheus_missing') {
-    return hostFindingsFor(host).some((finding) => finding.category === 'host_not_scraped_by_prometheus')
-  }
-  return true
-}
-
-function hostFindingsFor(host) {
-  return hostFindings.value.filter((finding) => {
-    const details = finding.details || {}
-    return details.host_id === host.id || finding.subject_key === host.hostname || finding.subject_key === host.address
-  })
-}
-
-function hostFindingLabel(finding) {
-  const labels = {
-    host_not_in_n9e: t('adminPages.monitoring.categoryHostNotInN9e'),
-    host_not_scraped_by_prometheus: t('adminPages.monitoring.categoryHostNotScrapedByPrometheus'),
-    categraf_not_installed: t('adminPages.monitoring.categoryCategrafNotInstalled'),
-    blackbox_not_installed: t('adminPages.monitoring.categoryBlackboxNotInstalled')
-  }
-  return labels[finding.category] || finding.title || t('common.emptyValue')
-}
-
-function hostComponentFindingLabel(finding, component) {
-  if (
-    (component === 'categraf' && finding.category === 'categraf_not_installed') ||
-    (component === 'blackbox' && finding.category === 'blackbox_not_installed')
-  ) {
-    return t('adminPages.monitoring.installStatusNotInstalled')
-  }
-
-  return hostFindingLabel(finding)
-}
-
-function hostN9eFindings(host) {
-  return hostFindingsFor(host).filter((finding) => finding.category === 'host_not_in_n9e')
-}
-
 function discoveredSourceText(source) {
   if (source === 'n9e') return 'n9e'
   if (source === 'prometheus') return 'Prometheus'
@@ -967,7 +1305,8 @@ function discoveredSourceText(source) {
 
 function discoveredSourceClass(source) {
   if (source === 'n9e') return 'border-blue-200 bg-blue-50 text-blue-700'
-  if (source === 'prometheus') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (source === 'prometheus')
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   return 'border-slate-200 bg-slate-50 text-slate-500'
 }
 
@@ -979,71 +1318,113 @@ function discoveredStatusText(asset) {
   return t('adminPages.monitoring.unmanagedAsset')
 }
 
-function hostComponentFindings(host, component) {
-  const categories = component === 'blackbox'
-    ? ['blackbox_not_installed']
-    : ['categraf_not_installed']
-  return hostFindingsFor(host).filter((finding) => categories.includes(finding.category))
+function componentInstallationText(state) {
+  const { installation } = componentStatePresentation(state)
+  const keys = {
+    installed: 'componentInstalled',
+    not_installed: 'componentNotInstalled',
+    installing: 'componentInstalling',
+    failed: 'componentInstallationFailed',
+    unknown: 'componentInstallationUnknown',
+    not_applicable: 'componentNotEnabled'
+  }
+  return t(
+    `adminPages.monitoring.${keys[installation] || 'componentInstallationUnknown'}`
+  )
 }
 
-function shouldShowComponentStatus(host, component) {
-  const status = statusFor(host, component).status
-  return status !== 'unknown' || hostComponentFindings(host, component).length === 0
+function connectionStateText(verification) {
+  const keys = {
+    connected: 'assetConnectionReachable',
+    failed: 'assetConnectionFailed',
+    unverified: 'assetConnectionUnverified'
+  }
+  return t(
+    `adminPages.monitoring.${keys[connectionStatePresentation(verification)]}`
+  )
 }
 
-function componentStatusText(status) {
-  const value = String(status || 'unknown').toLowerCase()
-  if (value === 'installing') return t('adminPages.monitoring.statusInstalling')
-  if (value === 'success') return t('adminPages.monitoring.statusSuccess')
-  if (value === 'failed') return t('adminPages.monitoring.statusFailed')
-  return t('adminPages.monitoring.installStatusNotInstalled')
-}
-
-function componentStatusClass(status) {
-  const value = String(status || 'unknown').toLowerCase()
-  if (value === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
-  if (value === 'failed') return 'border-rose-200 bg-rose-50 text-rose-700'
-  if (value === 'installing') return 'border-sky-200 bg-sky-50 text-sky-700'
+function connectionStateClass(verification) {
+  const state = connectionStatePresentation(verification)
+  if (state === 'connected')
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (state === 'failed') return 'border-rose-200 bg-rose-50 text-rose-700'
   return 'border-slate-200 bg-slate-50 text-slate-500'
 }
 
-function componentDisplayText(host, component) {
-  const installStatus = componentInstallStatus(host, component)
-  if (installStatus !== 'success') return componentStatusText(installStatus)
-
-  const runtime = String(statusFor(host, component).runtime_status || 'unknown').toLowerCase()
-  if (runtime === 'online') return t('adminPages.monitoring.runtimeOnline')
-  if (runtime === 'abnormal') return t('adminPages.monitoring.runtimeAbnormal')
-  return t('adminPages.monitoring.statusSuccess')
+function connectionCheckedAt(verification) {
+  if (!verification?.checked_at) return ''
+  const value = new Date(verification.checked_at)
+  if (Number.isNaN(value.getTime())) return ''
+  const time = new Intl.DateTimeFormat(locale.value || undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(value)
+  return t('adminPages.monitoring.assetConnectionCheckedAt', { time })
 }
 
-function componentDisplayClass(host, component) {
-  const installStatus = componentInstallStatus(host, component)
-  if (installStatus !== 'success') return componentStatusClass(installStatus)
-
-  const runtime = String(statusFor(host, component).runtime_status || 'unknown').toLowerCase()
-  if (runtime === 'abnormal') return 'border-rose-200 bg-rose-50 text-rose-700'
-  return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+function connectionStateTitle(verification) {
+  const checkedAt = connectionCheckedAt(verification)
+  if (!checkedAt) return connectionStateText(verification)
+  return `${connectionStateText(verification)} · ${checkedAt}`
 }
 
-function componentDisplayTitle(host, component) {
-  const status = statusFor(host, component)
-  return status.runtime_reason || status.runtime_endpoint || componentDisplayText(host, component)
+function componentInstallationClass(state) {
+  const { installation } = componentStatePresentation(state)
+  if (installation === 'installed')
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (installation === 'failed')
+    return 'border-rose-200 bg-rose-50 text-rose-700'
+  if (installation === 'installing')
+    return 'border-sky-200 bg-sky-50 text-sky-700'
+  if (installation === 'not_installed')
+    return 'border-amber-200 bg-amber-50 text-amber-700'
+  return 'border-slate-200 bg-slate-50 text-slate-500'
 }
 
-function sshAuthText(host) {
-  if (host.ssh_auth_type === 'password') {
-    return host.has_ssh_password
-      ? t('adminPages.monitoring.sshAuthPasswordConfigured')
-      : t('adminPages.monitoring.sshAuthPassword')
+function componentRuntimeVisible(state) {
+  return componentStatePresentation(state).showRuntime
+}
+
+function componentRuntimeText(state) {
+  const { runtime } = componentStatePresentation(state)
+  const keys = {
+    online: 'componentRuntimeOnline',
+    abnormal: 'componentRuntimeAbnormal',
+    unknown: 'componentRuntimeUnknown'
   }
-  if (host.ssh_key_name) return `${t('adminPages.monitoring.sshAuthKey')}：${host.ssh_key_name}`
-  if (host.ssh_key) return `${t('adminPages.monitoring.sshAuthKey')}：${host.ssh_key}`
-  return t('adminPages.monitoring.sshAuthKeyNotSelected')
+  return t(
+    `adminPages.monitoring.${keys[runtime] || 'componentRuntimeUnknown'}`
+  )
+}
+
+function componentRuntimeClass(state) {
+  const { runtime } = componentStatePresentation(state)
+  if (runtime === 'online') return 'text-emerald-700'
+  if (runtime === 'abnormal') return 'text-rose-700'
+  return 'text-amber-700'
+}
+
+function componentStateTitle(state) {
+  if (state?.reason) return state.reason
+  const installation = componentInstallationText(state)
+  if (!componentRuntimeVisible(state)) return installation
+  return `${installation} · ${componentRuntimeText(state)}`
 }
 
 function resetHostForm() {
   Object.assign(form, defaultHostForm())
+  resetHostConnectionTest()
+}
+
+function resetHostConnectionTest() {
+  hostConnectionStatus.value = 'idle'
+  testedHostConnectionSignature.value = ''
+  attemptedHostConnectionSignature.value = ''
+  hostConnectionMessage.value = ''
+  hostVerificationReceipt.value = ''
 }
 
 function openCreateHost() {
@@ -1056,21 +1437,31 @@ function closeHostForm() {
   showHostForm.value = false
 }
 
-function editHost(host) {
+function editHost(host, options = {}) {
   Object.assign(form, {
     id: host.id,
     hostname: host.hostname || '',
     address: host.address || '',
     sshUser: host.ssh_user || 'root',
     sshPort: host.ssh_port || 22,
-    sshAuthType: host.ssh_auth_type || (host.ssh_key_id || host.ssh_key ? 'key' : 'password'),
+    sshAuthType:
+      host.ssh_auth_type ||
+      (host.ssh_key_id || host.ssh_key ? 'key' : 'password'),
     sshPassword: '',
     hasSshPassword: Boolean(host.has_ssh_password),
     sshKeyId: host.ssh_key_id || '',
     sshKeyUploadName: '',
     sshKeyUploadContent: ''
   })
+  resetHostConnectionTest()
   showHostForm.value = true
+  if (options.focus === 'ssh') {
+    window.setTimeout(() => {
+      document
+        .querySelector('[data-host-connection-section]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 0)
+  }
 }
 
 function hostPayload() {
@@ -1087,7 +1478,72 @@ function hostPayload() {
   } else {
     payload.ssh_key_id = form.sshKeyId ? Number(form.sshKeyId) : null
   }
+  if (hostVerificationReceipt.value) {
+    payload.ssh_verification_receipt = hostVerificationReceipt.value
+  }
   return payload
+}
+
+function hostConnectionPayload() {
+  return {
+    host_id: form.id ? Number(form.id) : null,
+    address: String(form.address || '').trim(),
+    ssh_user: String(form.sshUser || '').trim() || 'root',
+    ssh_port: Number(form.sshPort || 22),
+    ssh_auth_type: form.sshAuthType,
+    ssh_password: form.sshAuthType === 'password' ? form.sshPassword : '',
+    ssh_key_id:
+      form.sshAuthType === 'key' && form.sshKeyId ? Number(form.sshKeyId) : null
+  }
+}
+
+function sshVerificationFieldCode(err) {
+  const payload = err?.response?.data
+  const body =
+    payload?.data && typeof payload.data === 'object' ? payload.data : payload
+  const fieldErrors = body?.field_errors || body || {}
+  const value = fieldErrors.ssh_verification_receipt
+  return String(Array.isArray(value) ? value[0] : value || '')
+}
+
+async function testHostConnection() {
+  if (!canTestHostConnection.value) return
+  const signature = hostConnectionSignature.value
+  testingHostConnection.value = true
+  attemptedHostConnectionSignature.value = signature
+  hostConnectionStatus.value = 'testing'
+  hostConnectionMessage.value = ''
+  hostVerificationReceipt.value = ''
+  try {
+    const result = await monitoringStackApi.testHostConnection(
+      hostConnectionPayload()
+    )
+    if (signature !== hostConnectionSignature.value) {
+      resetHostConnectionTest()
+      return
+    }
+    testedHostConnectionSignature.value = signature
+    hostVerificationReceipt.value = result?.verification_receipt || ''
+    hostConnectionStatus.value = 'success'
+    hostConnectionMessage.value = t(
+      'adminPages.monitoring.sshConnectionSuccessDetail',
+      { latency: result?.latency_ms || 0 }
+    )
+  } catch (err) {
+    if (signature !== hostConnectionSignature.value) {
+      resetHostConnectionTest()
+      return
+    }
+    testedHostConnectionSignature.value = ''
+    hostVerificationReceipt.value = ''
+    hostConnectionStatus.value = 'error'
+    hostConnectionMessage.value = getApiErrorMessage(
+      err,
+      t('adminPages.monitoring.sshConnectionFailedDetail')
+    )
+  } finally {
+    testingHostConnection.value = false
+  }
 }
 
 async function handleSshKeyFile(event) {
@@ -1129,10 +1585,6 @@ function clearSelection() {
   selectedHostIds.value = []
 }
 
-function resetBlackboxForm() {
-  blackboxPreviewText.value = ''
-}
-
 function resetCategrafForm() {
   categrafStep.value = 0
   categrafPreviewData.value = null
@@ -1144,7 +1596,6 @@ function resetCategrafForm() {
 }
 
 function openBulkInstallChooser() {
-  if (!selectedHostIds.value.length) return
   showBulkInstallChooser.value = true
 }
 
@@ -1152,12 +1603,9 @@ function closeBulkInstallChooser() {
   showBulkInstallChooser.value = false
 }
 
-function chooseBulkInstall(component) {
+function chooseBulkInstall() {
+  if (!selectedHostIds.value.length) return
   closeBulkInstallChooser()
-  if (component === 'blackbox') {
-    openBlackboxInstall()
-    return
-  }
   openCategrafInstall()
 }
 
@@ -1179,7 +1627,10 @@ function canEnterCategrafStep(index) {
 
 function goCategrafStep(index) {
   if (!canEnterCategrafStep(index)) return
-  categrafStep.value = Math.max(0, Math.min(index, categrafSteps.value.length - 1))
+  categrafStep.value = Math.max(
+    0,
+    Math.min(index, categrafSteps.value.length - 1)
+  )
 }
 
 function nextCategrafStep() {
@@ -1189,16 +1640,6 @@ function nextCategrafStep() {
 
 function prevCategrafStep() {
   goCategrafStep(categrafStep.value - 1)
-}
-
-function openBlackboxInstall() {
-  resetBlackboxForm()
-  showBlackboxForm.value = true
-}
-
-function closeBlackboxInstall() {
-  resetBlackboxForm()
-  showBlackboxForm.value = false
 }
 
 function applyConfig(config) {
@@ -1211,32 +1652,27 @@ function applyConfig(config) {
   categrafForm.n9eUrl = installer.n9e_url || config?.n9e_url || ''
   categrafForm.installDir = installer.install_dir || '/opt/categraf'
   categrafForm.image = 'flashcatcloud/categraf:latest'
-  blackboxForm.baseUrl = installerBaseUrl
-  blackboxForm.installDir = installer.blackbox_dir || '/opt/blackbox-exporter'
-  blackboxForm.image = installer.blackbox_image || 'prom/blackbox-exporter:latest'
-  blackboxForm.blackboxPort = installer.blackbox_port || '9115'
-  blackboxForm.probeName = installer.options?.probe_names?.[0] || 'blackbox-center'
 }
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [configData, profileData, hostData, sshKeyData, , reconciliationData] = await Promise.all([
-      monitoringStackApi.getConfig(),
-      monitoringStackApi.getProfiles(),
-      monitoringStackApi.getHosts(),
-      monitoringStackApi.getSshKeys(),
-      monitoringStackApi.getGovernanceOverview(),
-      monitoringStackApi.getAssetsReconciliation()
-    ])
-    const findingData = await monitoringStackApi.getGovernanceFindings({ status: 'open', subject_type: 'host' })
+    const [configData, profileData, hostData, sshKeyData, reconciliationData] =
+      await Promise.all([
+        monitoringStackApi.getConfig(),
+        monitoringStackApi.getProfiles(),
+        monitoringStackApi.getHosts(),
+        monitoringStackApi.getSshKeys(),
+        monitoringStackApi.getAssetsReconciliation()
+      ])
     profiles.value = normalizeList(profileData)
     hosts.value = normalizeList(hostData)
     sshKeys.value = normalizeList(sshKeyData)
-    hostFindings.value = normalizeList(findingData)
     assetReconciliation.value = reconciliationData || {}
-    selectedHostIds.value = selectedHostIds.value.filter((id) => hosts.value.some((host) => host.id === id))
+    selectedHostIds.value = selectedHostIds.value.filter((id) =>
+      hosts.value.some((host) => host.id === id)
+    )
     applyConfig(configData)
   } catch (err) {
     error.value = err?.response?.data?.detail || err.message
@@ -1269,16 +1705,46 @@ async function importDiscoveredAsset(asset) {
 }
 
 async function saveHost() {
+  if (!isHostConnectionVerified.value) return
   saving.value = true
   try {
     if (form.id) await monitoringStackApi.updateHost(form.id, hostPayload())
     else await monitoringStackApi.createHost(hostPayload())
     closeHostForm()
     await load()
+  } catch (err) {
+    const verificationCode = sshVerificationFieldCode(err)
+    if (
+      ['SSH_VERIFICATION_EXPIRED', 'SSH_VERIFICATION_MISMATCH'].includes(
+        verificationCode
+      )
+    ) {
+      resetHostConnectionTest()
+      hostConnectionStatus.value = 'error'
+      hostConnectionMessage.value = t(
+        verificationCode === 'SSH_VERIFICATION_EXPIRED'
+          ? 'adminPages.monitoring.sshVerificationExpired'
+          : 'adminPages.monitoring.sshVerificationMismatch'
+      )
+    } else {
+      error.value = getApiErrorMessage(
+        err,
+        t('adminPages.monitoring.hostSaveFailed')
+      )
+    }
   } finally {
     saving.value = false
   }
 }
+
+watch(hostConnectionSignature, (signature) => {
+  if (
+    attemptedHostConnectionSignature.value &&
+    signature !== attemptedHostConnectionSignature.value
+  ) {
+    resetHostConnectionTest()
+  }
+})
 
 async function deleteHost(host) {
   if (!window.confirm(`${t('common.delete')} ${host.hostname}?`)) return
@@ -1332,7 +1798,12 @@ async function previewCategraf() {
   previewingCategraf.value = true
   try {
     const data = await fetchCategrafPreviewData()
-    categrafPreviewText.value = ['# inventory', data.inventory, '# vars', JSON.stringify(data.vars, null, 2)].join('\n')
+    categrafPreviewText.value = [
+      '# inventory',
+      data.inventory,
+      '# vars',
+      JSON.stringify(data.vars, null, 2)
+    ].join('\n')
     showAnsiblePreview.value = true
   } finally {
     previewingCategraf.value = false
@@ -1340,7 +1811,11 @@ async function previewCategraf() {
 }
 
 async function generateCategrafCommands() {
-  if (showManualCommands.value && isCategrafPreviewCurrent.value && manualInstallCommands.value) {
+  if (
+    showManualCommands.value &&
+    isCategrafPreviewCurrent.value &&
+    manualInstallCommands.value
+  ) {
     showManualCommands.value = false
     return
   }
@@ -1396,47 +1871,35 @@ async function runCategrafInstall() {
   runningCategraf.value = true
   try {
     const data = await monitoringStackApi.createJob(categrafJobPayload())
-    categrafPreviewText.value = JSON.stringify(data, null, 2)
+    closeCategrafInstall()
+    notifyJobDispatched(data)
     await load()
   } finally {
     runningCategraf.value = false
   }
 }
 
-function blackboxJobPayload() {
-  return {
-    component: 'blackbox',
-    host_ids: selectedHostIds.value,
-    profiles: [],
-    base_url: blackboxForm.baseUrl,
-    n9e_url: '',
-    install_dir: blackboxForm.installDir,
-    image: blackboxForm.image,
-    probe_name: blackboxForm.probeName,
-    blackbox_port: blackboxForm.blackboxPort
-  }
-}
-
-async function previewBlackbox() {
-  previewingBlackbox.value = true
-  try {
-    const data = await monitoringStackApi.previewAnsible(blackboxJobPayload())
-    blackboxPreviewText.value = ['# inventory', data.inventory, '# vars', JSON.stringify(data.vars, null, 2)].join('\n')
-  } finally {
-    previewingBlackbox.value = false
-  }
-}
-
-async function runBlackboxInstall() {
-  runningBlackbox.value = true
-  try {
-    const data = await monitoringStackApi.createJob(blackboxJobPayload())
-    blackboxPreviewText.value = JSON.stringify(data, null, 2)
-    await load()
-  } finally {
-    runningBlackbox.value = false
-  }
+function notifyJobDispatched(job) {
+  showSuccess(t('adminPages.monitoring.jobDispatched', { id: job.id }), 8000, {
+    title: t('adminPages.monitoring.jobDispatchedTitle'),
+    action: {
+      label: t('adminPages.monitoring.viewTaskDetails'),
+      onClick: () =>
+        router.push({
+          path: '/management/monitoring/jobs',
+          query: { job: String(job.id) }
+        })
+    }
+  })
 }
 
 onMounted(load)
 </script>
+
+<style scoped>
+.asset-status-table :deep(.admin-table-head),
+.asset-status-table :deep(.admin-table-cell) {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+</style>

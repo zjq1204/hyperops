@@ -761,18 +761,6 @@
         @close="closeConfirmDialog"
         @confirm="runConfirmedAction"
       />
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'admin-toast',
-          toast.type === 'success'
-            ? 'admin-toast--success'
-            : 'admin-toast--error'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AdminLayout>
 </template>
@@ -790,9 +778,11 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
+import { useToast } from '@/composables/useToast'
 import gitlabApi from '@/api/gitlab'
 
 const { t } = useI18n()
+const { showToast } = useToast()
 const {
   confirmDialog,
   requestConfirm,
@@ -839,8 +829,6 @@ const bulkWebhookForm = ref({
   enable_ssl_verification: true
 })
 
-const toast = ref({ show: false, message: '', type: 'success' })
-
 const currentProject = computed(() =>
   projects.value.find(
     (project) => String(project.id) === String(webhookProjectFilter.value)
@@ -885,13 +873,6 @@ const canGoToBulkWebhookProjectsStep = computed(
 const canGoToBulkWebhookComposeStep = computed(
   () => bulkWebhookForm.value.project_ids.length > 0
 )
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 3000)
-}
 
 function normalizeCollection(data) {
   return Array.isArray(data) ? data : (data?.results ?? [])

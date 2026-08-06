@@ -24,10 +24,12 @@ from monitoring_stack.serializers import (
     BlackboxProbeNodeSerializer,
     MonitoringGovernanceFindingSerializer,
     MonitoringHostSerializer,
+    MonitoringHostConnectionTestSerializer,
     MonitoringIntegrationConfigSerializer,
     MonitoringProfileSerializer,
     MonitoringSnapshotRunSerializer,
     MonitoringSshKeySerializer,
+    PrometheusProbeNodeOnboardSerializer,
     ProbeTargetSerializer,
 )
 from monitoring_stack.services.core import (
@@ -41,25 +43,41 @@ from monitoring_stack.services.core import (
     clean_labels,
     clean_string_list,
     ensure_default_profiles,
-    execute_ansible_job,
     installer_assets,
     installer_file_path,
     mark_component_installing,
+    check_monitoring_ssh_connection,
+    MonitoringSshConnectionError,
     monitoring_config,
     n9e_platform_summary,
     generate_prometheus_http_sd_token,
     prometheus_http_sd_config,
     prometheus_http_sd_state,
+    prometheus_probe_node_discoveries,
     prometheus_targets_summary,
+    onboard_prometheus_probe_node,
+    ProbeNodeAlreadyManaged,
     render_http_sd_targets,
     rules_dir,
     selected_hosts,
     snapshot_hosts,
 )
+from monitoring_stack.services.job_dispatch import (
+    JobDispatchError,
+    dispatch_error_response,
+    dispatch_install_job,
+)
 from monitoring_stack.services.reconcile import governance_overview
+from monitoring_stack.services.ssh_verification import (
+    connection_fingerprint,
+    connection_fingerprint_for_host,
+    failed_verification_defaults,
+    issue_verification_receipt,
+)
 from monitoring_stack.services.sync import sync_monitoring_snapshots
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -567,7 +585,10 @@ class BlackboxProbeNodeViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
 
 class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
     serializer_class = MonitoringHostSerializer
-    queryset = MonitoringHost.objects.all()
+    queryset = MonitoringHost.objects.select_related("ssh_key_credential").prefetch_related(
+        "component_statuses__last_job",
+        "blackbox_probe_nodes",
+    )
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -575,6 +596,65 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
         if enabled in {"true", "false"}:
             queryset = queryset.filter(enabled=enabled == "true")
         return queryset
+
+    @action(detail=False, methods=["post"], url_path="test-connection")
+    def test_connection(self, request):
+        serializer = MonitoringHostConnectionTestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        credential = data.get("ssh_key_credential")
+        fingerprint = connection_fingerprint(
+            address=data["address"],
+            ssh_user=data.get("ssh_user") or "root",
+            ssh_port=data.get("ssh_port") or 22,
+            ssh_auth_type=data["ssh_auth_type"],
+            password=data.get("resolved_password") or "",
+            ssh_key_id=getattr(credential, "id", None),
+            ssh_key_name=getattr(credential, "file_name", ""),
+        )
+        try:
+            result = check_monitoring_ssh_connection(
+                address=data["address"],
+                ssh_user=data.get("ssh_user") or "root",
+                ssh_port=data.get("ssh_port") or 22,
+                password=data.get("resolved_password"),
+                key_path=credential.storage_path if credential else None,
+            )
+        except MonitoringSshConnectionError as exc:
+            saved_host = data.get("saved_host")
+            if (
+                saved_host
+                and fingerprint == connection_fingerprint_for_host(saved_host)
+            ):
+                MonitoringHost.objects.filter(id=saved_host.id).update(
+                    **failed_verification_defaults(
+                        fingerprint=fingerprint,
+                        error_code=exc.code,
+                    )
+                )
+            return Response(
+                {
+                    "detail": "SSH connection test failed",
+                    "error_code": exc.code,
+                },
+                status=exc.status_code,
+            )
+        checked_at = timezone.now()
+        receipt = issue_verification_receipt(
+            user_id=request.user.id,
+            host_id=getattr(data.get("saved_host"), "id", None),
+            fingerprint=fingerprint,
+            checked_at=checked_at,
+            latency_ms=result["latency_ms"],
+        )
+        return Response(
+            {
+                "success": True,
+                **result,
+                "verified_at": checked_at.isoformat(),
+                "verification_receipt": receipt,
+            }
+        )
 
 
 class MonitoringSshKeyViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
@@ -585,6 +665,7 @@ class MonitoringSshKeyViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
 class PrometheusHttpSdView(APIView):
     authentication_classes = []
     permission_classes = []
+    renderer_classes = [JSONRenderer]
 
     def get(self, request, target_type):
         token, _source = active_prometheus_http_sd_token()
@@ -620,6 +701,38 @@ class PrometheusHttpSdConfigView(MonitoringPermissionMixin, APIView):
 class PrometheusTargetsSummaryView(MonitoringPermissionMixin, APIView):
     def get(self, request):
         return Response(prometheus_targets_summary())
+
+
+class PrometheusProbeNodeDiscoveryView(MonitoringPermissionMixin, APIView):
+    def get(self, request):
+        return Response(prometheus_probe_node_discoveries())
+
+
+class PrometheusProbeNodeOnboardView(MonitoringPermissionMixin, APIView):
+    def post(self, request):
+        serializer = PrometheusProbeNodeOnboardSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            node, bound_target_count = onboard_prometheus_probe_node(
+                **serializer.validated_data
+            )
+        except ProbeNodeAlreadyManaged:
+            return Response(
+                {"detail": "probe node endpoint is already managed"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                "node": BlackboxProbeNodeSerializer(node).data,
+                "bound_target_count": bound_target_count,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BlackboxInstancesView(MonitoringPermissionMixin, APIView):
@@ -837,11 +950,12 @@ class MonitoringGovernanceFindingResolveView(MonitoringPermissionMixin, APIView)
         )
         mark_component_installing(job, hosts)
         try:
-            from monitoring_stack.tasks import run_ansible_install_job
-
-            run_ansible_install_job.delay(job.id)
-        except Exception:
-            execute_ansible_job(job.id)
+            dispatch_install_job(job)
+        except JobDispatchError as exc:
+            return Response(
+                dispatch_error_response(exc),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         self._finish_finding(
             finding,
@@ -888,11 +1002,12 @@ class MonitoringGovernanceFindingResolveView(MonitoringPermissionMixin, APIView)
             created_by=request.user,
         )
         try:
-            from monitoring_stack.tasks import run_ansible_install_job
-
-            run_ansible_install_job.delay(retry_job.id)
-        except Exception:
-            execute_ansible_job(retry_job.id)
+            dispatch_install_job(retry_job)
+        except JobDispatchError as exc:
+            return Response(
+                dispatch_error_response(exc),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         self._finish_finding(
             finding,
@@ -1075,11 +1190,12 @@ class AnsibleInstallJobViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
         job_id = response.data.get("id")
         if job_id:
             try:
-                from monitoring_stack.tasks import run_ansible_install_job
-
-                run_ansible_install_job.delay(job_id)
-            except Exception:
-                execute_ansible_job(job_id)
+                dispatch_install_job(self.get_queryset().get(pk=job_id))
+            except JobDispatchError as exc:
+                return Response(
+                    dispatch_error_response(exc),
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
         return response
 
     @action(detail=True, methods=["post"], url_path="retry")
@@ -1110,11 +1226,12 @@ class AnsibleInstallJobViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
             created_by=request.user,
         )
         try:
-            from monitoring_stack.tasks import run_ansible_install_job
-
-            run_ansible_install_job.delay(retry_job.id)
-        except Exception:
-            execute_ansible_job(retry_job.id)
+            dispatch_install_job(retry_job)
+        except JobDispatchError as exc:
+            return Response(
+                dispatch_error_response(exc),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response(
             self.get_serializer(retry_job).data,
             status=status.HTTP_201_CREATED,

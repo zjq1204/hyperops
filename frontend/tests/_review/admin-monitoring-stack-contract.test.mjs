@@ -15,6 +15,8 @@ const pagePaths = [
   'src/admin/pages/Monitoring/Overview.vue',
   'src/admin/pages/Monitoring/Installers.vue',
   'src/admin/pages/Monitoring/Probes.vue',
+  'src/admin/pages/Monitoring/ProbeSettings.vue',
+  'src/admin/pages/Monitoring/probes/ProbeManagementTabs.vue',
   'src/admin/pages/Monitoring/BlackboxInstances.vue',
   'src/admin/pages/Monitoring/Assets.vue',
   'src/admin/pages/Monitoring/Rules.vue',
@@ -23,7 +25,14 @@ const pagePaths = [
   'src/admin/pages/Monitoring/Settings.vue'
 ].map((path) => resolve(repoRoot, path))
 
-for (const filePath of [platformAccessPath, routesPath, sidebarPath, apiPath, globalApiPath, ...pagePaths]) {
+for (const filePath of [
+  platformAccessPath,
+  routesPath,
+  sidebarPath,
+  apiPath,
+  globalApiPath,
+  ...pagePaths
+]) {
   assert.ok(existsSync(filePath), `${filePath} must exist`)
 }
 
@@ -32,20 +41,67 @@ const routesSource = readFileSync(routesPath, 'utf8')
 const sidebarSource = readFileSync(sidebarPath, 'utf8')
 const apiSource = readFileSync(apiPath, 'utf8')
 const globalApiSource = readFileSync(globalApiPath, 'utf8')
-const overviewSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Overview.vue'), 'utf8')
-const installersSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Installers.vue'), 'utf8')
-const probesSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Probes.vue'), 'utf8')
-const blackboxSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/BlackboxInstances.vue'), 'utf8')
-const assetsSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Assets.vue'), 'utf8')
-const rulesSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Rules.vue'), 'utf8')
-const ruleDetailSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/RuleDetail.vue'), 'utf8')
-const jobsSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Jobs.vue'), 'utf8')
-const settingsSource = readFileSync(resolve(repoRoot, 'src/admin/pages/Monitoring/Settings.vue'), 'utf8')
-const uiLanguageSource = readFileSync(resolve(repoRoot, 'src/utils/uiLanguage.js'), 'utf8')
-const uiLanguage = await import(pathToFileURL(resolve(repoRoot, 'src/utils/uiLanguage.js')).href)
+const overviewSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Overview.vue'),
+  'utf8'
+)
+const installersSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Installers.vue'),
+  'utf8'
+)
+const probesSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Probes.vue'),
+  'utf8'
+)
+const probeSettingsSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/ProbeSettings.vue'),
+  'utf8'
+)
+const probeTabsSource = readFileSync(
+  resolve(
+    repoRoot,
+    'src/admin/pages/Monitoring/probes/ProbeManagementTabs.vue'
+  ),
+  'utf8'
+)
+const blackboxSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/BlackboxInstances.vue'),
+  'utf8'
+)
+const assetsSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Assets.vue'),
+  'utf8'
+)
+const rulesSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Rules.vue'),
+  'utf8'
+)
+const ruleDetailSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/RuleDetail.vue'),
+  'utf8'
+)
+const jobsSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Jobs.vue'),
+  'utf8'
+)
+const settingsSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/Settings.vue'),
+  'utf8'
+)
+const uiLanguageSource = readFileSync(
+  resolve(repoRoot, 'src/utils/uiLanguage.js'),
+  'utf8'
+)
+const uiLanguage = await import(
+  pathToFileURL(resolve(repoRoot, 'src/utils/uiLanguage.js')).href
+)
 const localeSources = {
-  en: JSON.parse(readFileSync(resolve(repoRoot, 'src/admin/locales/en.json'), 'utf8')),
-  zhCN: JSON.parse(readFileSync(resolve(repoRoot, 'src/admin/locales/zh-CN.json'), 'utf8'))
+  en: JSON.parse(
+    readFileSync(resolve(repoRoot, 'src/admin/locales/en.json'), 'utf8')
+  ),
+  zhCN: JSON.parse(
+    readFileSync(resolve(repoRoot, 'src/admin/locales/zh-CN.json'), 'utf8')
+  )
 }
 
 assert.match(
@@ -67,6 +123,16 @@ assert.match(
   routesSource,
   /path:\s*'\/management\/monitoring\/installers'/,
   'admin routes should keep monitoring installers available as an advanced page'
+)
+assert.match(
+  routesSource,
+  /path:\s*'\/management\/monitoring\/probes\/nodes'/,
+  'admin routes should include probe node management'
+)
+assert.match(
+  routesSource,
+  /path:\s*'\/management\/monitoring\/probes\/settings'/,
+  'admin routes should include probe foundational settings'
 )
 assert.match(
   routesSource,
@@ -100,8 +166,53 @@ assert.match(
 )
 assert.match(
   sidebarSource,
+  /adminNav\.monitoringProbeManagement/,
+  'admin sidebar should expose probe management as one product area'
+)
+assert.match(
+  probeTabsSource,
+  /monitoring\/probes\/nodes/,
+  'probe management tabs should link to probe nodes'
+)
+assert.match(
+  probeTabsSource,
+  /monitoring\/probes\/settings/,
+  'probe management tabs should link to access configuration'
+)
+assert.match(
+  probesSource,
+  /ProbeManagementTabs/,
+  'probe targets should use the shared probe management tabs'
+)
+assert.match(
+  probeSettingsSource,
+  /isNodesPage/,
+  'probe node and access configuration routes should render focused content'
+)
+assert.match(
+  probeSettingsSource,
+  /component:\s*'blackbox'/,
+  'probe node management should own blackbox deployment'
+)
+assert.doesNotMatch(
+  assetsSource,
+  /componentBlackbox|installBlackbox|probe_state|blackboxJobPayload/,
+  'collection hosts should only manage Categraf collection'
+)
+assert.match(
+  sidebarSource,
   /adminNav\.monitoringSettings/,
   'admin sidebar should expose monitoring integration settings navigation'
+)
+assert.doesNotMatch(
+  sidebarSource,
+  /layout-admin-sidebar relative z-20/,
+  'admin sidebar must not keep relative positioning when mobile fixed positioning is active'
+)
+assert.match(
+  sidebarSource,
+  /useWindowSize\(\)/,
+  'admin sidebar should react when the viewport crosses the mobile breakpoint'
 )
 assert.doesNotMatch(
   sidebarSource,
@@ -310,43 +421,83 @@ assert.match(
 )
 assert.match(
   probesSource,
-  /updateProbeTarget\(form\.id/,
+  /if \(id\) await monitoringStackApi\.updateProbeTarget\(id, payload\)/,
   'probe targets page should support editing existing targets'
 )
 assert.match(
   probesSource,
-  /prometheusStatusFor/,
+  /targetEffectState/,
   'probe targets page should compare HyperOps configuration with Prometheus reality'
 )
-assert.match(
+assert.doesNotMatch(
   probesSource,
-  /getGovernanceFindings\(\{\s*status:\s*'open',\s*subject_type:\s*'probe'/,
-  'probe targets page should load open probe governance findings'
+  /getGovernanceFindings|resolveGovernanceFinding/,
+  'probe targets page should not expose a separate governance workbench'
+)
+assert.doesNotMatch(
+  probesSource,
+  /getPrometheusHttpSdConfig\(\)|copyPrometheusYaml/,
+  'probe targets page should not own Prometheus access configuration'
 )
 assert.match(
-  probesSource,
-  /resolveGovernanceFinding\(/,
-  'probe targets page should resolve probe governance findings through the API client'
-)
-assert.match(
-  probesSource,
+  probeSettingsSource,
   /getPrometheusHttpSdConfig\(\)/,
-  'probe targets page should load copyable Prometheus HTTP SD config'
+  'probe foundational settings should load copyable Prometheus HTTP SD config'
 )
 assert.match(
-  probesSource,
+  probeSettingsSource,
   /getProbeNodes\(\)/,
-  'probe targets page should load blackbox probe nodes'
+  'probe foundational settings should load blackbox probe nodes'
+)
+assert.match(
+  apiSource,
+  /getProbeNodeDiscoveries\(\)/,
+  'monitoring API should expose Prometheus probe node discoveries'
+)
+assert.match(
+  apiSource,
+  /onboardProbeNode\(body\)/,
+  'monitoring API should onboard discovered probe nodes explicitly'
+)
+assert.match(
+  probeSettingsSource,
+  /v-if="isNodesPage && probeNodeDiscoveries\.length"/,
+  'probe nodes should only show the discovery panel when unmanaged nodes exist'
+)
+assert.match(
+  probeSettingsSource,
+  /monitoringStackApi\.onboardProbeNode/,
+  'probe settings should onboard a selected Prometheus discovery'
+)
+assert.match(
+  probeSettingsSource,
+  /bind_unassigned_targets/,
+  'probe node onboarding should explicitly control unassigned target binding'
+)
+assert.match(
+  probeSettingsSource,
+  /legacy_http_sd\?\.detected/,
+  'probe settings should warn when Prometheus still uses legacy HTTP SD'
 )
 assert.match(
   probesSource,
-  /probe_node:\s*form\.probeNode/,
+  /ProbeTargetForm/,
   'probe targets page should bind targets to selected probe nodes'
 )
 assert.match(
-  probesSource,
+  probeSettingsSource,
   /copyPrometheusYaml/,
-  'probe targets page should let operators copy Prometheus YAML'
+  'probe foundational settings should let operators copy Prometheus YAML'
+)
+assert.doesNotMatch(
+  probeSettingsSource,
+  /tokenFilePath/,
+  'embedded HTTP SD credentials should not ask operators to manage a separate token file'
+)
+assert.match(
+  localeSources.zhCN.adminPages.monitoring.rotateTokenWarning,
+  /重新复制.*重新加载 Prometheus/,
+  'token rotation warning should explain how to refresh embedded Prometheus credentials'
 )
 assert.match(
   blackboxSource,
@@ -364,14 +515,54 @@ assert.match(
   'assets page should be able to execute install jobs'
 )
 assert.match(
-  assetsSource,
-  /alignmentStatus/,
-  'assets page should expose alignment status filtering'
+  apiSource,
+  /testHostConnection\(body\)/,
+  'monitoring API should expose transient SSH connection testing'
 )
 assert.match(
   assetsSource,
-  /host_not_scraped_by_prometheus/,
-  'assets page should surface Prometheus host scrape drift'
+  /monitoringStackApi\.testHostConnection/,
+  'host form should test the current SSH settings before saving'
+)
+assert.match(
+  assetsSource,
+  /hostConnectionSignature/,
+  'host form should track the exact SSH settings that were tested'
+)
+assert.match(
+  assetsSource,
+  /isHostConnectionVerified/,
+  'host form should expose whether the current SSH settings passed testing'
+)
+assert.match(
+  assetsSource,
+  /:disabled="saving \|\| !isHostConnectionVerified"/,
+  'host Save should remain disabled until the current SSH settings pass'
+)
+assert.match(
+  assetsSource,
+  /filters\.query/,
+  'assets page should support host name and address search'
+)
+assert.match(
+  assetsSource,
+  /filters\.scope/,
+  'assets page should expose one role-aware status scope'
+)
+assert.match(
+  assetsSource,
+  /host\.collection_state/,
+  'assets page should render normalized collection state'
+)
+assert.doesNotMatch(
+  assetsSource,
+  /host\.probe_state/,
+  'collection hosts should not render shared probe node state'
+)
+assert.doesNotMatch(
+  assetsSource,
+  /filters\.blackboxStatus/,
+  'assets page should not expose raw blackbox installation filtering'
 )
 assert.match(
   assetsSource,
@@ -393,10 +584,10 @@ assert.match(
   /importDiscoveredAsset/,
   'assets page should import discovered assets into HyperOps'
 )
-assert.match(
+assert.doesNotMatch(
   assetsSource,
-  /getGovernanceFindings\(\{\s*status:\s*'open',\s*subject_type:\s*'host'/,
-  'assets page should load open host governance findings'
+  /getGovernanceFindings\(/,
+  'assets page should consume normalized host state instead of loading a second findings model'
 )
 assert.doesNotMatch(
   assetsSource,
@@ -405,43 +596,48 @@ assert.doesNotMatch(
 )
 assert.match(
   assetsSource,
-  /installComponents/,
-  'assets page should use one install component entry for single-host and bulk installs'
+  /installCategraf/,
+  'assets page should expose one persistent Categraf installation entry'
 )
 assert.match(
   assetsSource,
-  /hostComponentFindingLabel\(finding,\s*'categraf'\)/,
-  'assets page should use short component status labels inside the Categraf column'
+  /connectionStateText\(host\.ssh_verification\)/,
+  'assets page should render SSH connection state independently'
 )
 assert.match(
   assetsSource,
-  /hostComponentFindingLabel\(finding,\s*'blackbox'\)/,
-  'assets page should use short component status labels inside the blackbox column'
+  /colspan="2"[\s\S]*componentCategraf/,
+  'assets table should group Categraf installation and service columns'
 )
 assert.match(
   assetsSource,
-  /return t\('adminPages\.monitoring\.installStatusNotInstalled'\)/,
-  'component install drift badges should render as "not installed" without repeating the component name'
+  /componentInstallationText\(host\.collection_state\)/,
+  'assets page should render Categraf installation in its own cell'
 )
 assert.match(
   assetsSource,
-  /value === 'external' \? 'success' : value/,
-  'assets page should show externally discovered components as installed instead of unknown'
+  /componentRuntimeText\(host\.collection_state\)/,
+  'assets page should render Categraf service in its own cell'
 )
 assert.match(
   assetsSource,
-  /componentDisplayText\(host,\s*'categraf'\)/,
-  'assets page should merge install and runtime state into one Categraf badge'
+  /function openBulkInstallChooser\(\) {\s*showBulkInstallChooser\.value = true/,
+  'install chooser should open before hosts are selected'
 )
 assert.match(
   assetsSource,
-  /componentDisplayText\(host,\s*'blackbox'\)/,
-  'assets page should merge install and runtime state into one blackbox badge'
+  /v-for="host in hosts"[\s\S]*v-model="selectedHostIds"/,
+  'install chooser should support selecting hosts'
 )
 assert.doesNotMatch(
   assetsSource,
-  /runtimeStatusText|runtimeStatusClass/,
-  'assets page should not stack a separate runtime badge below the install badge'
+  /v-model="selectedHostIds"[\s\S]{0,180}@change="toggleHost/,
+  'install chooser should not toggle the same checkbox through two handlers'
+)
+assert.doesNotMatch(
+  assetsSource,
+  /hostRoleText|hostRequiredComponents|nextActionText|nextActionHint|runNextAction/,
+  'assets rows should not render roles, stacked component rows, or next actions'
 )
 assert.doesNotMatch(
   assetsSource,
@@ -608,11 +804,53 @@ assert.match(
   /resolveGovernanceFinding\(/,
   'jobs page should retry failed install jobs through governance finding resolution'
 )
+assert.doesNotMatch(
+  jobsSource,
+  /t\('common\.failed'\)/,
+  'jobs page should use its translated failed-status label'
+)
+assert.match(
+  assetsSource,
+  /showSuccess\([\s\S]*action:\s*\{[\s\S]*query:\s*\{\s*job:/,
+  'asset installation should show a task-detail action after dispatch'
+)
+assert.match(jobsSource, /useRoute\(\)/, 'jobs should read the task deep link')
+assert.match(
+  jobsSource,
+  /route\.query\.job/,
+  'jobs should open the task selected by the job query parameter'
+)
+assert.match(
+  jobsSource,
+  /setInterval\([\s\S]*getJob/,
+  'jobs should poll the selected active job'
+)
+assert.match(
+  jobsSource,
+  /onBeforeUnmount\([\s\S]*clearInterval/,
+  'jobs should stop polling when the page unmounts'
+)
+assert.match(
+  jobsSource,
+  /selectedJob\.progress/,
+  'job detail should render structured progress'
+)
+assert.match(
+  jobsSource,
+  /jobFailureSummary\(job\)/,
+  'job list should render a concise translated failure summary'
+)
+assert.doesNotMatch(
+  jobsSource,
+  /\{\{\s*job\.last_error\s*\|\|/,
+  'job list should keep raw Ansible output in the detail log instead of the table'
+)
 
 for (const [name, source] of [
   ['overview', overviewSource],
   ['installers', installersSource],
   ['probes', probesSource],
+  ['probeSettings', probeSettingsSource],
   ['blackbox', blackboxSource],
   ['assets', assetsSource],
   ['rules', rulesSource],
@@ -651,7 +889,9 @@ assert.equal(
 const monitoringLocaleKeys = new Set()
 for (const filePath of pagePaths) {
   const source = readFileSync(filePath, 'utf8')
-  for (const match of source.matchAll(/adminPages\.monitoring\.([A-Za-z0-9_]+)/g)) {
+  for (const match of source.matchAll(
+    /adminPages\.monitoring\.([A-Za-z0-9_]+)/g
+  )) {
     monitoringLocaleKeys.add(match[1])
   }
 }

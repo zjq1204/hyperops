@@ -8,6 +8,12 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework import status
 
 from .constants import SUCCESS_MESSAGE, FAILED_MESSAGE, SUCCESS_CODE
+from core.api_errors import (
+    get_request_id,
+    infer_public_error_code,
+    sanitize_public_message,
+    sanitize_response_data,
+)
 
 
 class CustomJSONRenderer(JSONRenderer):
@@ -70,12 +76,34 @@ class CustomJSONRenderer(JSONRenderer):
         if not isinstance(data, dict):
             data = {'data': data}
 
+        raw_message = data.get('message', '')
+        data = sanitize_response_data(data, status_code=response.status_code)
+
         # Extract code and message from the response
         code = data.get('code', SUCCESS_CODE if is_success else
                         response.status_code)
         message = data.get('message',
                            SUCCESS_MESSAGE if is_success else
                            FAILED_MESSAGE)
+
+        if not is_success:
+            message = sanitize_public_message(
+                message,
+                status_code=response.status_code,
+                default=FAILED_MESSAGE,
+            )
+
+            public_data = data.get('data', data)
+            if not isinstance(public_data, dict):
+                public_data = {'detail': message}
+            public_data.setdefault(
+                'error_code',
+                infer_public_error_code(raw_message, response.status_code),
+            )
+            public_data.setdefault('detail', message)
+            request = renderer_context.get('request')
+            public_data.setdefault('request_id', get_request_id(request))
+            data = {**data, 'data': public_data}
 
         formatted_data = {
             'code': code,

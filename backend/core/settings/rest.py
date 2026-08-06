@@ -28,6 +28,7 @@ DRF Parameters:
 from datetime import timedelta
 
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'core.api_errors.api_exception_handler',
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',

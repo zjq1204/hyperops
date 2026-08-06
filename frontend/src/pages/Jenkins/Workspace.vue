@@ -59,83 +59,54 @@
         </div>
       </section>
 
-      <section v-if="filteredEntries.length > 0" class="space-y-3">
+      <section
+        v-if="filteredEntries.length > 0"
+        class="workspace-entry-catalog"
+      >
         <article
           v-for="entry in filteredEntries"
           :key="entry.id"
           class="workspace-entry-row workspace-entry-row--card"
         >
-          <div
-            class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"
-          >
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-3">
-                <span class="workspace-chip workspace-chip--sky">
+          <div class="workspace-entry-row__main">
+            <div class="workspace-entry-row__body">
+              <h3>{{ entry.name }}</h3>
+              <div class="workspace-entry-row__meta">
+                <span class="workspace-entry-row__instance">
                   {{ entry.instance_name }}
                 </span>
-                <span class="workspace-chip">
-                  {{ t('jenkinsWorkspace.jobName') }}
+                <span class="workspace-entry-row__job">
+                  <span>{{ t('jenkinsWorkspace.jobName') }}</span>
+                  <code>{{ entry.job_name }}</code>
                 </span>
-                <span class="font-mono text-sm text-slate-500">
-                  {{ entry.job_name }}
+                <span
+                  class="workspace-entry-row__notification"
+                  :class="{
+                    'is-enabled': entryNotificationEnabled(entry.id)
+                  }"
+                >
+                  <span aria-hidden="true"></span>
+                  {{
+                    entryNotificationEnabled(entry.id)
+                      ? t('jenkinsWorkspace.notificationEnabled')
+                      : t('jenkinsWorkspace.notificationDisabled')
+                  }}
                 </span>
               </div>
-
-              <div
-                class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6"
-              >
-                <div class="min-w-0 flex-1">
-                  <h3 class="text-xl font-semibold text-slate-900">
-                    {{ entry.name }}
-                  </h3>
-                  <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                    {{
-                      entry.description ||
-                      t('jenkinsWorkspace.emptyDescription')
-                    }}
-                  </p>
-                </div>
-
-                <div class="workspace-meta-box lg:min-w-[18rem]">
-                  <div class="flex items-center justify-between gap-3">
-                    <p
-                      class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400"
-                    >
-                      {{ t('jenkinsWorkspace.notificationSectionTag') }}
-                    </p>
-                    <span
-                      :class="
-                        entryNotificationEnabled(entry.id)
-                          ? 'status-pill-success'
-                          : 'status-pill-neutral'
-                      "
-                    >
-                      {{
-                        entryNotificationEnabled(entry.id)
-                          ? t('jenkinsWorkspace.notificationEnabled')
-                          : t('jenkinsWorkspace.notificationDisabled')
-                      }}
-                    </span>
-                  </div>
-                  <p class="mt-2 text-sm leading-6 text-slate-500">
-                    {{ notificationSummaryForEntry(entry.id) }}
-                  </p>
-                </div>
-              </div>
             </div>
+          </div>
 
-            <div class="flex shrink-0 flex-col gap-2 sm:flex-row xl:self-end">
-              <BaseButton
-                variant="outline"
-                size="sm"
-                @click="openNotificationModal(entry)"
-              >
-                {{ t('jenkinsWorkspace.notificationConfigure') }}
-              </BaseButton>
-              <BaseButton size="sm" @click="openTriggerModal(entry)">
-                {{ t('jenkinsWorkspace.buildSettingsAction') }}
-              </BaseButton>
-            </div>
+          <div class="workspace-entry-row__actions">
+            <BaseButton
+              variant="ghost"
+              size="sm"
+              @click="openNotificationModal(entry)"
+            >
+              {{ t('jenkinsWorkspace.notificationConfigure') }}
+            </BaseButton>
+            <BaseButton size="sm" @click="openTriggerModal(entry)">
+              {{ t('jenkinsWorkspace.buildAction') }}
+            </BaseButton>
           </div>
         </article>
       </section>
@@ -523,16 +494,6 @@
           </div>
         </template>
       </BaseModal>
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'fixed bottom-5 right-5 z-[60] rounded-lg px-4 py-3 text-sm font-medium text-white shadow-[0_14px_34px_rgba(15,23,42,0.18)]',
-          toast.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AppLayout>
 </template>
@@ -547,6 +508,7 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import jenkinsApi from '@/api/jenkins'
+import { useToast } from '@/composables/useToast'
 import { useUserStore } from '@/store/user'
 import {
   formatRuntimeParamsForSubmit,
@@ -560,6 +522,7 @@ import {
 
 const { t } = useI18n()
 const userStore = useUserStore()
+const { showToast } = useToast()
 
 const entries = ref([])
 const searchQuery = ref('')
@@ -583,8 +546,6 @@ const AUTO_REFRESH_INTERVAL_MS = 10000
 const AUTO_REFRESH_MAX_ERRORS = 3
 let autoRefreshTimer = null
 let autoRefreshFailureCount = 0
-
-const toast = ref({ show: false, message: '', type: 'success' })
 
 const filteredEntries = computed(() => {
   if (!searchQuery.value) return entries.value
@@ -748,19 +709,8 @@ function resetNotificationChannels() {
   notificationChannels.value = createEmptyNotificationChannels()
 }
 
-function notificationSummaryForEntry(entryId) {
-  return formatNotificationSummary(getNotificationChannelsForEntry(entryId))
-}
-
 function entryNotificationEnabled(entryId) {
   return Object.values(getNotificationChannelsForEntry(entryId)).some(Boolean)
-}
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 3000)
 }
 
 function resultStatusClass(status) {

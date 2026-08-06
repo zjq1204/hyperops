@@ -278,3 +278,7 @@ evaluate/
 
 # Local git worktrees
 .worktrees/
+.superpowers/
+
+# Playwright test artifacts
+.playwright-cli/

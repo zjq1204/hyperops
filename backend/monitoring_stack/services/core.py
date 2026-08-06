@@ -1,19 +1,24 @@
 import hashlib
+import json
 import os
+import re
 import secrets
 import shlex
 import shutil
+import socket
 import subprocess
 import tarfile
 import tempfile
 import textwrap
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import paramiko
 import requests
 import yaml
 from django.conf import settings
-from django.db import OperationalError, ProgrammingError
+from django.db import OperationalError, ProgrammingError, transaction
 from django.utils import timezone
 from monitoring_stack.defaults import DEFAULT_INSTALLER_OPTIONS, DEFAULT_PROFILES
 from monitoring_stack.models import (
@@ -26,6 +31,16 @@ from monitoring_stack.models import (
     N9eTargetSnapshot,
     ProbeTarget,
     PrometheusTargetSnapshot,
+)
+from monitoring_stack.services.ansible_progress import (
+    build_progress,
+    current_host_for_line,
+    failure_reason_code,
+    stream_process_output,
+)
+from monitoring_stack.services.ssh_verification import (
+    connection_fingerprint_for_host,
+    failed_verification_defaults,
 )
 
 INSTALLER_DOWNLOAD_FILES = {
@@ -41,6 +56,33 @@ INSTALLER_DOWNLOAD_FILES = {
 
 N9E_VERSION_NOT_EXPOSED = "当前 n9e 版本未暴露"
 EXTERNAL_COMPONENT_STATUS = "external"
+N9E_ONLINE_VALUES = {
+    "up",
+    "online",
+    "alive",
+    "ok",
+    "normal",
+    "running",
+    "active",
+    "healthy",
+    "true",
+    "1",
+}
+N9E_OFFLINE_VALUES = {
+    "down",
+    "offline",
+    "dead",
+    "lost",
+    "unreachable",
+    "abnormal",
+    "critical",
+    "error",
+    "failed",
+    "inactive",
+    "stopped",
+    "false",
+    "0",
+}
 
 
 def monitoring_root() -> Path:
@@ -263,6 +305,91 @@ def _n9e_host_matches(candidate, host):
     )
 
 
+def _normalize_n9e_runtime_value(value):
+    if isinstance(value, bool):
+        return "online" if value else "abnormal", str(value).lower()
+    if isinstance(value, (int, float)):
+        text = str(int(value))
+    else:
+        text = str(value or "").strip().lower()
+    if not text:
+        return "", ""
+    if text in N9E_ONLINE_VALUES:
+        return "online", text
+    if text in N9E_OFFLINE_VALUES:
+        return "abnormal", text
+    return "", text
+
+
+def _normalize_n9e_target_up_value(value):
+    if isinstance(value, bool):
+        return "online" if value else "abnormal", str(value).lower()
+    if isinstance(value, (int, float)):
+        text = str(int(value))
+    else:
+        text = str(value or "").strip().lower()
+    if not text:
+        return "", ""
+    if text == "0":
+        return "abnormal", text
+    if text in {"1", "2"}:
+        return "online", text
+    return _normalize_n9e_runtime_value(value)
+
+
+def _n9e_candidate_runtime_status(candidate):
+    if not isinstance(candidate, dict):
+        return "", ""
+    matched = []
+    keys = {
+        "health",
+        "status",
+        "state",
+        "target_status",
+        "host_status",
+        "target_up",
+        "up",
+        "is_up",
+        "online",
+        "is_online",
+        "alive",
+        "reachable",
+    }
+    disabled_keys = {"disabled", "is_disabled"}
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_name = str(key or "").strip().lower()
+                if key_name in keys:
+                    normalizer = (
+                        _normalize_n9e_target_up_value
+                        if key_name == "target_up"
+                        else _normalize_n9e_runtime_value
+                    )
+                    status, raw = normalizer(item)
+                    if status:
+                        matched.append((status, key_name, raw))
+                elif key_name in disabled_keys:
+                    status, raw = _normalize_n9e_runtime_value(item)
+                    if raw in {"true", "1"}:
+                        matched.append(("abnormal", key_name, raw))
+                if isinstance(item, (dict, list)):
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(candidate)
+    offline = next((item for item in matched if item[0] == "abnormal"), None)
+    if offline:
+        return "abnormal", f"n9e 返回 {offline[1]}={offline[2]}"
+    online = next((item for item in matched if item[0] == "online"), None)
+    if online:
+        return "online", ""
+    return "", ""
+
+
 def n9e_snapshot_matches_host(snapshot, host):
     candidate = {
         "identity": snapshot.identity,
@@ -275,6 +402,59 @@ def n9e_snapshot_matches_host(snapshot, host):
         "raw": snapshot.raw,
     }
     return _n9e_host_matches(candidate, host)
+
+
+def n9e_runtime_for_host(host, candidates=None, cache=None):
+    checked_at = timezone.now().isoformat()
+    base = {
+        "runtime_status": "unknown",
+        "runtime_reason": "",
+        "runtime_endpoint": "n9e",
+        "runtime_checked_at": checked_at,
+    }
+    cache = cache if cache is not None else {}
+    matched_candidates = []
+    if candidates is None:
+        if "n9e_target_snapshots" not in cache:
+            cache["n9e_target_snapshots"] = list(N9eTargetSnapshot.objects.all())
+        for snapshot in cache["n9e_target_snapshots"]:
+            if not n9e_snapshot_matches_host(snapshot, host):
+                continue
+            matched_candidates.append(
+                {
+                    "identity": snapshot.identity,
+                    "hostname": snapshot.hostname,
+                    "address": snapshot.address,
+                    "raw": snapshot.raw,
+                }
+            )
+    else:
+        matched_candidates = [
+            item for item in candidates if _n9e_host_matches(item, host)
+        ]
+
+    if not matched_candidates:
+        return {
+            **base,
+            "runtime_status": "abnormal",
+            "runtime_reason": "n9e 当前未发现该主机对象",
+        }
+
+    for candidate in matched_candidates:
+        runtime_status, reason = _n9e_candidate_runtime_status(candidate)
+        if runtime_status == "abnormal":
+            return {
+                **base,
+                "runtime_status": "abnormal",
+                "runtime_reason": reason,
+            }
+        if runtime_status == "online":
+            return {**base, "runtime_status": "online"}
+
+    return {
+        **base,
+        "runtime_reason": "n9e 已发现该主机，但未返回在线状态",
+    }
 
 
 def host_visible_in_n9e(host, cache=None):
@@ -365,19 +545,8 @@ def component_runtime_health(component_status, cache=None):
                 cache["n9e_visible_hosts"] = None
         candidates = cache.get("n9e_visible_hosts")
         if candidates is None:
-            if host_visible_in_n9e(host, cache=cache):
-                return {**base, "runtime_status": "online"}
-            return {
-                **base,
-                "runtime_reason": "当前 n9e 版本未暴露主机对象，无法确认在线状态",
-            }
-        if any(_n9e_host_matches(item, host) for item in candidates):
-            return {**base, "runtime_status": "online"}
-        return {
-            **base,
-            "runtime_status": "abnormal",
-            "runtime_reason": "n9e 当前未发现该主机对象",
-        }
+            return {**base, **n9e_runtime_for_host(host, cache=cache)}
+        return {**base, **n9e_runtime_for_host(host, candidates=candidates, cache=cache)}
 
     return base
 
@@ -419,6 +588,115 @@ def host_ssh_key_path(host):
     return ssh_dir() / ssh_key if ssh_key else None
 
 
+class MonitoringSshConnectionError(Exception):
+    def __init__(self, code, status_code):
+        super().__init__(code)
+        self.code = code
+        self.status_code = status_code
+
+
+def check_monitoring_ssh_connection(
+    *, address, ssh_user, ssh_port, password=None, key_path=None
+):
+    started_at = time.monotonic()
+    key_file = Path(key_path) if key_path else None
+    if key_file and not key_file.is_file():
+        raise MonitoringSshConnectionError("SSH_KEY_OR_PROTOCOL_FAILED", 400)
+
+    env = dict(os.environ)
+    ssh_command = [
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "ConnectTimeout=8",
+        "-p",
+        str(int(ssh_port or 22)),
+    ]
+    if key_file:
+        try:
+            validation = subprocess.run(
+                ["ssh-keygen", "-y", "-f", str(key_file)],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            raise MonitoringSshConnectionError(
+                "SSH_KEY_OR_PROTOCOL_FAILED", 400
+            ) from exc
+        if validation.returncode != 0:
+            raise MonitoringSshConnectionError("SSH_KEY_OR_PROTOCOL_FAILED", 400)
+        ssh_command.extend(
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
+                "-i",
+                str(key_file),
+            ]
+        )
+    elif password:
+        env["SSHPASS"] = str(password)
+        ssh_command = [
+            "sshpass",
+            "-e",
+            *ssh_command,
+            "-o",
+            "BatchMode=no",
+            "-o",
+            "PreferredAuthentications=password",
+            "-o",
+            "PubkeyAuthentication=no",
+        ]
+    else:
+        ssh_command.extend(["-o", "BatchMode=yes"])
+
+    ssh_command.extend(
+        [
+            f"{ssh_user or 'root'}@{address}",
+            "printf hyperops-ssh-ok",
+        ]
+    )
+    try:
+        result = subprocess.run(
+            ssh_command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise MonitoringSshConnectionError("SSH_TIMEOUT", 504) from exc
+    except FileNotFoundError as exc:
+        raise MonitoringSshConnectionError("SSH_COMMAND_FAILED", 502) from exc
+
+    if result.returncode != 0 or result.stdout != "hyperops-ssh-ok":
+        output = f"{result.stderr}\n{result.stdout}".lower()
+        if "error in libcrypto" in output or "invalid format" in output:
+            raise MonitoringSshConnectionError("SSH_KEY_OR_PROTOCOL_FAILED", 400)
+        if "permission denied" in output or "authentication failed" in output:
+            raise MonitoringSshConnectionError("SSH_AUTH_FAILED", 400)
+        if "timed out" in output or "timeout" in output:
+            raise MonitoringSshConnectionError("SSH_TIMEOUT", 504)
+        if any(
+            marker in output
+            for marker in (
+                "connection refused",
+                "no route to host",
+                "could not resolve hostname",
+                "name or service not known",
+                "network is unreachable",
+            )
+        ):
+            raise MonitoringSshConnectionError("SSH_UNREACHABLE", 502)
+        raise MonitoringSshConnectionError("SSH_COMMAND_FAILED", 502)
+    return {"latency_ms": max(1, round((time.monotonic() - started_at) * 1000))}
+
+
 def ensure_default_profiles():
     for item in DEFAULT_PROFILES:
         MonitoringProfile.objects.update_or_create(
@@ -436,15 +714,19 @@ def ensure_default_profiles():
 def render_http_sd_targets(target_type):
     groups = []
     for item in (
-        ProbeTarget.objects.filter(type=target_type, enabled=True)
+        ProbeTarget.objects.filter(
+            type=target_type,
+            enabled=True,
+            probe_node__isnull=False,
+            probe_node__enabled=True,
+        )
         .select_related("probe_node")
         .order_by("id")
     ):
         labels = clean_labels(item.labels)
         labels["probe_type"] = target_type
-        if item.probe_node and item.probe_node.enabled:
-            labels["probe_node"] = item.probe_node.name
-            labels["blackbox_address"] = item.probe_node.endpoint
+        labels["probe_node"] = item.probe_node.name
+        labels["blackbox_address"] = item.probe_node.endpoint
         groups.append({"targets": [item.target], "labels": labels})
     return groups
 
@@ -505,7 +787,8 @@ def prometheus_http_sd_urls(base_url):
 
 def prometheus_http_sd_config(base_url):
     urls = prometheus_http_sd_urls(base_url)
-    token_file_path = "/etc/prometheus/hyperops-http-sd.token"
+    token, _source = active_prometheus_http_sd_token()
+    token_literal = json.dumps(token)
     yaml_content = textwrap.dedent(
         f"""
         global:
@@ -523,7 +806,7 @@ def prometheus_http_sd_config(base_url):
                 refresh_interval: 30s
                 authorization:
                   type: Bearer
-                  credentials_file: {token_file_path}
+                  credentials: {token_literal}
             relabel_configs:
               - source_labels: [__address__]
                 target_label: __param_target
@@ -543,7 +826,7 @@ def prometheus_http_sd_config(base_url):
                 refresh_interval: 30s
                 authorization:
                   type: Bearer
-                  credentials_file: {token_file_path}
+                  credentials: {token_literal}
             relabel_configs:
               - source_labels: [__address__]
                 target_label: __param_target
@@ -563,7 +846,7 @@ def prometheus_http_sd_config(base_url):
                 refresh_interval: 30s
                 authorization:
                   type: Bearer
-                  credentials_file: {token_file_path}
+                  credentials: {token_literal}
             relabel_configs:
               - source_labels: [__address__]
                 target_label: __param_target
@@ -903,6 +1186,256 @@ def prometheus_targets_summary():
             "abnormal_targets": abnormal_targets,
         },
     }
+
+
+def _probe_node_endpoint_key(address, port):
+    return str(address or "").strip().lower(), str(port or "9115").strip() or "9115"
+
+
+def _blackbox_exporter_target(target):
+    labels = target.get("labels") or {}
+    discovered = target.get("discoveredLabels") or {}
+    scrape_url = str(target.get("scrapeUrl") or "")
+    parsed_scrape = urlparse(scrape_url)
+    is_probe_request = bool(
+        _prometheus_probe_type(target)
+        or discovered.get("__param_target__")
+        or parsed_scrape.path.rstrip("/").endswith("/probe")
+    )
+    if is_probe_request:
+        return None
+
+    identity = " ".join(
+        str(value or "").lower()
+        for value in [
+            labels.get("job"),
+            labels.get("service"),
+            discovered.get("job"),
+            discovered.get("service"),
+            target.get("scrapePool"),
+        ]
+    )
+    candidates = [
+        discovered.get("__address__"),
+        labels.get("instance"),
+        scrape_url,
+    ]
+    address = ""
+    port = ""
+    for candidate in candidates:
+        address, port = _host_port_from_value(candidate)
+        if address:
+            break
+    port = port or "9115"
+    metrics_endpoint = parsed_scrape.path.rstrip("/") in {"", "/metrics"}
+    if not address or not (
+        "blackbox-exporter" in identity
+        or ("blackbox" in identity and metrics_endpoint)
+        or (port == "9115" and metrics_endpoint)
+    ):
+        return None
+    return {
+        "address": address,
+        "port": port,
+        "endpoint": f"{address}:{port}",
+        "health": str(target.get("health") or "unknown").lower(),
+        "job": str(labels.get("job") or target.get("scrapePool") or ""),
+        "last_error": str(target.get("lastError") or ""),
+        "last_scrape": str(target.get("lastScrape") or ""),
+    }
+
+
+def _managed_probe_node_runtime_target(target):
+    labels = target.get("labels") or {}
+    discovered = target.get("discoveredLabels") or {}
+    scrape_url = str(target.get("scrapeUrl") or "")
+    parsed_scrape = urlparse(scrape_url)
+    if not (
+        _prometheus_probe_type(target)
+        or discovered.get("__param_target__")
+        or parsed_scrape.path.rstrip("/").endswith("/probe")
+    ):
+        return None
+
+    candidates = [
+        labels.get("blackbox_address"),
+        discovered.get("blackbox_address"),
+        parsed_scrape.netloc,
+    ]
+    for candidate in candidates:
+        address, port = _host_port_from_value(candidate)
+        if address:
+            return {
+                "address": address,
+                "port": port or "9115",
+                "health": str(target.get("health") or "unknown").lower(),
+                "last_error": str(target.get("lastError") or ""),
+                "last_scrape": str(target.get("lastScrape") or ""),
+            }
+    return None
+
+
+def _legacy_http_sd_state(session, prometheus_url):
+    state = {"checked": False, "detected": False, "endpoints": [], "error": ""}
+    try:
+        response = session.get(
+            f"{prometheus_url}/api/v1/status/config",
+            timeout=10,
+        )
+        response.raise_for_status()
+        config_yaml = str(response.json().get("data", {}).get("yaml") or "")
+        endpoints = []
+        for line in config_yaml.splitlines():
+            value = line.strip().strip("'\"")
+            if "18081" in value or "/api/prometheus/http-sd/" in value:
+                endpoints.append(value.removeprefix("- url:").strip())
+        state.update(
+            checked=True,
+            detected=bool(endpoints),
+            endpoints=list(dict.fromkeys(endpoints)),
+        )
+    except Exception as exc:
+        state["error"] = str(exc)
+    return state
+
+
+def prometheus_probe_node_discoveries():
+    prometheus_url = str(monitoring_config().get("prometheus_url") or "").rstrip("/")
+    managed_node_records = list(
+        BlackboxProbeNode.objects.all().only("id", "address", "port")
+    )
+    managed_nodes = {
+        _probe_node_endpoint_key(node.address, node.port): {
+            "node_id": node.id,
+            "endpoint": f"{node.address}:{node.port}",
+            "health": "unknown",
+            "last_error": "",
+            "last_scrape": "",
+        }
+        for node in managed_node_records
+    }
+    result = {
+        "configured": bool(prometheus_url),
+        "connected": False,
+        "prometheus_url": prometheus_url,
+        "error": "",
+        "discoveries": [],
+        "managed_nodes": list(managed_nodes.values()),
+        "unbound_target_count": ProbeTarget.objects.filter(
+            enabled=True,
+            probe_node__isnull=True,
+        ).count(),
+        "legacy_http_sd": {
+            "checked": False,
+            "detected": False,
+            "endpoints": [],
+            "error": "",
+        },
+    }
+    if not prometheus_url:
+        result["error"] = "prometheus url is not configured"
+        return result
+
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        response = session.get(
+            f"{prometheus_url}/api/v1/targets",
+            params={"state": "active"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        active_targets = response.json().get("data", {}).get("activeTargets", [])
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    discoveries = {}
+    for target in active_targets:
+        runtime_item = _managed_probe_node_runtime_target(target)
+        if runtime_item:
+            runtime_key = _probe_node_endpoint_key(
+                runtime_item["address"], runtime_item["port"]
+            )
+            current_runtime = managed_nodes.get(runtime_key)
+            if current_runtime and (
+                current_runtime["health"] != "up"
+                or runtime_item["health"] == "up"
+            ):
+                current_runtime.update(
+                    health=runtime_item["health"],
+                    last_error=runtime_item["last_error"],
+                    last_scrape=runtime_item["last_scrape"],
+                )
+
+        item = _blackbox_exporter_target(target)
+        if not item:
+            continue
+        key = _probe_node_endpoint_key(item["address"], item["port"])
+        if key in managed_nodes:
+            managed_nodes[key].update(
+                health=item["health"],
+                last_error=item["last_error"],
+                last_scrape=item["last_scrape"],
+            )
+            continue
+        current = discoveries.get(key)
+        if not current or (current["health"] != "up" and item["health"] == "up"):
+            discoveries[key] = item
+
+    result.update(
+        connected=True,
+        managed_nodes=sorted(
+            managed_nodes.values(),
+            key=lambda item: item["node_id"],
+        ),
+        discoveries=sorted(
+            discoveries.values(),
+            key=lambda item: (item["address"].lower(), item["port"]),
+        ),
+        legacy_http_sd=_legacy_http_sd_state(session, prometheus_url),
+    )
+    return result
+
+
+class ProbeNodeAlreadyManaged(Exception):
+    pass
+
+
+@transaction.atomic
+def onboard_prometheus_probe_node(
+    *, address, port="9115", name="", bind_unassigned_targets=False
+):
+    address = str(address or "").strip()
+    port = str(port or "9115").strip() or "9115"
+    if BlackboxProbeNode.objects.filter(address__iexact=address, port=port).exists():
+        raise ProbeNodeAlreadyManaged(f"{address}:{port}")
+
+    requested_name = str(name or "").strip()
+    if not requested_name:
+        safe_endpoint = "".join(
+            character if character.isalnum() else "-"
+            for character in f"{address}-{port}".lower()
+        ).strip("-")
+        requested_name = f"blackbox-{safe_endpoint}"[:120]
+    if BlackboxProbeNode.objects.filter(name=requested_name).exists():
+        raise ValueError("probe node name already exists")
+
+    node = BlackboxProbeNode.objects.create(
+        name=requested_name,
+        address=address,
+        port=port,
+        source=BlackboxProbeNode.SOURCE_PROMETHEUS,
+        enabled=True,
+        labels={"discovered_from": "prometheus"},
+    )
+    bound_target_count = 0
+    if bind_unassigned_targets:
+        bound_target_count = ProbeTarget.objects.filter(
+            enabled=True,
+            probe_node__isnull=True,
+        ).update(probe_node=node)
+    return node, bound_target_count
 
 
 def _snapshot_scrape_endpoint(snapshot):
@@ -1370,7 +1903,11 @@ def install_command_for_host(host, job):
 def render_inventory(hosts):
     lines = ["[categraf_targets]"]
     for host in hosts:
-        key_path = host_ssh_key_path(host)
+        key_path = (
+            host_ssh_key_path(host)
+            if host.ssh_auth_type == MonitoringHost.SSH_AUTH_KEY
+            else None
+        )
         key_arg = (
             f" ansible_ssh_private_key_file={shlex.quote(str(key_path))}"
             if key_path
@@ -1386,7 +1923,7 @@ def render_inventory(hosts):
             f"{host.hostname} ansible_host={host.address} "
             f"ansible_user={host.ssh_user or 'root'} "
             f"ansible_port={host.ssh_port or 22} "
-            f"ansible_connection=paramiko{key_arg}{password_arg}"
+            f"ansible_connection=ssh{key_arg}{password_arg}"
         )
     return "\n".join(lines) + "\n"
 
@@ -1569,12 +2106,130 @@ def build_playbook(hosts, job):
     ]
 
 
+def _parse_ansible_recap(logs):
+    recap = {}
+    in_recap = False
+    for line in logs:
+        stripped = line.strip()
+        if stripped.startswith("PLAY RECAP"):
+            in_recap = True
+            continue
+        if not in_recap:
+            continue
+
+        match = re.match(r"^(?P<hostname>\S+)\s*:\s*(?P<stats>.+)$", stripped)
+        if not match:
+            continue
+        stats = {
+            key: int(value)
+            for key, value in re.findall(r"([a-z_]+)=(\d+)", match.group("stats"))
+        }
+        if "failed" not in stats and "unreachable" not in stats:
+            continue
+        recap[match.group("hostname")] = stats
+    return recap
+
+
+def _ansible_output_has_failure(logs):
+    for line in logs:
+        stripped = line.strip()
+        if stripped.startswith("[ERROR]:"):
+            return True
+        if re.match(
+            r"^fatal:\s*\[[^]]+\]:\s*(?:FAILED|UNREACHABLE)!",
+            stripped,
+            re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
+def _ansible_execution_result(hosts, logs, process_returncode):
+    recap = _parse_ansible_recap(logs)
+    recap_failed = {
+        hostname
+        for hostname, stats in recap.items()
+        if stats.get("failed", 0) > 0 or stats.get("unreachable", 0) > 0
+    }
+    output_failed = _ansible_output_has_failure(logs)
+    execution_failed = process_returncode != 0 or output_failed or bool(recap_failed)
+    unattributed_failure = (process_returncode != 0 or output_failed) and not recap_failed
+
+    results = []
+    for host in hosts:
+        stats = recap.get(host.hostname)
+        host_failed = host.hostname in recap_failed
+        if stats is None and execution_failed:
+            host_failed = True
+        elif unattributed_failure:
+            host_failed = True
+        results.append(
+            {
+                "hostname": host.hostname,
+                "status": (
+                    AnsibleInstallJob.STATUS_FAILED
+                    if host_failed
+                    else AnsibleInstallJob.STATUS_SUCCESS
+                ),
+            }
+        )
+
+    status = (
+        AnsibleInstallJob.STATUS_FAILED
+        if execution_failed
+        else AnsibleInstallJob.STATUS_SUCCESS
+    )
+    effective_returncode = process_returncode or (1 if execution_failed else 0)
+    return status, effective_returncode, results
+
+
+def mark_unreachable_host_verification_failed(hosts, logs):
+    unreachable = {}
+    for line in logs:
+        match = re.match(
+            r"^fatal:\s*\[([^]]+)]\s*:\s*UNREACHABLE!",
+            str(line or "").strip(),
+            re.IGNORECASE,
+        )
+        if not match:
+            continue
+        lowered = str(line or "").lower()
+        if "error in libcrypto" in lowered or "invalid format" in lowered:
+            code = "SSH_KEY_OR_PROTOCOL_FAILED"
+        elif "permission denied" in lowered or "authentication failed" in lowered:
+            code = "SSH_AUTH_FAILED"
+        elif "timed out" in lowered or "timeout" in lowered:
+            code = "SSH_TIMEOUT"
+        else:
+            code = "SSH_UNREACHABLE"
+        unreachable[match.group(1)] = code
+
+    update_fields = list(
+        failed_verification_defaults(
+            fingerprint="",
+            error_code="SSH_UNREACHABLE",
+        ).keys()
+    )
+    for host in hosts:
+        code = unreachable.get(host.hostname)
+        if not code:
+            continue
+        defaults = failed_verification_defaults(
+            fingerprint=connection_fingerprint_for_host(host),
+            error_code=code,
+        )
+        for field, value in defaults.items():
+            setattr(host, field, value)
+        host.save(update_fields=update_fields)
+
+
 def execute_ansible_job(job_id):
     job = AnsibleInstallJob.objects.get(pk=job_id)
     hosts = selected_hosts(job.host_ids)
     job.status = AnsibleInstallJob.STATUS_RUNNING
     job.started_at = timezone.now()
-    job.save(update_fields=["status", "started_at"])
+    job.progress = build_progress("preparing")
+    job.save(update_fields=["status", "started_at", "progress"])
     mark_component_installing(job, hosts)
 
     if not hosts:
@@ -1582,9 +2237,17 @@ def execute_ansible_job(job_id):
         job.returncode = 1
         job.logs = ["no enabled hosts selected"]
         job.results = []
+        job.progress = build_progress("failed", message="no_hosts")
         job.finished_at = timezone.now()
         job.save(
-            update_fields=["status", "returncode", "logs", "results", "finished_at"]
+            update_fields=[
+                "status",
+                "returncode",
+                "logs",
+                "results",
+                "progress",
+                "finished_at",
+            ]
         )
         return job
 
@@ -1595,9 +2258,17 @@ def execute_ansible_job(job_id):
         job.results = [
             {"hostname": host.hostname, "status": "failed"} for host in hosts
         ]
+        job.progress = build_progress("failed", message="ansible_missing")
         job.finished_at = timezone.now()
         job.save(
-            update_fields=["status", "returncode", "logs", "results", "finished_at"]
+            update_fields=[
+                "status",
+                "returncode",
+                "logs",
+                "results",
+                "progress",
+                "finished_at",
+            ]
         )
         mark_component_finished(
             job,
@@ -1619,6 +2290,9 @@ def execute_ansible_job(job_id):
         "probe_name": job.probe_name,
         "blackbox_port": job.blackbox_port,
     }
+    logs = []
+    current_stage = "connecting"
+    current_host = ""
     with tempfile.TemporaryDirectory(prefix="hyperops-monitoring-ansible-") as tmp:
         tmp_path = Path(tmp)
         inventory_path = tmp_path / "inventory.ini"
@@ -1630,29 +2304,76 @@ def execute_ansible_job(job_id):
             ),
             encoding="utf-8",
         )
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             ["ansible-playbook", "-i", str(inventory_path), str(playbook_path)],
             text=True,
-            capture_output=True,
-            timeout=1800,
-            check=False,
-            env={**__import__("os").environ, "ANSIBLE_HOST_KEY_CHECKING": "False"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            env={
+                **os.environ,
+                "ANSIBLE_HOST_KEY_CHECKING": "False",
+                "ANSIBLE_FORCE_COLOR": "0",
+                "PYTHONUNBUFFERED": "1",
+            },
+        )
+        job.progress = build_progress("connecting")
+        job.save(update_fields=["progress"])
+
+        def persist_output(lines, stage):
+            nonlocal current_stage, current_host
+            logs.extend(lines)
+            if stage:
+                current_stage = stage
+            for line in reversed(lines):
+                line_host = current_host_for_line(line)
+                if line_host:
+                    current_host = line_host
+                    break
+            job.logs = list(logs)
+            job.progress = build_progress(
+                current_stage,
+                current_host=current_host,
+            )
+            job.save(update_fields=["logs", "progress"])
+
+        stream_result = stream_process_output(
+            proc,
+            timeout_seconds=1800,
+            on_flush=persist_output,
         )
 
-    logs = [
-        line for line in (proc.stdout + "\n" + proc.stderr).splitlines() if line.strip()
-    ]
-    status = (
-        AnsibleInstallJob.STATUS_SUCCESS
-        if proc.returncode == 0
-        else AnsibleInstallJob.STATUS_FAILED
+    status, effective_returncode, results = _ansible_execution_result(
+        hosts,
+        logs,
+        stream_result.returncode,
     )
     job.status = status
-    job.returncode = proc.returncode
+    job.returncode = effective_returncode
     job.logs = logs
-    job.results = [{"hostname": host.hostname, "status": status} for host in hosts]
+    job.results = results
+    job.progress = build_progress(
+        "completed" if status == AnsibleInstallJob.STATUS_SUCCESS else "failed",
+        current_host=current_host,
+        reason_code=(
+            failure_reason_code(logs, timed_out=stream_result.timed_out)
+            if status == AnsibleInstallJob.STATUS_FAILED
+            else "completed"
+        ),
+    )
     job.finished_at = timezone.now()
-    job.save(update_fields=["status", "returncode", "logs", "results", "finished_at"])
+    job.save(
+        update_fields=[
+            "status",
+            "returncode",
+            "logs",
+            "results",
+            "progress",
+            "finished_at",
+        ]
+    )
+    if status == AnsibleInstallJob.STATUS_FAILED:
+        mark_unreachable_host_verification_failed(hosts, logs)
     mark_component_finished(
         job,
         hosts,

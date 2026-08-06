@@ -21,6 +21,8 @@ from monitoring_stack.views import (
     N9ePlatformSummaryView,
     PrometheusHttpSdConfigView,
     PrometheusHttpSdTokenView,
+    PrometheusProbeNodeDiscoveryView,
+    PrometheusProbeNodeOnboardView,
     ProbeTargetViewSet,
     PrometheusHttpSdView,
     PrometheusTargetsSummaryView,
@@ -102,6 +104,16 @@ urlpatterns = [
         "prometheus/targets/summary/",
         PrometheusTargetsSummaryView.as_view(),
         name="monitoring-prometheus-targets-summary",
+    ),
+    path(
+        "prometheus/probe-nodes/discoveries/",
+        PrometheusProbeNodeDiscoveryView.as_view(),
+        name="monitoring-prometheus-probe-node-discoveries",
+    ),
+    path(
+        "prometheus/probe-nodes/onboard/",
+        PrometheusProbeNodeOnboardView.as_view(),
+        name="monitoring-prometheus-probe-node-onboard",
     ),
     path(
         "blackbox/instances/",

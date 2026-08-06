@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasRequiredFeature
+from core.api_errors import api_error_response, get_request_id
 
 from django.db.models import Count
 from django.utils.text import slugify as _slugify
@@ -28,6 +29,7 @@ from .models import (
     TriggerRecord,
     UserEntryNotificationPreference,
 )
+from .errors import classify_jenkins_error
 from .notification_service import (
     build_notification_result,
     deliver_build_notifications,
@@ -759,7 +761,16 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
                 }
             )
         except Exception as exc:
-            logger.error("Failed to list Jenkins jobs: %s", exc)
+            public_error = classify_jenkins_error(
+                exc,
+                default_detail="获取 Job 列表失败，请稍后重试",
+            )
+            request_id = get_request_id(request)
+            logger.exception(
+                "Failed to list Jenkins jobs instance_id=%s request_id=%s",
+                instance.id,
+                request_id,
+            )
             if cached_payload:
                 hydrated_payload = hydrate_cached_job_labels(instance, cached_payload)
                 return Response(
@@ -767,13 +778,19 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
                         **hydrated_payload,
                         "cached": True,
                         "stale": True,
-                        "warning": f"刷新 Jenkins Job 列表失败，已返回缓存数据: {exc}",
+                        "warning": (
+                            f"{public_error.detail}，当前展示上次缓存的数据"
+                        ),
+                        "warning_code": public_error.error_code,
+                        "request_id": request_id,
                     }
                 )
 
-            return Response(
-                {"message": f"获取 Job 列表失败: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error_response(
+                request,
+                error_code=public_error.error_code,
+                detail=public_error.detail,
+                status_code=public_error.status_code,
             )
 
     @action(
@@ -898,10 +915,16 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
             resolved_params = resolve_param_default_values(client, job_name, params)
             return Response({"params": resolved_params})
         except Exception as exc:
-            logger.error("Failed to fetch params: %s", exc)
-            return Response(
-                {"message": f"获取参数失败: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            public_error = classify_jenkins_error(
+                exc,
+                default_detail="获取 Jenkins 参数失败，请稍后重试",
+            )
+            logger.exception("Failed to fetch params request_id=%s", get_request_id(request))
+            return api_error_response(
+                request,
+                error_code=public_error.error_code,
+                detail=public_error.detail,
+                status_code=public_error.status_code,
             )
 
 
@@ -950,10 +973,20 @@ class TriggerEntryViewSet(viewsets.ModelViewSet):
         try:
             jenkins_params = client.get_job_params(entry.job_name)
         except Exception as exc:
-            logger.error("Failed to fetch params from Jenkins: %s", exc)
-            return Response(
-                {"message": f"获取 Jenkins 参数失败: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            public_error = classify_jenkins_error(
+                exc,
+                default_detail="获取 Jenkins 参数失败，请稍后重试",
+            )
+            logger.exception(
+                "Failed to fetch entry params entry_id=%s request_id=%s",
+                entry.id,
+                get_request_id(request),
+            )
+            return api_error_response(
+                request,
+                error_code=public_error.error_code,
+                detail=public_error.detail,
+                status_code=public_error.status_code,
             )
 
         params_config = entry.params_config or {}
@@ -978,10 +1011,20 @@ class TriggerEntryViewSet(viewsets.ModelViewSet):
         try:
             jenkins_params = client.get_job_params(entry.job_name)
         except Exception as exc:
-            logger.error("Failed to fetch params from Jenkins: %s", exc)
-            return Response(
-                {"message": f"获取 Jenkins 参数失败: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            public_error = classify_jenkins_error(
+                exc,
+                default_detail="获取 Jenkins 参数失败，请稍后重试",
+            )
+            logger.exception(
+                "Failed to fetch admin entry params entry_id=%s request_id=%s",
+                entry.id,
+                get_request_id(request),
+            )
+            return api_error_response(
+                request,
+                error_code=public_error.error_code,
+                detail=public_error.detail,
+                status_code=public_error.status_code,
             )
 
         params_config = entry.params_config or {}
@@ -1054,10 +1097,20 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
             )
             trigger_result = client.trigger_build(entry.job_name, final_params)
         except Exception as exc:
-            logger.error("Failed to trigger build: %s", exc)
-            return Response(
-                {"message": f"触发构建失败: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            public_error = classify_jenkins_error(
+                exc,
+                default_detail="触发 Jenkins 构建失败，请稍后重试",
+            )
+            logger.exception(
+                "Failed to trigger build entry_id=%s request_id=%s",
+                entry.id,
+                get_request_id(request),
+            )
+            return api_error_response(
+                request,
+                error_code=public_error.error_code,
+                detail=public_error.detail,
+                status_code=public_error.status_code,
             )
 
         record = TriggerRecord.objects.create(
@@ -1132,10 +1185,20 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
                 ).data
             )
         except Exception as exc:
-            logger.error("Failed to refresh status: %s", exc)
-            return Response(
-                {"message": f"刷新状态失败: {exc}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            public_error = classify_jenkins_error(
+                exc,
+                default_detail="刷新 Jenkins 构建状态失败，请稍后重试",
+            )
+            logger.exception(
+                "Failed to refresh status record_id=%s request_id=%s",
+                record.id,
+                get_request_id(request),
+            )
+            return api_error_response(
+                request,
+                error_code=public_error.error_code,
+                detail=public_error.detail,
+                status_code=public_error.status_code,
             )
 
 

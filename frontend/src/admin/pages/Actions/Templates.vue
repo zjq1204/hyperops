@@ -402,10 +402,12 @@
                             class="action-step-map-branches"
                           >
                             <span
-                              v-for="(branch, branchIndex) in previewBranchCases(
-                                step
-                              ).slice(0, 4)"
-                              :key="branch.client_id || branch.id || branchIndex"
+                              v-for="(
+                                branch, branchIndex
+                              ) in previewBranchCases(step).slice(0, 4)"
+                              :key="
+                                branch.client_id || branch.id || branchIndex
+                              "
                             >
                               {{ previewBranchConditionText(branch) }}
                             </span>
@@ -2236,11 +2238,16 @@
               <main class="action-flow-editor-stage">
                 <header class="action-flow-editor-topbar">
                   <div class="action-flow-editor-title">
-                    <h3>{{ t('adminPages.actionTemplates.flowEditor.title') }}</h3>
+                    <h3>
+                      {{ t('adminPages.actionTemplates.flowEditor.title') }}
+                    </h3>
                   </div>
                   <div class="action-flow-editor-toolbar">
                     <div class="action-flow-editor-zoom">
-                      <button type="button" @click="zoomFlowCanvas('editor', -1)">
+                      <button
+                        type="button"
+                        @click="zoomFlowCanvas('editor', -1)"
+                      >
                         −
                       </button>
                       <button type="button" @click="fitFlowCanvas('editor')">
@@ -2252,7 +2259,10 @@
                       >
                         {{ flowZoomPercent(flowEditorCanvasZoom) }}
                       </button>
-                      <button type="button" @click="zoomFlowCanvas('editor', 1)">
+                      <button
+                        type="button"
+                        @click="zoomFlowCanvas('editor', 1)"
+                      >
                         +
                       </button>
                     </div>
@@ -2269,966 +2279,643 @@
                   </div>
                 </header>
 
-              <div
-                ref="flowEditorCanvasRef"
-                class="action-flow-editor-scroll"
-                :class="{ dragging: flowEditorDragging }"
-                @click.capture="handleFlowEditorCanvasClick"
-                @mousedown="startFlowCanvasPan($event, 'editor')"
-                @mousemove="moveFlowCanvasPan"
-                @mouseup="stopFlowCanvasPan"
-                @mouseleave="stopFlowCanvasPan"
-                @wheel="handleFlowCanvasWheel($event, 'editor')"
-                @scroll="scheduleFlowEditorMeasure"
-              >
                 <div
-                  class="action-flow-canvas-viewport"
-                  :style="
-                    flowCanvasViewportStyle(
-                      flowEditorCanvasSize,
-                      flowEditorCanvasZoom
-                    )
-                  "
+                  ref="flowEditorCanvasRef"
+                  class="action-flow-editor-scroll"
+                  :class="{ dragging: flowEditorDragging }"
+                  @click.capture="handleFlowEditorCanvasClick"
+                  @mousedown="startFlowCanvasPan($event, 'editor')"
+                  @mousemove="moveFlowCanvasPan"
+                  @mouseup="stopFlowCanvasPan"
+                  @mouseleave="stopFlowCanvasPan"
+                  @wheel="handleFlowCanvasWheel($event, 'editor')"
+                  @scroll="scheduleFlowEditorMeasure"
                 >
                   <div
-                    class="action-flow-editor-canvas action-flow-canvas-inner"
-                    :style="flowCanvasInnerStyle(flowEditorCanvasZoom)"
-                  >
-                  <svg
-                    v-if="flowEditorConnections.length"
-                    class="action-flow-editor-svg"
-                    :viewBox="`0 0 ${flowEditorCanvasSize.width} ${flowEditorCanvasSize.height}`"
-                    :style="{
-                      width: `${flowEditorCanvasSize.width}px`,
-                      height: `${flowEditorCanvasSize.height}px`
-                    }"
-                    aria-hidden="true"
-                  >
-                    <defs>
-                      <marker
-                        id="flowEditorArrow"
-                        markerWidth="10"
-                        markerHeight="10"
-                        refX="9"
-                        refY="5"
-                        orient="auto"
-                      >
-                        <path d="M 0 0 L 10 5 L 0 10 z" />
-                      </marker>
-                    </defs>
-                    <path
-                      v-for="connection in flowEditorConnections"
-                      :key="connection.id"
-                      class="action-flow-editor-path"
-                      :class="{ active: connection.label }"
-                      :d="connection.path"
-                      marker-end="url(#flowEditorArrow)"
-                    />
-                  </svg>
-                  <div
-                    v-if="
-                      flowEditorCanvasZoom >= 1.02 &&
-                      flowEditorConnections.some((connection) => connection.label)
+                    class="action-flow-canvas-viewport"
+                    :style="
+                      flowCanvasViewportStyle(
+                        flowEditorCanvasSize,
+                        flowEditorCanvasZoom
+                      )
                     "
-                    class="action-flow-editor-labels"
-                    :style="{
-                      width: `${flowEditorCanvasSize.width}px`,
-                      height: `${flowEditorCanvasSize.height}px`
-                    }"
-                    aria-hidden="true"
                   >
-                    <span
-                      v-for="connection in flowEditorConnections.filter(
-                        (item) => item.label && flowEditorCanvasZoom >= 1.02
-                      )"
-                      :key="`${connection.id}-label`"
-                      class="action-flow-editor-label"
-                      :style="connection.labelStyle"
+                    <div
+                      class="action-flow-editor-canvas action-flow-canvas-inner"
+                      :style="flowCanvasInnerStyle(flowEditorCanvasZoom)"
                     >
-                      {{ connection.label }}
-                    </span>
-                  </div>
-
-                  <article
-                    v-for="(step, index) in form.steps"
-                    :key="step.client_id"
-                    class="action-flow-editor-node"
-                    :class="[
-                      `action-flow-editor-node--${step.action_type}`,
-                      {
-                        selected:
-                          selectedFlowTarget.kind === 'step' &&
-                          selectedFlowTarget.stepIndex === index,
-                        branch:
-                          step.action_type === 'conditional_branch'
-                      }
-                    ]"
-                    @click="selectFlowStep(index)"
-                  >
-                    <span
-                      class="action-flow-editor-port action-flow-editor-port--in"
-                      :data-flow-editor-port="flowEditorStepPort(index, 'in')"
-                      aria-hidden="true"
-                    />
-                    <span
-                      class="action-flow-editor-port action-flow-editor-port--out"
-                      :data-flow-editor-port="flowEditorStepPort(index, 'out')"
-                      aria-hidden="true"
-                    />
-                    <span
-                      class="action-flow-editor-badge"
-                      :class="{
-                        green: step.action_type === 'jenkins_trigger',
-                        violet: step.action_type === 'conditional_branch'
-                      }"
-                    >
-                      {{ previewStepIndex(index) }}
-                    </span>
-                    <div class="action-flow-editor-kind">
-                      {{ actionTypeText(step.action_type) }}
-                    </div>
-                    <h4>
-                      {{
-                        step.name ||
-                        t('adminPages.actionTemplates.steps.step', {
-                          count: index + 1
-                        })
-                      }}
-                    </h4>
-
-                    <template v-if="step.action_type === 'conditional_branch'">
-                      <div class="action-flow-editor-branch-list">
-                        <section
-                          v-for="(branch, branchIndex) in step.config.branches"
-                          :key="branch.client_id || branch.id || branchIndex"
-                          class="action-flow-editor-branch-case"
-                          :class="{
-                            selected:
-                              selectedFlowTarget.stepIndex === index &&
-                              selectedFlowTarget.branchIndex === branchIndex &&
-                              selectedFlowTarget.kind === 'branch'
-                          }"
-                          @click.stop="selectFlowBranch(index, branchIndex)"
+                      <svg
+                        v-if="flowEditorConnections.length"
+                        class="action-flow-editor-svg"
+                        :viewBox="`0 0 ${flowEditorCanvasSize.width} ${flowEditorCanvasSize.height}`"
+                        :style="{
+                          width: `${flowEditorCanvasSize.width}px`,
+                          height: `${flowEditorCanvasSize.height}px`
+                        }"
+                        aria-hidden="true"
+                      >
+                        <defs>
+                          <marker
+                            id="flowEditorArrow"
+                            markerWidth="10"
+                            markerHeight="10"
+                            refX="9"
+                            refY="5"
+                            orient="auto"
+                          >
+                            <path d="M 0 0 L 10 5 L 0 10 z" />
+                          </marker>
+                        </defs>
+                        <path
+                          v-for="connection in flowEditorConnections"
+                          :key="connection.id"
+                          class="action-flow-editor-path"
+                          :class="{ active: connection.label }"
+                          :d="connection.path"
+                          marker-end="url(#flowEditorArrow)"
+                        />
+                      </svg>
+                      <div
+                        v-if="
+                          flowEditorCanvasZoom >= 1.02 &&
+                          flowEditorConnections.some(
+                            (connection) => connection.label
+                          )
+                        "
+                        class="action-flow-editor-labels"
+                        :style="{
+                          width: `${flowEditorCanvasSize.width}px`,
+                          height: `${flowEditorCanvasSize.height}px`
+                        }"
+                        aria-hidden="true"
+                      >
+                        <span
+                          v-for="connection in flowEditorConnections.filter(
+                            (item) => item.label && flowEditorCanvasZoom >= 1.02
+                          )"
+                          :key="`${connection.id}-label`"
+                          class="action-flow-editor-label"
+                          :style="connection.labelStyle"
                         >
-                          <span
-                            class="action-flow-editor-port action-flow-editor-port--branch-in"
-                            :data-flow-editor-port="
-                              flowEditorBranchPort(index, branchIndex, 'in')
-                            "
-                            aria-hidden="true"
-                          />
-                          <span
-                            class="action-flow-editor-port action-flow-editor-port--branch-out"
-                            :data-flow-editor-port="
-                              flowEditorBranchPort(index, branchIndex, 'out')
-                            "
-                            aria-hidden="true"
-                          />
-                          <div class="action-flow-editor-branch-head">
-                            <strong>
-                              <span>{{ branchIndex + 1 }}</span>
-                              {{
-                                branch.label ||
-                                t(
-                                  'adminPages.actionTemplates.branch.caseTitle',
-                                  {
-                                    count: branchIndex + 1
-                                  }
-                                )
-                              }}
-                            </strong>
-                            <code>{{ previewBranchConditionText(branch) }}</code>
-                          </div>
-                          <div class="action-flow-editor-mini-steps">
-                            <template
-                              v-for="(nestedStep, nestedIndex) in branch.steps"
-                              :key="nestedStep.client_id || nestedIndex"
+                          {{ connection.label }}
+                        </span>
+                      </div>
+
+                      <article
+                        v-for="(step, index) in form.steps"
+                        :key="step.client_id"
+                        class="action-flow-editor-node"
+                        :class="[
+                          `action-flow-editor-node--${step.action_type}`,
+                          {
+                            selected:
+                              selectedFlowTarget.kind === 'step' &&
+                              selectedFlowTarget.stepIndex === index,
+                            branch: step.action_type === 'conditional_branch'
+                          }
+                        ]"
+                        @click="selectFlowStep(index)"
+                      >
+                        <span
+                          class="action-flow-editor-port action-flow-editor-port--in"
+                          :data-flow-editor-port="
+                            flowEditorStepPort(index, 'in')
+                          "
+                          aria-hidden="true"
+                        />
+                        <span
+                          class="action-flow-editor-port action-flow-editor-port--out"
+                          :data-flow-editor-port="
+                            flowEditorStepPort(index, 'out')
+                          "
+                          aria-hidden="true"
+                        />
+                        <span
+                          class="action-flow-editor-badge"
+                          :class="{
+                            green: step.action_type === 'jenkins_trigger',
+                            violet: step.action_type === 'conditional_branch'
+                          }"
+                        >
+                          {{ previewStepIndex(index) }}
+                        </span>
+                        <div class="action-flow-editor-kind">
+                          {{ actionTypeText(step.action_type) }}
+                        </div>
+                        <h4>
+                          {{
+                            step.name ||
+                            t('adminPages.actionTemplates.steps.step', {
+                              count: index + 1
+                            })
+                          }}
+                        </h4>
+
+                        <template
+                          v-if="step.action_type === 'conditional_branch'"
+                        >
+                          <div class="action-flow-editor-branch-list">
+                            <section
+                              v-for="(branch, branchIndex) in step.config
+                                .branches"
+                              :key="
+                                branch.client_id || branch.id || branchIndex
+                              "
+                              class="action-flow-editor-branch-case"
+                              :class="{
+                                selected:
+                                  selectedFlowTarget.stepIndex === index &&
+                                  selectedFlowTarget.branchIndex ===
+                                    branchIndex &&
+                                  selectedFlowTarget.kind === 'branch'
+                              }"
+                              @click.stop="selectFlowBranch(index, branchIndex)"
                             >
-                              <button
-                                type="button"
-                                class="action-flow-editor-mini-step"
-                                :class="{
-                                  selected:
-                                    selectedFlowTarget.kind === 'nested' &&
-                                    selectedFlowTarget.stepIndex === index &&
-                                    selectedFlowTarget.branchIndex ===
-                                      branchIndex &&
-                                    selectedFlowTarget.nestedIndex ===
-                                      nestedIndex
-                                }"
-                                @click.stop="
-                                  selectFlowNestedStep(
+                              <span
+                                class="action-flow-editor-port action-flow-editor-port--branch-in"
+                                :data-flow-editor-port="
+                                  flowEditorBranchPort(index, branchIndex, 'in')
+                                "
+                                aria-hidden="true"
+                              />
+                              <span
+                                class="action-flow-editor-port action-flow-editor-port--branch-out"
+                                :data-flow-editor-port="
+                                  flowEditorBranchPort(
                                     index,
                                     branchIndex,
-                                    nestedIndex
+                                    'out'
                                   )
                                 "
-                              >
-                                {{
-                                  nestedStep.name ||
-                                  actionTypeText(nestedStep.action_type)
-                                }}
-                              </button>
-                              <span
-                                v-if="nestedIndex < branch.steps.length - 1"
-                                class="action-flow-editor-mini-arrow"
                                 aria-hidden="true"
-                              >
-                                →
-                              </span>
-                            </template>
-                            <span
-                              v-if="!branch.steps?.length"
-                              class="action-flow-editor-mini-step muted"
-                            >
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.branch.noNestedSteps'
-                                )
-                              }}
-                            </span>
+                              />
+                              <div class="action-flow-editor-branch-head">
+                                <strong>
+                                  <span>{{ branchIndex + 1 }}</span>
+                                  {{
+                                    branch.label ||
+                                    t(
+                                      'adminPages.actionTemplates.branch.caseTitle',
+                                      {
+                                        count: branchIndex + 1
+                                      }
+                                    )
+                                  }}
+                                </strong>
+                                <code>{{
+                                  previewBranchConditionText(branch)
+                                }}</code>
+                              </div>
+                              <div class="action-flow-editor-mini-steps">
+                                <template
+                                  v-for="(
+                                    nestedStep, nestedIndex
+                                  ) in branch.steps"
+                                  :key="nestedStep.client_id || nestedIndex"
+                                >
+                                  <button
+                                    type="button"
+                                    class="action-flow-editor-mini-step"
+                                    :class="{
+                                      selected:
+                                        selectedFlowTarget.kind === 'nested' &&
+                                        selectedFlowTarget.stepIndex ===
+                                          index &&
+                                        selectedFlowTarget.branchIndex ===
+                                          branchIndex &&
+                                        selectedFlowTarget.nestedIndex ===
+                                          nestedIndex
+                                    }"
+                                    @click.stop="
+                                      selectFlowNestedStep(
+                                        index,
+                                        branchIndex,
+                                        nestedIndex
+                                      )
+                                    "
+                                  >
+                                    {{
+                                      nestedStep.name ||
+                                      actionTypeText(nestedStep.action_type)
+                                    }}
+                                  </button>
+                                  <span
+                                    v-if="nestedIndex < branch.steps.length - 1"
+                                    class="action-flow-editor-mini-arrow"
+                                    aria-hidden="true"
+                                  >
+                                    →
+                                  </span>
+                                </template>
+                                <span
+                                  v-if="!branch.steps?.length"
+                                  class="action-flow-editor-mini-step muted"
+                                >
+                                  {{
+                                    t(
+                                      'adminPages.actionTemplates.branch.noNestedSteps'
+                                    )
+                                  }}
+                                </span>
+                              </div>
+                            </section>
                           </div>
-                        </section>
-                      </div>
-                      <div class="action-flow-editor-branch-footer">
-                        <span>{{ branchMatchModeText(step) }}</span>
-                        <em>{{ flowFailurePolicyText(step) }}</em>
-                      </div>
-                    </template>
+                          <div class="action-flow-editor-branch-footer">
+                            <span>{{ branchMatchModeText(step) }}</span>
+                            <em>{{ flowFailurePolicyText(step) }}</em>
+                          </div>
+                        </template>
 
-                    <template v-else>
-                      <dl class="action-flow-editor-meta">
-                        <div
-                          v-for="item in stepSummaryItems(step)"
-                          :key="item.label"
-                        >
-                          <dt>{{ item.label }}</dt>
-                          <dd>{{ item.value }}</dd>
-                        </div>
-                      </dl>
-                      <span class="action-flow-editor-policy">
-                        {{ flowFailurePolicyText(step) }}
-                      </span>
-                    </template>
-                    </article>
+                        <template v-else>
+                          <dl class="action-flow-editor-meta">
+                            <div
+                              v-for="item in stepSummaryItems(step)"
+                              :key="item.label"
+                            >
+                              <dt>{{ item.label }}</dt>
+                              <dd>{{ item.value }}</dd>
+                            </div>
+                          </dl>
+                          <span class="action-flow-editor-policy">
+                            {{ flowFailurePolicyText(step) }}
+                          </span>
+                        </template>
+                      </article>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </main>
+              </main>
 
-            <aside v-if="flowInspectorOpen" class="action-flow-editor-inspector">
-              <header class="action-flow-inspector-head">
-                <h3>{{ selectedFlowTitle }}</h3>
-                <p>{{ selectedFlowSubtitle }}</p>
-              </header>
+              <aside
+                v-if="flowInspectorOpen"
+                class="action-flow-editor-inspector"
+              >
+                <header class="action-flow-inspector-head">
+                  <h3>{{ selectedFlowTitle }}</h3>
+                  <p>{{ selectedFlowSubtitle }}</p>
+                </header>
 
-              <div class="action-flow-inspector-body">
-                <template v-if="selectedFlowTarget.kind === 'step'">
-                  <section class="action-flow-inspector-section">
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.node')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.steps.editor.name')
-                      }}</span>
-                      <input
-                        v-model="selectedFlowStep.name"
-                        :placeholder="
-                          t(
-                            'adminPages.actionTemplates.steps.editor.namePlaceholder'
-                          )
-                        "
-                      />
-                    </label>
-                    <div class="action-flow-inspector-grid">
+                <div class="action-flow-inspector-body">
+                  <template v-if="selectedFlowTarget.kind === 'step'">
+                    <section class="action-flow-inspector-section">
+                      <strong>{{
+                        t('adminPages.actionTemplates.flowEditor.sections.node')
+                      }}</strong>
                       <label class="action-field">
                         <span>{{
-                          t(
-                            'adminPages.actionTemplates.steps.editor.category'
-                          )
+                          t('adminPages.actionTemplates.steps.editor.name')
                         }}</span>
-                        <select
-                          :value="actionCategory(selectedFlowStep)"
-                          @change="
-                            setActionCategory(
-                              selectedFlowStep,
-                              $event.target.value
-                            )
-                          "
-                        >
-                          <option value="jenkins">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.steps.types.jenkins'
-                              )
-                            }}
-                          </option>
-                          <option value="gitlab">
-                            {{
-                              t('adminPages.actionTemplates.steps.types.gitlab')
-                            }}
-                          </option>
-                          <option value="approval">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.steps.types.approval'
-                              )
-                            }}
-                          </option>
-                          <option value="conditional">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.steps.types.conditional'
-                              )
-                            }}
-                          </option>
-                        </select>
-                      </label>
-                      <label class="action-field">
-                        <span>{{
-                          t('adminPages.actionTemplates.steps.policyName')
-                        }}</span>
-                        <select v-model="selectedFlowStep.failure_policy">
-                          <option value="stop">
-                            {{
-                              t('adminPages.actionTemplates.steps.policyStop')
-                            }}
-                          </option>
-                          <option value="continue">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.steps.policyContinue'
-                              )
-                            }}
-                          </option>
-                        </select>
-                      </label>
-                    </div>
-                  </section>
-
-                  <section
-                    v-if="selectedFlowStep.action_type === 'jenkins_trigger'"
-                    class="action-flow-inspector-section"
-                  >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.jenkins')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.jenkins.entry')
-                      }}</span>
-                      <select
-                        v-model.number="selectedFlowStep.config.entry_id"
-                        @change="loadJenkinsStepParams(selectedFlowStep)"
-                      >
-                        <option value="">
-                          {{
-                            t(
-                              'adminPages.actionTemplates.jenkins.selectEntry'
-                            )
-                          }}
-                        </option>
-                        <option
-                          v-for="entry in jenkinsEntries"
-                          :key="entry.id"
-                          :value="entry.id"
-                        >
-                          {{ entry.name }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="action-checkbox-line">
-                      <input
-                        v-model="selectedFlowStep.config.wait_for_completion"
-                        type="checkbox"
-                      />
-                      {{
-                        t(
-                          'adminPages.actionTemplates.jenkins.waitForCompletion'
-                        )
-                      }}
-                    </label>
-                    <div class="action-flow-param-card">
-                      <div class="action-param-head">
-                        <span>{{
-                          t('adminPages.actionTemplates.jenkins.paramsTitle')
-                        }}</span>
-                        <button
-                          type="button"
-                          class="action-link-button"
-                          :disabled="!selectedFlowStep.config.entry_id"
-                          @click="loadJenkinsStepParams(selectedFlowStep)"
-                        >
-                          {{ t('adminPages.actionTemplates.jenkins.refresh') }}
-                        </button>
-                      </div>
-                      <div
-                        v-if="selectedFlowStep.paramsLoading"
-                        class="action-param-empty"
-                      >
-                        {{ t('adminPages.actionTemplates.jenkins.loading') }}
-                      </div>
-                      <div
-                        v-else-if="selectedFlowStep.paramRows?.length"
-                        class="action-param-table action-flow-param-table"
-                      >
-                        <div
-                          v-for="row in selectedFlowStep.paramRows"
-                          :key="row.name"
-                          class="action-param-row"
-                        >
-                          <div class="action-param-name">
-                            <strong>{{ row.name }}</strong>
-                            <small>{{ row.description || row.type || 'String' }}</small>
-                          </div>
-                          <select
-                            v-if="row.mode !== 'readonly'"
-                            v-model="row.source"
-                            @change="
-                              syncJenkinsParamsFromRows(selectedFlowStep)
-                            "
-                          >
-                            <option value="default">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.source.default'
-                                )
-                              }}
-                            </option>
-                            <option value="fixed">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.source.fixed'
-                                )
-                              }}
-                            </option>
-                            <option value="param">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.source.param'
-                                )
-                              }}
-                            </option>
-                          </select>
-                          <div v-else class="action-param-readonly-mode">
-                            {{
-                              t('adminPages.actionTemplates.jenkins.entry')
-                            }}
-                          </div>
-                          <select
-                            v-if="row.source === 'param'"
-                            v-model="row.value"
-                            @change="
-                              syncJenkinsParamsFromRows(selectedFlowStep)
-                            "
-                          >
-                            <option value="">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.selectParam'
-                                )
-                              }}
-                            </option>
-                            <option
-                              v-for="param in globalParamNames"
-                              :key="param"
-                              :value="param"
-                            >
-                              {{ param }}
-                            </option>
-                          </select>
-                          <input
-                            v-else
-                            v-model="row.value"
-                            :disabled="
-                              row.source === 'default' ||
-                              row.mode === 'readonly'
-                            "
-                            @input="
-                              syncJenkinsParamsFromRows(selectedFlowStep)
-                            "
-                          />
-                        </div>
-                      </div>
-                      <div v-else class="action-param-empty">
-                        {{ t('adminPages.actionTemplates.jenkins.empty') }}
-                      </div>
-                    </div>
-                  </section>
-
-                  <section
-                    v-else-if="
-                      selectedFlowStep.action_type === 'conditional_branch'
-                    "
-                    class="action-flow-inspector-section"
-                  >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.branch')
-                    }}</strong>
-                    <div class="action-flow-inspector-grid">
-                      <label class="action-field">
-                        <span>{{
-                          t('adminPages.actionTemplates.flowEditor.matchMode')
-                        }}</span>
-                        <select v-model="selectedFlowStep.config.match_mode">
-                          <option value="first">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.flowEditor.matchFirst'
-                              )
-                            }}
-                          </option>
-                          <option value="all">
-                            {{
-                              t('adminPages.actionTemplates.flowEditor.matchAll')
-                            }}
-                          </option>
-                        </select>
-                      </label>
-                      <label class="action-field">
-                        <span>{{
-                          t('adminPages.actionTemplates.flowEditor.noMatch')
-                        }}</span>
-                        <select
-                          v-model="selectedFlowStep.config.default_behavior"
-                        >
-                          <option value="skip">
-                            {{
-                              t('adminPages.actionTemplates.flowEditor.skipBlock')
-                            }}
-                          </option>
-                          <option value="fail">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.flowEditor.markFailed'
-                              )
-                            }}
-                          </option>
-                        </select>
-                      </label>
-                    </div>
-                    <div class="action-flow-branch-config-list">
-                      <button
-                        v-for="(branch, branchIndex) in selectedFlowStep.config
-                          .branches"
-                        :key="branch.client_id || branch.id || branchIndex"
-                        type="button"
-                        :class="{
-                          active:
-                            selectedFlowTarget.kind === 'branch' &&
-                            selectedFlowTarget.branchIndex === branchIndex
-                        }"
-                        @click="selectFlowBranch(selectedFlowTarget.stepIndex, branchIndex)"
-                      >
-                        <strong>{{
-                          branch.label ||
-                          t('adminPages.actionTemplates.branch.caseTitle', {
-                            count: branchIndex + 1
-                          })
-                        }}</strong>
-                        <span>{{ previewBranchConditionText(branch) }}</span>
-                      </button>
-                    </div>
-                    <BaseButton
-                      variant="secondary"
-                      size="sm"
-                      @click="addBranchCase(selectedFlowStep)"
-                    >
-                      {{ t('adminPages.actionTemplates.branch.addCase') }}
-                    </BaseButton>
-                  </section>
-
-                  <section
-                    v-else-if="isGitLabStep(selectedFlowStep)"
-                    class="action-flow-inspector-section"
-                  >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.gitlab')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.gitlab.operation')
-                      }}</span>
-                      <select v-model="selectedFlowStep.config.operation">
-                        <option
-                          v-for="operation in gitlabOperationOptions(
-                            selectedFlowStep.action_type
-                          )"
-                          :key="operation.value"
-                          :value="operation.value"
-                        >
-                          {{ operation.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="action-field">
-                      <span>{{
-                        t(
-                          'adminPages.actionTemplates.steps.editor.specificAction'
-                        )
-                      }}</span>
-                      <select
-                        :value="gitlabStepValue(selectedFlowStep)"
-                        @change="
-                          setGitLabStepValue(
-                            selectedFlowStep,
-                            $event.target.value
-                          )
-                        "
-                      >
-                        <option
-                          v-for="operation in gitlabStepOptions"
-                          :key="operation.value"
-                          :value="operation.value"
-                        >
-                          {{ operation.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="action-field">
-                      <span>{{ gitlabPrimaryFieldLabel(selectedFlowStep) }}</span>
-                      <input
-                        v-model="
-                          selectedFlowStep.config[
-                            gitlabPrimaryFieldKey(selectedFlowStep)
-                          ]
-                        "
-                        :placeholder="
-                          gitlabPrimaryFieldPlaceholder(selectedFlowStep)
-                        "
-                      />
-                    </label>
-                    <label
-                      v-if="gitlabNeedsRef(selectedFlowStep)"
-                      class="action-field"
-                    >
-                      <span>{{ t('adminPages.actionTemplates.gitlab.ref') }}</span>
-                      <input v-model="selectedFlowStep.config.ref" />
-                    </label>
-                    <div class="action-flow-project-picker">
-                      <div class="action-flow-project-head">
-                        <div>
-                          <strong>{{
-                            t('adminPages.actionTemplates.gitlab.fixedProjects')
-                          }}</strong>
-                          <span>{{
-                            t(
-                              'adminPages.actionTemplates.gitlab.selectedCount',
-                              {
-                                count:
-                                  selectedFlowStep.config.project_ids?.length ||
-                                  0
-                              }
-                            )
-                          }}</span>
-                        </div>
-                        <div class="action-project-picker-actions">
-                          <button
-                            type="button"
-                            :disabled="
-                              !filteredGitLabProjectsForStep(selectedFlowStep)
-                                .length
-                            "
-                            @click="selectAllGitLabProjects(selectedFlowStep)"
-                          >
-                            {{
-                              t('adminPages.actionTemplates.gitlab.selectAll')
-                            }}
-                          </button>
-                          <span>|</span>
-                          <button
-                            type="button"
-                            :disabled="
-                              !selectedFlowStep.config.project_ids?.length
-                            "
-                            @click="clearActionProjects(selectedFlowStep)"
-                          >
-                            {{ t('adminPages.actionTemplates.gitlab.clear') }}
-                          </button>
-                        </div>
-                      </div>
-                      <div class="action-project-picker-toolbar compact">
-                        <label class="action-field">
-                          <span>{{
-                            t('adminPages.actionTemplates.gitlab.group')
-                          }}</span>
-                          <select v-model="actionProjectGroupFilter">
-                            <option value="">
-                              {{
-                                t('adminPages.actionTemplates.gitlab.allGroups')
-                              }}
-                            </option>
-                            <option
-                              v-for="group in actionProjectGroupOptions"
-                              :key="group.id"
-                              :value="group.id"
-                            >
-                              {{ group.name }}
-                            </option>
-                          </select>
-                        </label>
-                        <label class="action-field">
-                          <span>{{
-                            t('adminPages.actionTemplates.gitlab.search')
-                          }}</span>
-                          <input
-                            v-model="actionProjectSearch"
-                            :placeholder="
-                              t(
-                                'adminPages.actionTemplates.gitlab.searchPlaceholder'
-                              )
-                            "
-                          />
-                        </label>
-                        <label class="action-project-selected-only">
-                          <input
-                            v-model="actionProjectSelectedOnly"
-                            type="checkbox"
-                          />
-                          <span>{{
-                            t('adminPages.actionTemplates.gitlab.selectedOnly')
-                          }}</span>
-                        </label>
-                      </div>
-                      <div
-                        v-if="gitlabProjectLabels.length"
-                        class="action-project-label-filter"
-                      >
-                        <div class="action-project-label-filter-head">
-                          <span>{{
-                            t('adminPages.actionTemplates.gitlab.resourceLabels')
-                          }}</span>
-                          <button
-                            v-if="actionProjectLabelFilter.length"
-                            type="button"
-                            @click="clearActionProjectLabelFilter"
-                          >
-                            {{ t('adminPages.actionTemplates.gitlab.allLabels') }}
-                          </button>
-                        </div>
-                        <div class="action-project-label-chips">
-                          <button
-                            v-for="label in gitlabProjectLabels"
-                            :key="label.id"
-                            type="button"
-                            :class="{
-                              active: actionProjectLabelFilter.includes(
-                                Number(label.id)
-                              )
-                            }"
-                            @click="toggleActionProjectLabelFilter(label.id)"
-                          >
-                            {{ label.name }}
-                          </button>
-                        </div>
-                      </div>
-                      <label class="action-inline-switch">
                         <input
-                          v-model="
-                            selectedFlowStep.config
-                              .allow_runtime_project_selection
-                          "
-                          type="checkbox"
-                        />
-                        <span>{{
-                          t('adminPages.actionTemplates.gitlab.allowRuntime')
-                        }}</span>
-                      </label>
-                      <div
-                        v-if="filteredGitLabProjectsForStep(selectedFlowStep).length"
-                        class="action-project-grid action-flow-project-grid"
-                      >
-                        <label
-                          v-for="project in filteredGitLabProjectsForStep(
-                            selectedFlowStep
-                          )"
-                          :key="project.id"
-                          class="action-project-card"
-                          :class="{
-                            selected: isSelected(
-                              selectedFlowStep.config.project_ids,
-                              project.id
+                          v-model="selectedFlowStep.name"
+                          :placeholder="
+                            t(
+                              'adminPages.actionTemplates.steps.editor.namePlaceholder'
                             )
-                          }"
-                        >
-                          <input
-                            type="checkbox"
-                            :checked="
-                              isSelected(
-                                selectedFlowStep.config.project_ids,
-                                project.id
-                              )
-                            "
+                          "
+                        />
+                      </label>
+                      <div class="action-flow-inspector-grid">
+                        <label class="action-field">
+                          <span>{{
+                            t(
+                              'adminPages.actionTemplates.steps.editor.category'
+                            )
+                          }}</span>
+                          <select
+                            :value="actionCategory(selectedFlowStep)"
                             @change="
-                              toggleSelection(
-                                selectedFlowStep.config.project_ids,
-                                project.id
+                              setActionCategory(
+                                selectedFlowStep,
+                                $event.target.value
                               )
                             "
-                          />
-                          <div class="action-project-card-copy">
-                            <strong>{{ project.name }}</strong>
-                            <span>{{ project.path || project.name }}</span>
-                            <em v-if="project.group_name">{{
-                              project.group_name
-                            }}</em>
-                            <div
-                              v-if="project.labels?.length"
-                              class="action-project-card-labels"
-                            >
-                              <i
-                                v-for="label in project.labels"
-                                :key="label.id"
-                              >
-                                {{ label.name }}
-                              </i>
-                            </div>
-                          </div>
+                          >
+                            <option value="jenkins">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.steps.types.jenkins'
+                                )
+                              }}
+                            </option>
+                            <option value="gitlab">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.steps.types.gitlab'
+                                )
+                              }}
+                            </option>
+                            <option value="approval">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.steps.types.approval'
+                                )
+                              }}
+                            </option>
+                            <option value="conditional">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.steps.types.conditional'
+                                )
+                              }}
+                            </option>
+                          </select>
+                        </label>
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.steps.policyName')
+                          }}</span>
+                          <select v-model="selectedFlowStep.failure_policy">
+                            <option value="stop">
+                              {{
+                                t('adminPages.actionTemplates.steps.policyStop')
+                              }}
+                            </option>
+                            <option value="continue">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.steps.policyContinue'
+                                )
+                              }}
+                            </option>
+                          </select>
                         </label>
                       </div>
-                      <div v-else class="action-project-empty">
-                        {{
-                          t('adminPages.actionTemplates.gitlab.emptyNoMatch')
-                        }}
-                      </div>
-                    </div>
-                  </section>
+                    </section>
 
-                  <section
-                    v-else-if="
-                      selectedFlowStep.action_type === 'manual_approval'
-                    "
-                    class="action-flow-inspector-section"
-                  >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.approval')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.approval.message')
-                      }}</span>
-                      <textarea
-                        v-model="selectedFlowStep.config.message"
-                        rows="3"
-                      ></textarea>
-                    </label>
-                  </section>
-                </template>
-
-                <template v-else-if="selectedFlowTarget.kind === 'branch'">
-                  <section class="action-flow-inspector-section">
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.condition')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{ t('adminPages.actionTemplates.branch.label') }}</span>
-                      <input v-model="selectedFlowBranch.label" />
-                    </label>
-                    <div class="action-flow-inspector-grid">
+                    <section
+                      v-if="selectedFlowStep.action_type === 'jenkins_trigger'"
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.jenkins'
+                        )
+                      }}</strong>
                       <label class="action-field">
-                        <span>{{ t('adminPages.actionTemplates.branch.param') }}</span>
-                        <select v-model="selectedFlowBranch.condition.param">
+                        <span>{{
+                          t('adminPages.actionTemplates.jenkins.entry')
+                        }}</span>
+                        <select
+                          v-model.number="selectedFlowStep.config.entry_id"
+                          @change="loadJenkinsStepParams(selectedFlowStep)"
+                        >
                           <option value="">
                             {{
                               t(
-                                'adminPages.actionTemplates.branch.selectParam'
+                                'adminPages.actionTemplates.jenkins.selectEntry'
                               )
                             }}
                           </option>
                           <option
-                            v-for="param in globalParamNames"
-                            :key="param"
-                            :value="param"
+                            v-for="entry in jenkinsEntries"
+                            :key="entry.id"
+                            :value="entry.id"
                           >
-                            {{ param }}
+                            {{ entry.name }}
                           </option>
                         </select>
                       </label>
-                      <label class="action-field">
-                        <span>{{
-                          t('adminPages.actionTemplates.branch.operator')
-                        }}</span>
-                        <select v-model="selectedFlowBranch.condition.operator">
-                          <option
-                            v-for="operator in branchOperatorOptions"
-                            :key="operator.value"
-                            :value="operator.value"
-                          >
-                            {{ operator.label }}
-                          </option>
-                        </select>
-                      </label>
-                    </div>
-                    <label
-                      v-if="
-                        branchOperatorNeedsValue(
-                          selectedFlowBranch.condition.operator
-                        )
-                      "
-                      class="action-field"
-                    >
-                      <span>{{ t('adminPages.actionTemplates.branch.value') }}</span>
-                      <input v-model="selectedFlowBranch.condition.value" />
-                    </label>
-                  </section>
-
-                  <section class="action-flow-inspector-section">
-                    <div class="action-flow-inspector-section-head">
-                      <strong>{{ t('adminPages.actionTemplates.branch.steps') }}</strong>
-                      <button
-                        type="button"
-                        class="action-link-button"
-                        @click="addFlowNestedStep"
-                      >
+                      <label class="action-checkbox-line">
+                        <input
+                          v-model="selectedFlowStep.config.wait_for_completion"
+                          type="checkbox"
+                        />
                         {{
                           t(
-                            'adminPages.actionTemplates.branch.addNestedStep'
+                            'adminPages.actionTemplates.jenkins.waitForCompletion'
                           )
                         }}
-                      </button>
-                    </div>
-                    <div class="action-flow-nested-config-list">
-                      <button
-                        v-for="(nestedStep, nestedIndex) in selectedFlowBranch
-                          .steps"
-                        :key="nestedStep.client_id || nestedIndex"
-                        type="button"
-                        @click="
-                          selectFlowNestedStep(
-                            selectedFlowTarget.stepIndex,
-                            selectedFlowTarget.branchIndex,
-                            nestedIndex
-                          )
-                        "
-                      >
-                        <strong>
-                          {{ nestedIndex + 1 }}.
-                          {{
-                            nestedStep.name ||
-                            actionTypeText(nestedStep.action_type)
-                          }}
-                        </strong>
-                        <span>{{ actionTypeText(nestedStep.action_type) }}</span>
-                      </button>
-                    </div>
-                  </section>
-                </template>
+                      </label>
+                      <div class="action-flow-param-card">
+                        <div class="action-param-head">
+                          <span>{{
+                            t('adminPages.actionTemplates.jenkins.paramsTitle')
+                          }}</span>
+                          <button
+                            type="button"
+                            class="action-link-button"
+                            :disabled="!selectedFlowStep.config.entry_id"
+                            @click="loadJenkinsStepParams(selectedFlowStep)"
+                          >
+                            {{
+                              t('adminPages.actionTemplates.jenkins.refresh')
+                            }}
+                          </button>
+                        </div>
+                        <div
+                          v-if="selectedFlowStep.paramsLoading"
+                          class="action-param-empty"
+                        >
+                          {{ t('adminPages.actionTemplates.jenkins.loading') }}
+                        </div>
+                        <div
+                          v-else-if="selectedFlowStep.paramRows?.length"
+                          class="action-param-table action-flow-param-table"
+                        >
+                          <div
+                            v-for="row in selectedFlowStep.paramRows"
+                            :key="row.name"
+                            class="action-param-row"
+                          >
+                            <div class="action-param-name">
+                              <strong>{{ row.name }}</strong>
+                              <small>{{
+                                row.description || row.type || 'String'
+                              }}</small>
+                            </div>
+                            <select
+                              v-if="row.mode !== 'readonly'"
+                              v-model="row.source"
+                              @change="
+                                syncJenkinsParamsFromRows(selectedFlowStep)
+                              "
+                            >
+                              <option value="default">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.source.default'
+                                  )
+                                }}
+                              </option>
+                              <option value="fixed">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.source.fixed'
+                                  )
+                                }}
+                              </option>
+                              <option value="param">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.source.param'
+                                  )
+                                }}
+                              </option>
+                            </select>
+                            <div v-else class="action-param-readonly-mode">
+                              {{
+                                t('adminPages.actionTemplates.jenkins.entry')
+                              }}
+                            </div>
+                            <select
+                              v-if="row.source === 'param'"
+                              v-model="row.value"
+                              @change="
+                                syncJenkinsParamsFromRows(selectedFlowStep)
+                              "
+                            >
+                              <option value="">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.selectParam'
+                                  )
+                                }}
+                              </option>
+                              <option
+                                v-for="param in globalParamNames"
+                                :key="param"
+                                :value="param"
+                              >
+                                {{ param }}
+                              </option>
+                            </select>
+                            <input
+                              v-else
+                              v-model="row.value"
+                              :disabled="
+                                row.source === 'default' ||
+                                row.mode === 'readonly'
+                              "
+                              @input="
+                                syncJenkinsParamsFromRows(selectedFlowStep)
+                              "
+                            />
+                          </div>
+                        </div>
+                        <div v-else class="action-param-empty">
+                          {{ t('adminPages.actionTemplates.jenkins.empty') }}
+                        </div>
+                      </div>
+                    </section>
 
-                <template v-else-if="selectedFlowTarget.kind === 'nested'">
-                  <section class="action-flow-inspector-section">
-                    <strong>{{
-                      t(
-                        'adminPages.actionTemplates.flowEditor.sections.nested'
-                      )
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.steps.editor.name')
-                      }}</span>
-                      <input v-model="selectedFlowNestedStep.name" />
-                    </label>
-                    <div class="action-flow-inspector-grid">
+                    <section
+                      v-else-if="
+                        selectedFlowStep.action_type === 'conditional_branch'
+                      "
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.branch'
+                        )
+                      }}</strong>
+                      <div class="action-flow-inspector-grid">
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.flowEditor.matchMode')
+                          }}</span>
+                          <select v-model="selectedFlowStep.config.match_mode">
+                            <option value="first">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.flowEditor.matchFirst'
+                                )
+                              }}
+                            </option>
+                            <option value="all">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.flowEditor.matchAll'
+                                )
+                              }}
+                            </option>
+                          </select>
+                        </label>
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.flowEditor.noMatch')
+                          }}</span>
+                          <select
+                            v-model="selectedFlowStep.config.default_behavior"
+                          >
+                            <option value="skip">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.flowEditor.skipBlock'
+                                )
+                              }}
+                            </option>
+                            <option value="fail">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.flowEditor.markFailed'
+                                )
+                              }}
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+                      <div class="action-flow-branch-config-list">
+                        <button
+                          v-for="(branch, branchIndex) in selectedFlowStep
+                            .config.branches"
+                          :key="branch.client_id || branch.id || branchIndex"
+                          type="button"
+                          :class="{
+                            active:
+                              selectedFlowTarget.kind === 'branch' &&
+                              selectedFlowTarget.branchIndex === branchIndex
+                          }"
+                          @click="
+                            selectFlowBranch(
+                              selectedFlowTarget.stepIndex,
+                              branchIndex
+                            )
+                          "
+                        >
+                          <strong>{{
+                            branch.label ||
+                            t('adminPages.actionTemplates.branch.caseTitle', {
+                              count: branchIndex + 1
+                            })
+                          }}</strong>
+                          <span>{{ previewBranchConditionText(branch) }}</span>
+                        </button>
+                      </div>
+                      <BaseButton
+                        variant="secondary"
+                        size="sm"
+                        @click="addBranchCase(selectedFlowStep)"
+                      >
+                        {{ t('adminPages.actionTemplates.branch.addCase') }}
+                      </BaseButton>
+                    </section>
+
+                    <section
+                      v-else-if="isGitLabStep(selectedFlowStep)"
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.gitlab'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.gitlab.operation')
+                        }}</span>
+                        <select v-model="selectedFlowStep.config.operation">
+                          <option
+                            v-for="operation in gitlabOperationOptions(
+                              selectedFlowStep.action_type
+                            )"
+                            :key="operation.value"
+                            :value="operation.value"
+                          >
+                            {{ operation.label }}
+                          </option>
+                        </select>
+                      </label>
                       <label class="action-field">
                         <span>{{
                           t(
@@ -3236,164 +2923,295 @@
                           )
                         }}</span>
                         <select
-                          v-model="selectedFlowNestedStep.action_type"
-                          @change="resetNestedStepConfig(selectedFlowNestedStep)"
+                          :value="gitlabStepValue(selectedFlowStep)"
+                          @change="
+                            setGitLabStepValue(
+                              selectedFlowStep,
+                              $event.target.value
+                            )
+                          "
                         >
                           <option
-                            v-for="option in nestedActionTypeOptions"
-                            :key="option.value"
-                            :value="option.value"
+                            v-for="operation in gitlabStepOptions"
+                            :key="operation.value"
+                            :value="operation.value"
                           >
-                            {{ option.label }}
+                            {{ operation.label }}
                           </option>
                         </select>
                       </label>
                       <label class="action-field">
                         <span>{{
-                          t('adminPages.actionTemplates.steps.policyName')
+                          gitlabPrimaryFieldLabel(selectedFlowStep)
                         }}</span>
-                        <select v-model="selectedFlowNestedStep.failure_policy">
-                          <option value="stop">
-                            {{
-                              t('adminPages.actionTemplates.steps.policyStop')
-                            }}
-                          </option>
-                          <option value="continue">
-                            {{
-                              t(
-                                'adminPages.actionTemplates.steps.policyContinue'
-                              )
-                            }}
-                          </option>
-                        </select>
+                        <input
+                          v-model="
+                            selectedFlowStep.config[
+                              gitlabPrimaryFieldKey(selectedFlowStep)
+                            ]
+                          "
+                          :placeholder="
+                            gitlabPrimaryFieldPlaceholder(selectedFlowStep)
+                          "
+                        />
                       </label>
-                    </div>
-                  </section>
-
-                  <section
-                    v-if="
-                      selectedFlowNestedStep.action_type === 'jenkins_trigger'
-                    "
-                    class="action-flow-inspector-section"
-                  >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.jenkins')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.jenkins.entry')
-                      }}</span>
-                      <select
-                        v-model.number="selectedFlowNestedStep.config.entry_id"
-                        @change="loadJenkinsStepParams(selectedFlowNestedStep)"
+                      <label
+                        v-if="gitlabNeedsRef(selectedFlowStep)"
+                        class="action-field"
                       >
-                        <option value="">
-                          {{
-                            t(
-                              'adminPages.actionTemplates.jenkins.selectEntry'
-                            )
-                          }}
-                        </option>
-                        <option
-                          v-for="entry in jenkinsEntries"
-                          :key="entry.id"
-                          :value="entry.id"
-                        >
-                          {{ entry.name }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="action-checkbox-line">
-                      <input
-                        v-model="
-                          selectedFlowNestedStep.config.wait_for_completion
-                        "
-                        type="checkbox"
-                      />
-                      {{
-                        t(
-                          'adminPages.actionTemplates.jenkins.waitForCompletion'
-                        )
-                      }}
-                    </label>
-                    <div class="action-flow-param-card">
-                      <div class="action-param-head">
                         <span>{{
-                          t('adminPages.actionTemplates.jenkins.paramsTitle')
+                          t('adminPages.actionTemplates.gitlab.ref')
                         }}</span>
-                        <button
-                          type="button"
-                          class="action-link-button"
-                          :disabled="!selectedFlowNestedStep.config.entry_id"
-                          @click="loadJenkinsStepParams(selectedFlowNestedStep)"
-                        >
-                          {{ t('adminPages.actionTemplates.jenkins.refresh') }}
-                        </button>
-                      </div>
-                      <div
-                        v-if="selectedFlowNestedStep.paramsLoading"
-                        class="action-param-empty"
-                      >
-                        {{ t('adminPages.actionTemplates.jenkins.loading') }}
-                      </div>
-                      <div
-                        v-else-if="selectedFlowNestedStep.paramRows?.length"
-                        class="action-param-table action-flow-param-table"
-                      >
+                        <input v-model="selectedFlowStep.config.ref" />
+                      </label>
+                      <div class="action-flow-project-picker">
+                        <div class="action-flow-project-head">
+                          <div>
+                            <strong>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.fixedProjects'
+                              )
+                            }}</strong>
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.selectedCount',
+                                {
+                                  count:
+                                    selectedFlowStep.config.project_ids
+                                      ?.length || 0
+                                }
+                              )
+                            }}</span>
+                          </div>
+                          <div class="action-project-picker-actions">
+                            <button
+                              type="button"
+                              :disabled="
+                                !filteredGitLabProjectsForStep(selectedFlowStep)
+                                  .length
+                              "
+                              @click="selectAllGitLabProjects(selectedFlowStep)"
+                            >
+                              {{
+                                t('adminPages.actionTemplates.gitlab.selectAll')
+                              }}
+                            </button>
+                            <span>|</span>
+                            <button
+                              type="button"
+                              :disabled="
+                                !selectedFlowStep.config.project_ids?.length
+                              "
+                              @click="clearActionProjects(selectedFlowStep)"
+                            >
+                              {{ t('adminPages.actionTemplates.gitlab.clear') }}
+                            </button>
+                          </div>
+                        </div>
+                        <div class="action-project-picker-toolbar compact">
+                          <label class="action-field">
+                            <span>{{
+                              t('adminPages.actionTemplates.gitlab.group')
+                            }}</span>
+                            <select v-model="actionProjectGroupFilter">
+                              <option value="">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.gitlab.allGroups'
+                                  )
+                                }}
+                              </option>
+                              <option
+                                v-for="group in actionProjectGroupOptions"
+                                :key="group.id"
+                                :value="group.id"
+                              >
+                                {{ group.name }}
+                              </option>
+                            </select>
+                          </label>
+                          <label class="action-field">
+                            <span>{{
+                              t('adminPages.actionTemplates.gitlab.search')
+                            }}</span>
+                            <input
+                              v-model="actionProjectSearch"
+                              :placeholder="
+                                t(
+                                  'adminPages.actionTemplates.gitlab.searchPlaceholder'
+                                )
+                              "
+                            />
+                          </label>
+                          <label class="action-project-selected-only">
+                            <input
+                              v-model="actionProjectSelectedOnly"
+                              type="checkbox"
+                            />
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.selectedOnly'
+                              )
+                            }}</span>
+                          </label>
+                        </div>
                         <div
-                          v-for="row in selectedFlowNestedStep.paramRows"
-                          :key="row.name"
-                          class="action-param-row"
+                          v-if="gitlabProjectLabels.length"
+                          class="action-project-label-filter"
                         >
-                          <div class="action-param-name">
-                            <strong>{{ row.name }}</strong>
-                            <small>{{ row.description || row.type || 'String' }}</small>
+                          <div class="action-project-label-filter-head">
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.resourceLabels'
+                              )
+                            }}</span>
+                            <button
+                              v-if="actionProjectLabelFilter.length"
+                              type="button"
+                              @click="clearActionProjectLabelFilter"
+                            >
+                              {{
+                                t('adminPages.actionTemplates.gitlab.allLabels')
+                              }}
+                            </button>
                           </div>
-                          <select
-                            v-if="row.mode !== 'readonly'"
-                            v-model="row.source"
-                            @change="
-                              syncJenkinsParamsFromRows(selectedFlowNestedStep)
-                            "
-                          >
-                            <option value="default">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.source.default'
+                          <div class="action-project-label-chips">
+                            <button
+                              v-for="label in gitlabProjectLabels"
+                              :key="label.id"
+                              type="button"
+                              :class="{
+                                active: actionProjectLabelFilter.includes(
+                                  Number(label.id)
                                 )
-                              }}
-                            </option>
-                            <option value="fixed">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.source.fixed'
-                                )
-                              }}
-                            </option>
-                            <option value="param">
-                              {{
-                                t(
-                                  'adminPages.actionTemplates.jenkins.source.param'
-                                )
-                              }}
-                            </option>
-                          </select>
-                          <div v-else class="action-param-readonly-mode">
-                            {{
-                              t('adminPages.actionTemplates.jenkins.entry')
-                            }}
+                              }"
+                              @click="toggleActionProjectLabelFilter(label.id)"
+                            >
+                              {{ label.name }}
+                            </button>
                           </div>
-                          <select
-                            v-if="row.source === 'param'"
-                            v-model="row.value"
-                            @change="
-                              syncJenkinsParamsFromRows(selectedFlowNestedStep)
+                        </div>
+                        <label class="action-inline-switch">
+                          <input
+                            v-model="
+                              selectedFlowStep.config
+                                .allow_runtime_project_selection
                             "
+                            type="checkbox"
+                          />
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.allowRuntime')
+                          }}</span>
+                        </label>
+                        <div
+                          v-if="
+                            filteredGitLabProjectsForStep(selectedFlowStep)
+                              .length
+                          "
+                          class="action-project-grid action-flow-project-grid"
+                        >
+                          <label
+                            v-for="project in filteredGitLabProjectsForStep(
+                              selectedFlowStep
+                            )"
+                            :key="project.id"
+                            class="action-project-card"
+                            :class="{
+                              selected: isSelected(
+                                selectedFlowStep.config.project_ids,
+                                project.id
+                              )
+                            }"
                           >
+                            <input
+                              type="checkbox"
+                              :checked="
+                                isSelected(
+                                  selectedFlowStep.config.project_ids,
+                                  project.id
+                                )
+                              "
+                              @change="
+                                toggleSelection(
+                                  selectedFlowStep.config.project_ids,
+                                  project.id
+                                )
+                              "
+                            />
+                            <div class="action-project-card-copy">
+                              <strong>{{ project.name }}</strong>
+                              <span>{{ project.path || project.name }}</span>
+                              <em v-if="project.group_name">{{
+                                project.group_name
+                              }}</em>
+                              <div
+                                v-if="project.labels?.length"
+                                class="action-project-card-labels"
+                              >
+                                <i
+                                  v-for="label in project.labels"
+                                  :key="label.id"
+                                >
+                                  {{ label.name }}
+                                </i>
+                              </div>
+                            </div>
+                          </label>
+                        </div>
+                        <div v-else class="action-project-empty">
+                          {{
+                            t('adminPages.actionTemplates.gitlab.emptyNoMatch')
+                          }}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section
+                      v-else-if="
+                        selectedFlowStep.action_type === 'manual_approval'
+                      "
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.approval'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.approval.message')
+                        }}</span>
+                        <textarea
+                          v-model="selectedFlowStep.config.message"
+                          rows="3"
+                        ></textarea>
+                      </label>
+                    </section>
+                  </template>
+
+                  <template v-else-if="selectedFlowTarget.kind === 'branch'">
+                    <section class="action-flow-inspector-section">
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.condition'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.branch.label')
+                        }}</span>
+                        <input v-model="selectedFlowBranch.label" />
+                      </label>
+                      <div class="action-flow-inspector-grid">
+                        <label class="action-field">
+                          <span>{{
+                            t('adminPages.actionTemplates.branch.param')
+                          }}</span>
+                          <select v-model="selectedFlowBranch.condition.param">
                             <option value="">
                               {{
                                 t(
-                                  'adminPages.actionTemplates.jenkins.selectParam'
+                                  'adminPages.actionTemplates.branch.selectParam'
                                 )
                               }}
                             </option>
@@ -3405,301 +3223,615 @@
                               {{ param }}
                             </option>
                           </select>
-                          <input
-                            v-else
-                            v-model="row.value"
-                            :disabled="
-                              row.source === 'default' ||
-                              row.mode === 'readonly'
-                            "
-                            @input="
-                              syncJenkinsParamsFromRows(selectedFlowNestedStep)
-                            "
-                          />
-                        </div>
-                      </div>
-                      <div v-else class="action-param-empty">
-                        {{ t('adminPages.actionTemplates.jenkins.empty') }}
-                      </div>
-                    </div>
-                  </section>
-
-                  <section
-                    v-else-if="isGitLabStep(selectedFlowNestedStep)"
-                    class="action-flow-inspector-section"
-                  >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.gitlab')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.gitlab.operation')
-                      }}</span>
-                      <select v-model="selectedFlowNestedStep.config.operation">
-                        <option
-                          v-for="operation in gitlabOperationOptions(
-                            selectedFlowNestedStep.action_type
-                          )"
-                          :key="operation.value"
-                          :value="operation.value"
-                        >
-                          {{ operation.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="action-field">
-                      <span>{{ gitlabPrimaryFieldLabel(selectedFlowNestedStep) }}</span>
-                      <input
-                        v-model="
-                          selectedFlowNestedStep.config[
-                            gitlabPrimaryFieldKey(selectedFlowNestedStep)
-                          ]
-                        "
-                      />
-                    </label>
-                    <label
-                      v-if="gitlabNeedsRef(selectedFlowNestedStep)"
-                      class="action-field"
-                    >
-                      <span>{{ t('adminPages.actionTemplates.gitlab.ref') }}</span>
-                      <input v-model="selectedFlowNestedStep.config.ref" />
-                    </label>
-                    <div class="action-flow-project-picker">
-                      <div class="action-flow-project-head">
-                        <div>
-                          <strong>{{
-                            t('adminPages.actionTemplates.gitlab.fixedProjects')
-                          }}</strong>
-                          <span>{{
-                            t(
-                              'adminPages.actionTemplates.gitlab.selectedCount',
-                              {
-                                count:
-                                  selectedFlowNestedStep.config.project_ids
-                                    ?.length || 0
-                              }
-                            )
-                          }}</span>
-                        </div>
-                        <div class="action-project-picker-actions">
-                          <button
-                            type="button"
-                            :disabled="
-                              !filteredGitLabProjectsForStep(
-                                selectedFlowNestedStep
-                              ).length
-                            "
-                            @click="
-                              selectAllGitLabProjects(selectedFlowNestedStep)
-                            "
-                          >
-                            {{
-                              t('adminPages.actionTemplates.gitlab.selectAll')
-                            }}
-                          </button>
-                          <span>|</span>
-                          <button
-                            type="button"
-                            :disabled="
-                              !selectedFlowNestedStep.config.project_ids?.length
-                            "
-                            @click="clearActionProjects(selectedFlowNestedStep)"
-                          >
-                            {{ t('adminPages.actionTemplates.gitlab.clear') }}
-                          </button>
-                        </div>
-                      </div>
-                      <div class="action-project-picker-toolbar compact">
+                        </label>
                         <label class="action-field">
                           <span>{{
-                            t('adminPages.actionTemplates.gitlab.group')
+                            t('adminPages.actionTemplates.branch.operator')
                           }}</span>
-                          <select v-model="actionProjectGroupFilter">
-                            <option value="">
-                              {{
-                                t('adminPages.actionTemplates.gitlab.allGroups')
-                              }}
-                            </option>
+                          <select
+                            v-model="selectedFlowBranch.condition.operator"
+                          >
                             <option
-                              v-for="group in actionProjectGroupOptions"
-                              :key="group.id"
-                              :value="group.id"
+                              v-for="operator in branchOperatorOptions"
+                              :key="operator.value"
+                              :value="operator.value"
                             >
-                              {{ group.name }}
+                              {{ operator.label }}
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+                      <label
+                        v-if="
+                          branchOperatorNeedsValue(
+                            selectedFlowBranch.condition.operator
+                          )
+                        "
+                        class="action-field"
+                      >
+                        <span>{{
+                          t('adminPages.actionTemplates.branch.value')
+                        }}</span>
+                        <input v-model="selectedFlowBranch.condition.value" />
+                      </label>
+                    </section>
+
+                    <section class="action-flow-inspector-section">
+                      <div class="action-flow-inspector-section-head">
+                        <strong>{{
+                          t('adminPages.actionTemplates.branch.steps')
+                        }}</strong>
+                        <button
+                          type="button"
+                          class="action-link-button"
+                          @click="addFlowNestedStep"
+                        >
+                          {{
+                            t('adminPages.actionTemplates.branch.addNestedStep')
+                          }}
+                        </button>
+                      </div>
+                      <div class="action-flow-nested-config-list">
+                        <button
+                          v-for="(
+                            nestedStep, nestedIndex
+                          ) in selectedFlowBranch.steps"
+                          :key="nestedStep.client_id || nestedIndex"
+                          type="button"
+                          @click="
+                            selectFlowNestedStep(
+                              selectedFlowTarget.stepIndex,
+                              selectedFlowTarget.branchIndex,
+                              nestedIndex
+                            )
+                          "
+                        >
+                          <strong>
+                            {{ nestedIndex + 1 }}.
+                            {{
+                              nestedStep.name ||
+                              actionTypeText(nestedStep.action_type)
+                            }}
+                          </strong>
+                          <span>{{
+                            actionTypeText(nestedStep.action_type)
+                          }}</span>
+                        </button>
+                      </div>
+                    </section>
+                  </template>
+
+                  <template v-else-if="selectedFlowTarget.kind === 'nested'">
+                    <section class="action-flow-inspector-section">
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.nested'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.steps.editor.name')
+                        }}</span>
+                        <input v-model="selectedFlowNestedStep.name" />
+                      </label>
+                      <div class="action-flow-inspector-grid">
+                        <label class="action-field">
+                          <span>{{
+                            t(
+                              'adminPages.actionTemplates.steps.editor.specificAction'
+                            )
+                          }}</span>
+                          <select
+                            v-model="selectedFlowNestedStep.action_type"
+                            @change="
+                              resetNestedStepConfig(selectedFlowNestedStep)
+                            "
+                          >
+                            <option
+                              v-for="option in nestedActionTypeOptions"
+                              :key="option.value"
+                              :value="option.value"
+                            >
+                              {{ option.label }}
                             </option>
                           </select>
                         </label>
                         <label class="action-field">
                           <span>{{
-                            t('adminPages.actionTemplates.gitlab.search')
+                            t('adminPages.actionTemplates.steps.policyName')
                           }}</span>
-                          <input
-                            v-model="actionProjectSearch"
-                            :placeholder="
+                          <select
+                            v-model="selectedFlowNestedStep.failure_policy"
+                          >
+                            <option value="stop">
+                              {{
+                                t('adminPages.actionTemplates.steps.policyStop')
+                              }}
+                            </option>
+                            <option value="continue">
+                              {{
+                                t(
+                                  'adminPages.actionTemplates.steps.policyContinue'
+                                )
+                              }}
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+                    </section>
+
+                    <section
+                      v-if="
+                        selectedFlowNestedStep.action_type === 'jenkins_trigger'
+                      "
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.jenkins'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.jenkins.entry')
+                        }}</span>
+                        <select
+                          v-model.number="
+                            selectedFlowNestedStep.config.entry_id
+                          "
+                          @change="
+                            loadJenkinsStepParams(selectedFlowNestedStep)
+                          "
+                        >
+                          <option value="">
+                            {{
                               t(
-                                'adminPages.actionTemplates.gitlab.searchPlaceholder'
+                                'adminPages.actionTemplates.jenkins.selectEntry'
                               )
-                            "
-                          />
-                        </label>
-                        <label class="action-project-selected-only">
-                          <input
-                            v-model="actionProjectSelectedOnly"
-                            type="checkbox"
-                          />
-                          <span>{{
-                            t('adminPages.actionTemplates.gitlab.selectedOnly')
-                          }}</span>
-                        </label>
-                      </div>
-                      <div
-                        v-if="gitlabProjectLabels.length"
-                        class="action-project-label-filter"
-                      >
-                        <div class="action-project-label-filter-head">
-                          <span>{{
-                            t('adminPages.actionTemplates.gitlab.resourceLabels')
-                          }}</span>
-                          <button
-                            v-if="actionProjectLabelFilter.length"
-                            type="button"
-                            @click="clearActionProjectLabelFilter"
+                            }}
+                          </option>
+                          <option
+                            v-for="entry in jenkinsEntries"
+                            :key="entry.id"
+                            :value="entry.id"
                           >
-                            {{ t('adminPages.actionTemplates.gitlab.allLabels') }}
-                          </button>
-                        </div>
-                        <div class="action-project-label-chips">
-                          <button
-                            v-for="label in gitlabProjectLabels"
-                            :key="label.id"
-                            type="button"
-                            :class="{
-                              active: actionProjectLabelFilter.includes(
-                                Number(label.id)
-                              )
-                            }"
-                            @click="toggleActionProjectLabelFilter(label.id)"
-                          >
-                            {{ label.name }}
-                          </button>
-                        </div>
-                      </div>
-                      <label class="action-inline-switch">
+                            {{ entry.name }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="action-checkbox-line">
                         <input
                           v-model="
-                            selectedFlowNestedStep.config
-                              .allow_runtime_project_selection
+                            selectedFlowNestedStep.config.wait_for_completion
                           "
                           type="checkbox"
                         />
-                        <span>{{
-                          t('adminPages.actionTemplates.gitlab.allowRuntime')
-                        }}</span>
-                      </label>
-                      <div
-                        v-if="
-                          filteredGitLabProjectsForStep(selectedFlowNestedStep)
-                            .length
-                        "
-                        class="action-project-grid action-flow-project-grid"
-                      >
-                        <label
-                          v-for="project in filteredGitLabProjectsForStep(
-                            selectedFlowNestedStep
-                          )"
-                          :key="project.id"
-                          class="action-project-card"
-                          :class="{
-                            selected: isSelected(
-                              selectedFlowNestedStep.config.project_ids,
-                              project.id
-                            )
-                          }"
-                        >
-                          <input
-                            type="checkbox"
-                            :checked="
-                              isSelected(
-                                selectedFlowNestedStep.config.project_ids,
-                                project.id
-                              )
-                            "
-                            @change="
-                              toggleSelection(
-                                selectedFlowNestedStep.config.project_ids,
-                                project.id
-                              )
-                            "
-                          />
-                          <div class="action-project-card-copy">
-                            <strong>{{ project.name }}</strong>
-                            <span>{{ project.path || project.name }}</span>
-                            <em v-if="project.group_name">{{
-                              project.group_name
-                            }}</em>
-                            <div
-                              v-if="project.labels?.length"
-                              class="action-project-card-labels"
-                            >
-                              <i
-                                v-for="label in project.labels"
-                                :key="label.id"
-                              >
-                                {{ label.name }}
-                              </i>
-                            </div>
-                          </div>
-                        </label>
-                      </div>
-                      <div v-else class="action-project-empty">
                         {{
-                          t('adminPages.actionTemplates.gitlab.emptyNoMatch')
+                          t(
+                            'adminPages.actionTemplates.jenkins.waitForCompletion'
+                          )
                         }}
+                      </label>
+                      <div class="action-flow-param-card">
+                        <div class="action-param-head">
+                          <span>{{
+                            t('adminPages.actionTemplates.jenkins.paramsTitle')
+                          }}</span>
+                          <button
+                            type="button"
+                            class="action-link-button"
+                            :disabled="!selectedFlowNestedStep.config.entry_id"
+                            @click="
+                              loadJenkinsStepParams(selectedFlowNestedStep)
+                            "
+                          >
+                            {{
+                              t('adminPages.actionTemplates.jenkins.refresh')
+                            }}
+                          </button>
+                        </div>
+                        <div
+                          v-if="selectedFlowNestedStep.paramsLoading"
+                          class="action-param-empty"
+                        >
+                          {{ t('adminPages.actionTemplates.jenkins.loading') }}
+                        </div>
+                        <div
+                          v-else-if="selectedFlowNestedStep.paramRows?.length"
+                          class="action-param-table action-flow-param-table"
+                        >
+                          <div
+                            v-for="row in selectedFlowNestedStep.paramRows"
+                            :key="row.name"
+                            class="action-param-row"
+                          >
+                            <div class="action-param-name">
+                              <strong>{{ row.name }}</strong>
+                              <small>{{
+                                row.description || row.type || 'String'
+                              }}</small>
+                            </div>
+                            <select
+                              v-if="row.mode !== 'readonly'"
+                              v-model="row.source"
+                              @change="
+                                syncJenkinsParamsFromRows(
+                                  selectedFlowNestedStep
+                                )
+                              "
+                            >
+                              <option value="default">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.source.default'
+                                  )
+                                }}
+                              </option>
+                              <option value="fixed">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.source.fixed'
+                                  )
+                                }}
+                              </option>
+                              <option value="param">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.source.param'
+                                  )
+                                }}
+                              </option>
+                            </select>
+                            <div v-else class="action-param-readonly-mode">
+                              {{
+                                t('adminPages.actionTemplates.jenkins.entry')
+                              }}
+                            </div>
+                            <select
+                              v-if="row.source === 'param'"
+                              v-model="row.value"
+                              @change="
+                                syncJenkinsParamsFromRows(
+                                  selectedFlowNestedStep
+                                )
+                              "
+                            >
+                              <option value="">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.jenkins.selectParam'
+                                  )
+                                }}
+                              </option>
+                              <option
+                                v-for="param in globalParamNames"
+                                :key="param"
+                                :value="param"
+                              >
+                                {{ param }}
+                              </option>
+                            </select>
+                            <input
+                              v-else
+                              v-model="row.value"
+                              :disabled="
+                                row.source === 'default' ||
+                                row.mode === 'readonly'
+                              "
+                              @input="
+                                syncJenkinsParamsFromRows(
+                                  selectedFlowNestedStep
+                                )
+                              "
+                            />
+                          </div>
+                        </div>
+                        <div v-else class="action-param-empty">
+                          {{ t('adminPages.actionTemplates.jenkins.empty') }}
+                        </div>
                       </div>
-                    </div>
-                  </section>
+                    </section>
 
-                  <section
-                    v-else-if="
-                      selectedFlowNestedStep.action_type === 'manual_approval'
-                    "
-                    class="action-flow-inspector-section"
+                    <section
+                      v-else-if="isGitLabStep(selectedFlowNestedStep)"
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.gitlab'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.gitlab.operation')
+                        }}</span>
+                        <select
+                          v-model="selectedFlowNestedStep.config.operation"
+                        >
+                          <option
+                            v-for="operation in gitlabOperationOptions(
+                              selectedFlowNestedStep.action_type
+                            )"
+                            :key="operation.value"
+                            :value="operation.value"
+                          >
+                            {{ operation.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="action-field">
+                        <span>{{
+                          gitlabPrimaryFieldLabel(selectedFlowNestedStep)
+                        }}</span>
+                        <input
+                          v-model="
+                            selectedFlowNestedStep.config[
+                              gitlabPrimaryFieldKey(selectedFlowNestedStep)
+                            ]
+                          "
+                        />
+                      </label>
+                      <label
+                        v-if="gitlabNeedsRef(selectedFlowNestedStep)"
+                        class="action-field"
+                      >
+                        <span>{{
+                          t('adminPages.actionTemplates.gitlab.ref')
+                        }}</span>
+                        <input v-model="selectedFlowNestedStep.config.ref" />
+                      </label>
+                      <div class="action-flow-project-picker">
+                        <div class="action-flow-project-head">
+                          <div>
+                            <strong>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.fixedProjects'
+                              )
+                            }}</strong>
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.selectedCount',
+                                {
+                                  count:
+                                    selectedFlowNestedStep.config.project_ids
+                                      ?.length || 0
+                                }
+                              )
+                            }}</span>
+                          </div>
+                          <div class="action-project-picker-actions">
+                            <button
+                              type="button"
+                              :disabled="
+                                !filteredGitLabProjectsForStep(
+                                  selectedFlowNestedStep
+                                ).length
+                              "
+                              @click="
+                                selectAllGitLabProjects(selectedFlowNestedStep)
+                              "
+                            >
+                              {{
+                                t('adminPages.actionTemplates.gitlab.selectAll')
+                              }}
+                            </button>
+                            <span>|</span>
+                            <button
+                              type="button"
+                              :disabled="
+                                !selectedFlowNestedStep.config.project_ids
+                                  ?.length
+                              "
+                              @click="
+                                clearActionProjects(selectedFlowNestedStep)
+                              "
+                            >
+                              {{ t('adminPages.actionTemplates.gitlab.clear') }}
+                            </button>
+                          </div>
+                        </div>
+                        <div class="action-project-picker-toolbar compact">
+                          <label class="action-field">
+                            <span>{{
+                              t('adminPages.actionTemplates.gitlab.group')
+                            }}</span>
+                            <select v-model="actionProjectGroupFilter">
+                              <option value="">
+                                {{
+                                  t(
+                                    'adminPages.actionTemplates.gitlab.allGroups'
+                                  )
+                                }}
+                              </option>
+                              <option
+                                v-for="group in actionProjectGroupOptions"
+                                :key="group.id"
+                                :value="group.id"
+                              >
+                                {{ group.name }}
+                              </option>
+                            </select>
+                          </label>
+                          <label class="action-field">
+                            <span>{{
+                              t('adminPages.actionTemplates.gitlab.search')
+                            }}</span>
+                            <input
+                              v-model="actionProjectSearch"
+                              :placeholder="
+                                t(
+                                  'adminPages.actionTemplates.gitlab.searchPlaceholder'
+                                )
+                              "
+                            />
+                          </label>
+                          <label class="action-project-selected-only">
+                            <input
+                              v-model="actionProjectSelectedOnly"
+                              type="checkbox"
+                            />
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.selectedOnly'
+                              )
+                            }}</span>
+                          </label>
+                        </div>
+                        <div
+                          v-if="gitlabProjectLabels.length"
+                          class="action-project-label-filter"
+                        >
+                          <div class="action-project-label-filter-head">
+                            <span>{{
+                              t(
+                                'adminPages.actionTemplates.gitlab.resourceLabels'
+                              )
+                            }}</span>
+                            <button
+                              v-if="actionProjectLabelFilter.length"
+                              type="button"
+                              @click="clearActionProjectLabelFilter"
+                            >
+                              {{
+                                t('adminPages.actionTemplates.gitlab.allLabels')
+                              }}
+                            </button>
+                          </div>
+                          <div class="action-project-label-chips">
+                            <button
+                              v-for="label in gitlabProjectLabels"
+                              :key="label.id"
+                              type="button"
+                              :class="{
+                                active: actionProjectLabelFilter.includes(
+                                  Number(label.id)
+                                )
+                              }"
+                              @click="toggleActionProjectLabelFilter(label.id)"
+                            >
+                              {{ label.name }}
+                            </button>
+                          </div>
+                        </div>
+                        <label class="action-inline-switch">
+                          <input
+                            v-model="
+                              selectedFlowNestedStep.config
+                                .allow_runtime_project_selection
+                            "
+                            type="checkbox"
+                          />
+                          <span>{{
+                            t('adminPages.actionTemplates.gitlab.allowRuntime')
+                          }}</span>
+                        </label>
+                        <div
+                          v-if="
+                            filteredGitLabProjectsForStep(
+                              selectedFlowNestedStep
+                            ).length
+                          "
+                          class="action-project-grid action-flow-project-grid"
+                        >
+                          <label
+                            v-for="project in filteredGitLabProjectsForStep(
+                              selectedFlowNestedStep
+                            )"
+                            :key="project.id"
+                            class="action-project-card"
+                            :class="{
+                              selected: isSelected(
+                                selectedFlowNestedStep.config.project_ids,
+                                project.id
+                              )
+                            }"
+                          >
+                            <input
+                              type="checkbox"
+                              :checked="
+                                isSelected(
+                                  selectedFlowNestedStep.config.project_ids,
+                                  project.id
+                                )
+                              "
+                              @change="
+                                toggleSelection(
+                                  selectedFlowNestedStep.config.project_ids,
+                                  project.id
+                                )
+                              "
+                            />
+                            <div class="action-project-card-copy">
+                              <strong>{{ project.name }}</strong>
+                              <span>{{ project.path || project.name }}</span>
+                              <em v-if="project.group_name">{{
+                                project.group_name
+                              }}</em>
+                              <div
+                                v-if="project.labels?.length"
+                                class="action-project-card-labels"
+                              >
+                                <i
+                                  v-for="label in project.labels"
+                                  :key="label.id"
+                                >
+                                  {{ label.name }}
+                                </i>
+                              </div>
+                            </div>
+                          </label>
+                        </div>
+                        <div v-else class="action-project-empty">
+                          {{
+                            t('adminPages.actionTemplates.gitlab.emptyNoMatch')
+                          }}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section
+                      v-else-if="
+                        selectedFlowNestedStep.action_type === 'manual_approval'
+                      "
+                      class="action-flow-inspector-section"
+                    >
+                      <strong>{{
+                        t(
+                          'adminPages.actionTemplates.flowEditor.sections.approval'
+                        )
+                      }}</strong>
+                      <label class="action-field">
+                        <span>{{
+                          t('adminPages.actionTemplates.approval.message')
+                        }}</span>
+                        <textarea
+                          v-model="selectedFlowNestedStep.config.message"
+                          rows="3"
+                        ></textarea>
+                      </label>
+                    </section>
+                  </template>
+                </div>
+
+                <footer class="action-flow-inspector-footer">
+                  <BaseButton
+                    variant="secondary"
+                    size="sm"
+                    @click="handleFlowInspectorBack"
                   >
-                    <strong>{{
-                      t('adminPages.actionTemplates.flowEditor.sections.approval')
-                    }}</strong>
-                    <label class="action-field">
-                      <span>{{
-                        t('adminPages.actionTemplates.approval.message')
-                      }}</span>
-                      <textarea
-                        v-model="selectedFlowNestedStep.config.message"
-                        rows="3"
-                      ></textarea>
-                    </label>
-                  </section>
-                </template>
-              </div>
-
-              <footer class="action-flow-inspector-footer">
-                <BaseButton
-                  variant="secondary"
-                  size="sm"
-                  @click="handleFlowInspectorBack"
-                >
-                  {{ flowInspectorBackLabel }}
-                </BaseButton>
-                <BaseButton
-                  variant="secondary"
-                  size="sm"
-                  @click="duplicateFlowSelection"
-                >
-                  {{ flowInspectorDuplicateLabel }}
-                </BaseButton>
-                <BaseButton size="sm" @click="closeFlowInspector">
-                  {{ flowInspectorSaveLabel }}
-                </BaseButton>
-              </footer>
+                    {{ flowInspectorBackLabel }}
+                  </BaseButton>
+                  <BaseButton
+                    variant="secondary"
+                    size="sm"
+                    @click="duplicateFlowSelection"
+                  >
+                    {{ flowInspectorDuplicateLabel }}
+                  </BaseButton>
+                  <BaseButton size="sm" @click="closeFlowInspector">
+                    {{ flowInspectorSaveLabel }}
+                  </BaseButton>
+                </footer>
               </aside>
             </section>
           </Teleport>
@@ -3808,7 +3940,10 @@
             <div
               class="action-flow-canvas-viewport"
               :style="
-                flowCanvasViewportStyle(previewFlowCanvasSize, previewCanvasZoom)
+                flowCanvasViewportStyle(
+                  previewFlowCanvasSize,
+                  previewCanvasZoom
+                )
               "
             >
               <div
@@ -4054,18 +4189,6 @@
           </div>
         </template>
       </BaseModal>
-
-      <div
-        v-if="toast.show"
-        :class="[
-          'admin-toast',
-          toast.type === 'success'
-            ? 'admin-toast--success'
-            : 'admin-toast--error'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AdminLayout>
 </template>
@@ -4080,12 +4203,14 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import { useToast } from '@/composables/useToast'
 import actionsApi from '@/api/actions'
 import jenkinsApi from '@/api/jenkins'
 import gitlabApi from '@/api/gitlab'
 import { managementApi } from '@/admin/api/management'
 
 const { t } = useI18n()
+const { showToast } = useToast()
 
 const templates = ref([])
 const users = ref([])
@@ -4132,7 +4257,6 @@ const actionProjectSearch = ref('')
 const actionProjectGroupFilter = ref('')
 const actionProjectLabelFilter = ref([])
 const actionProjectSelectedOnly = ref(false)
-const toast = ref({ show: false, message: '', type: 'success' })
 const FLOW_CANVAS_PAN_BUFFER = 360
 const FLOW_CANVAS_MIN_ZOOM = 0.6
 const FLOW_CANVAS_MAX_ZOOM = 1.35
@@ -4321,10 +4445,7 @@ function projectMatchesActionFilters(project, step) {
   )
 
   if (groupId && Number(project.group) !== Number(groupId)) return false
-  if (
-    actionProjectSelectedOnly.value &&
-    !selectedIds.has(Number(project.id))
-  ) {
+  if (actionProjectSelectedOnly.value && !selectedIds.has(Number(project.id))) {
     return false
   }
   if (
@@ -4431,13 +4552,6 @@ function buildEmptyForm() {
   }
 }
 
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 2600)
-}
-
 function normalizeList(payload) {
   if (Array.isArray(payload)) return payload
   if (payload?.results) return payload.results
@@ -4464,14 +4578,13 @@ async function loadOptions() {
     entriesPayload,
     projectsPayload,
     projectLabelsPayload
-  ] =
-    await Promise.allSettled([
-      managementApi.getUsers({ page_size: 10000 }),
-      managementApi.getGroups({ page_size: 10000 }),
-      jenkinsApi.listEntries(),
-      gitlabApi.listProjects(),
-      gitlabApi.listProjectLabels({ page_size: 1000 })
-    ])
+  ] = await Promise.allSettled([
+    managementApi.getUsers({ page_size: 10000 }),
+    managementApi.getGroups({ page_size: 10000 }),
+    jenkinsApi.listEntries(),
+    gitlabApi.listProjects(),
+    gitlabApi.listProjectLabels({ page_size: 1000 })
+  ])
 
   users.value =
     usersPayload.status === 'fulfilled' ? normalizeList(usersPayload.value) : []
@@ -4922,7 +5035,10 @@ function centerFlowEditorSelectedNode() {
     const canvasRect = canvas.getBoundingClientRect()
     const nodeRect = targetNode.getBoundingClientRect()
     canvas.scrollLeft += Math.round(
-      nodeRect.left + nodeRect.width / 2 - canvasRect.left - canvas.clientWidth / 2
+      nodeRect.left +
+        nodeRect.width / 2 -
+        canvasRect.left -
+        canvas.clientWidth / 2
     )
     canvas.scrollTop += Math.round(
       nodeRect.top +
@@ -4938,9 +5054,7 @@ function centerFlowEditorGraph() {
   const canvas = flowEditorCanvasRef.value
   if (!canvas) return
   window.requestAnimationFrame(() => {
-    const nodes = [
-      ...canvas.querySelectorAll('.action-flow-editor-node')
-    ]
+    const nodes = [...canvas.querySelectorAll('.action-flow-editor-node')]
     if (!nodes.length) return
     const canvasRect = canvas.getBoundingClientRect()
     const rects = nodes.map((node) => node.getBoundingClientRect())
@@ -5022,7 +5136,11 @@ function duplicateFlowSelection() {
       })
     })
     selectedFlowBranch.value.steps.splice(target.nestedIndex + 1, 0, copy)
-    selectFlowNestedStep(target.stepIndex, target.branchIndex, target.nestedIndex + 1)
+    selectFlowNestedStep(
+      target.stepIndex,
+      target.branchIndex,
+      target.nestedIndex + 1
+    )
     return
   }
   if (target.kind === 'branch' && selectedFlowBranch.value) {
@@ -5042,7 +5160,11 @@ function duplicateFlowSelection() {
       },
       target.branchIndex + 2
     )
-    selectedFlowStep.value.config.branches.splice(target.branchIndex + 1, 0, copy)
+    selectedFlowStep.value.config.branches.splice(
+      target.branchIndex + 1,
+      0,
+      copy
+    )
     selectFlowBranch(target.stepIndex, target.branchIndex + 1)
     return
   }
@@ -5678,10 +5800,8 @@ function moveFlowCanvasPan(event) {
   if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
     flowCanvasPanState.moved = true
   }
-  canvas.scrollLeft =
-    flowCanvasPanState.scrollLeft - deltaX
-  canvas.scrollTop =
-    flowCanvasPanState.scrollTop - deltaY
+  canvas.scrollLeft = flowCanvasPanState.scrollLeft - deltaX
+  canvas.scrollTop = flowCanvasPanState.scrollTop - deltaY
 }
 
 function stopFlowCanvasPan() {
@@ -5734,9 +5854,11 @@ function flowCanvasContentBounds(canvas) {
   ].map((node) => node.getBoundingClientRect())
   if (!itemRects.length) return null
   const left = Math.min(...itemRects.map((rect) => rect.left)) - innerRect.left
-  const right = Math.max(...itemRects.map((rect) => rect.right)) - innerRect.left
+  const right =
+    Math.max(...itemRects.map((rect) => rect.right)) - innerRect.left
   const top = Math.min(...itemRects.map((rect) => rect.top)) - innerRect.top
-  const bottom = Math.max(...itemRects.map((rect) => rect.bottom)) - innerRect.top
+  const bottom =
+    Math.max(...itemRects.map((rect) => rect.bottom)) - innerRect.top
   return { left, right, top, bottom, width: right - left, height: bottom - top }
 }
 
@@ -5994,12 +6116,7 @@ function measurePreviewFlowConnections() {
 
   const inner = canvas.querySelector('.action-flow-canvas-inner') || canvas
   const scale = clampFlowCanvasZoom(previewCanvasZoom.value)
-  const ports = getPreviewPortMap(
-    canvas,
-    '[data-flow-port]',
-    'flowPort',
-    scale
-  )
+  const ports = getPreviewPortMap(canvas, '[data-flow-port]', 'flowPort', scale)
   previewFlowCanvasSize.value = {
     width: Math.max(inner.scrollWidth, 1),
     height: Math.max(inner.scrollHeight, 1)
@@ -6021,7 +6138,11 @@ function measurePreviewFlowConnections() {
 
 function measureOverviewFlowConnections() {
   const canvas = overviewCanvasRef.value
-  if (!canvas || activeEditorTab.value !== 'steps' || !form.value.steps.length) {
+  if (
+    !canvas ||
+    activeEditorTab.value !== 'steps' ||
+    !form.value.steps.length
+  ) {
     overviewFlowConnections.value = []
     return
   }

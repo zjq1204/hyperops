@@ -1,79 +1,95 @@
 import { reactive } from 'vue'
+import { normalizeApiError } from '@/utils/apiError'
 
-const toastState = reactive({
-  show: false,
-  message: '',
-  type: 'info',
-  duration: 3000
-})
+const MAX_VISIBLE_TOASTS = 3
+const toastState = reactive({ items: [] })
+const timers = new Map()
+let nextToastId = 1
 
-let hideTimer = null
-let showTimer = null
+function clearTimer(id) {
+  const timer = timers.get(id)
+  if (timer) clearTimeout(timer)
+  timers.delete(id)
+}
 
-const clearTimer = () => {
-  if (hideTimer) {
-    clearTimeout(hideTimer)
-    hideTimer = null
+function remove(id) {
+  clearTimer(id)
+  const index = toastState.items.findIndex((item) => item.id === id)
+  if (index >= 0) toastState.items.splice(index, 1)
+}
+
+function startAutoHide(id, duration) {
+  if (!duration || duration <= 0) return
+  clearTimer(id)
+  timers.set(
+    id,
+    setTimeout(() => remove(id), duration)
+  )
+}
+
+function enqueueToast(message, type, duration, options = {}) {
+  const content = String(message || '').trim()
+  if (!content) return null
+
+  const dedupeKey = options.dedupeKey || `${type}:${content}`
+  const existing = toastState.items.find((item) => item.dedupeKey === dedupeKey)
+  if (existing) {
+    existing.createdAt = Date.now()
+    startAutoHide(existing.id, duration)
+    return existing.id
   }
-}
 
-const clearShowTimer = () => {
-  if (showTimer) {
-    clearTimeout(showTimer)
-    showTimer = null
+  const item = {
+    id: nextToastId++,
+    type,
+    title: options.title || '',
+    message: content,
+    requestId: options.requestId || '',
+    action: options.action || null,
+    duration,
+    dedupeKey,
+    createdAt: Date.now()
   }
-}
-
-const showToast = (message, type, duration) => {
-  clearTimer()
-  clearShowTimer()
-
-  if (toastState.show) {
-    toastState.show = false
-    showTimer = setTimeout(() => {
-      toastState.message = message
-      toastState.type = type
-      toastState.duration = duration
-      toastState.show = true
-      startAutoHide(duration)
-      showTimer = null
-    }, 150)
-  } else {
-    toastState.message = message
-    toastState.type = type
-    toastState.duration = duration
-    toastState.show = true
-    startAutoHide(duration)
+  toastState.items.push(item)
+  while (toastState.items.length > MAX_VISIBLE_TOASTS) {
+    remove(toastState.items[0].id)
   }
+  startAutoHide(item.id, duration)
+  return item.id
 }
 
-const startAutoHide = (duration) => {
-  clearTimer()
-  hideTimer = setTimeout(() => {
-    hide()
-  }, duration)
-}
-
-const hide = () => {
-  clearTimer()
-  toastState.show = false
+function showError(error, duration = 6000, options = {}) {
+  const appError =
+    typeof error === 'string'
+      ? normalizeApiError(new Error(error), options)
+      : normalizeApiError(error, options)
+  return enqueueToast(appError.message, 'error', duration, {
+    ...options,
+    requestId: options.requestId || appError.requestId
+  })
 }
 
 export function useToast() {
   return {
-    showSuccess: (message, duration = 3000) => {
-      showToast(message, 'success', duration)
-    },
-    showError: (message, duration = 5000) => {
-      showToast(message, 'error', duration)
-    },
-    showWarning: (message, duration = 4000) => {
-      showToast(message, 'warning', duration)
-    },
-    showInfo: (message, duration = 3000) => {
-      showToast(message, 'info', duration)
-    },
-    hide,
+    showToast: (message, type = 'success', duration, options = {}) =>
+      type === 'error'
+        ? showError(message, duration || 6000, options)
+        : enqueueToast(
+            message,
+            type,
+            duration || (type === 'warning' ? 5000 : 3000),
+            options
+          ),
+    showSuccess: (message, duration = 3000, options = {}) =>
+      enqueueToast(message, 'success', duration, options),
+    showError,
+    showWarning: (message, duration = 5000, options = {}) =>
+      enqueueToast(message, 'warning', duration, options),
+    showInfo: (message, duration = 4000, options = {}) =>
+      enqueueToast(message, 'info', duration, options),
+    remove,
+    hide: remove,
+    clear: () => [...toastState.items].forEach((item) => remove(item.id)),
     state: toastState
   }
 }

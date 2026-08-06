@@ -8,6 +8,7 @@ import {
   refreshAccessToken
 } from '@/api/token'
 import { getRequestUiLanguage } from '@/utils/uiLanguage'
+import { normalizeApiError } from '@/utils/apiError'
 
 function getCookie(name) {
   const value = `; ${document.cookie}`
@@ -74,11 +75,11 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
         return api(originalRequest)
       } catch (refreshError) {
-        return Promise.reject(refreshError)
+        return Promise.reject(normalizeApiError(refreshError))
       }
     }
 
-    return Promise.reject(error)
+    return Promise.reject(normalizeApiError(error))
   }
 )
 

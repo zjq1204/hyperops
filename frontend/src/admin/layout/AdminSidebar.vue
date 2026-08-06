@@ -16,8 +16,8 @@
 
   <aside
     :class="[
-      'layout-admin-sidebar relative z-20 flex h-full w-[19rem] flex-shrink-0 flex-col transition-transform duration-300 ease-in-out',
-      isMobile ? 'fixed inset-y-0 left-0 z-50' : 'px-3 py-3',
+      'layout-admin-sidebar z-20 flex h-full w-[19rem] flex-shrink-0 flex-col transition-transform duration-300 ease-in-out',
+      isMobile ? 'fixed inset-y-0 left-0 z-50' : 'relative px-3 py-3',
       isMobile && !showMobileMenu ? '-translate-x-full' : 'translate-x-0'
     ]"
   >
@@ -165,6 +165,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useWindowSize } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/store/user'
@@ -185,11 +186,9 @@ const userStore = useUserStore()
 const { t } = useI18n()
 
 const MOBILE_BREAKPOINT = 1024
+const { width: viewportWidth } = useWindowSize()
 
-const isMobile = computed(() => {
-  if (typeof window === 'undefined') return false
-  return window.innerWidth < MOBILE_BREAKPOINT
-})
+const isMobile = computed(() => viewportWidth.value < MOBILE_BREAKPOINT)
 
 const isActive = (path) => {
   return route.path === path || route.path.startsWith(path + '/')
@@ -422,7 +421,7 @@ const allNavSections = computed(() => [
       },
       {
         path: '/management/monitoring/probes',
-        label: t('adminNav.monitoringProbes'),
+        label: t('adminNav.monitoringProbeManagement'),
         iconPaths: ['M4 12h4l2-6 4 12 2-6h4']
       },
       {

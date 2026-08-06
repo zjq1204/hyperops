@@ -23,6 +23,21 @@ from monitoring_stack.services.core import (
     clean_string_list,
     component_runtime_health,
     host_visible_in_n9e,
+    n9e_runtime_for_host,
+)
+from monitoring_stack.services.ansible_progress import normalize_progress
+from monitoring_stack.services.asset_state import (
+    choose_next_action,
+    host_roles,
+    normalize_component_state,
+)
+from monitoring_stack.services.ssh_verification import (
+    SshVerificationReceiptError,
+    connection_fingerprint,
+    connection_fingerprint_for_host,
+    load_verification_receipt,
+    unverified_verification_defaults,
+    verified_verification_defaults,
 )
 from rest_framework import serializers
 
@@ -151,6 +166,28 @@ class BlackboxProbeNodeSerializer(serializers.ModelSerializer):
         return clean_labels(value)
 
 
+class PrometheusProbeNodeOnboardSerializer(serializers.Serializer):
+    address = serializers.CharField(max_length=255)
+    port = serializers.CharField(max_length=16, default="9115")
+    name = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    bind_unassigned_targets = serializers.BooleanField(default=False)
+
+    def validate_address(self, value):
+        value = str(value or "").strip()
+        if not value:
+            raise serializers.ValidationError("address is required")
+        return value
+
+    def validate_port(self, value):
+        value = str(value or "").strip() or "9115"
+        if not value.isdigit():
+            raise serializers.ValidationError("port must be numeric")
+        return value
+
+    def validate_name(self, value):
+        return str(value or "").strip()
+
+
 class ProbeTargetSerializer(serializers.ModelSerializer):
     probe_node_name = serializers.CharField(source="probe_node.name", read_only=True)
     blackbox_address = serializers.CharField(
@@ -227,8 +264,68 @@ class MonitoringComponentStatusSerializer(serializers.ModelSerializer):
         return self._runtime_health(obj)["runtime_checked_at"]
 
 
+class MonitoringHostConnectionTestSerializer(serializers.Serializer):
+    host_id = serializers.PrimaryKeyRelatedField(
+        source="saved_host",
+        queryset=MonitoringHost.objects.select_related("ssh_key_credential"),
+        required=False,
+        allow_null=True,
+    )
+    address = serializers.CharField(max_length=255)
+    ssh_user = serializers.CharField(max_length=80, default="root", allow_blank=True)
+    ssh_port = serializers.IntegerField(default=22, min_value=1, max_value=65535)
+    ssh_auth_type = serializers.ChoiceField(choices=MonitoringHost.SSH_AUTH_CHOICES)
+    ssh_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+    )
+    ssh_key_id = serializers.PrimaryKeyRelatedField(
+        source="ssh_key_credential",
+        queryset=MonitoringSshKey.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
+    def validate_address(self, value):
+        value = str(value or "").strip()
+        if not value:
+            raise serializers.ValidationError("address is required")
+        return value
+
+    def validate(self, attrs):
+        auth_type = attrs["ssh_auth_type"]
+        saved_host = attrs.get("saved_host")
+        if auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
+            password = str(attrs.get("ssh_password") or "")
+            if not password and saved_host:
+                password = str(saved_host.ssh_password or "")
+            if not password:
+                raise serializers.ValidationError(
+                    {"ssh_password": "SSH password is required"}
+                )
+            attrs["resolved_password"] = password
+            attrs["ssh_key_credential"] = None
+        else:
+            credential = attrs.get("ssh_key_credential")
+            if not credential and saved_host:
+                credential = saved_host.ssh_key_credential
+            if not credential:
+                raise serializers.ValidationError(
+                    {"ssh_key_id": "SSH key is required"}
+                )
+            attrs["ssh_key_credential"] = credential
+            attrs["resolved_password"] = None
+        return attrs
+
+
 class MonitoringHostSerializer(serializers.ModelSerializer):
     component_statuses = serializers.SerializerMethodField()
+    ssh_verification = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    collection_state = serializers.SerializerMethodField()
+    probe_state = serializers.SerializerMethodField()
+    next_action = serializers.SerializerMethodField()
     ssh_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     ssh_key_id = serializers.PrimaryKeyRelatedField(
         source="ssh_key_credential",
@@ -238,6 +335,11 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
     )
     ssh_key_name = serializers.SerializerMethodField()
     has_ssh_password = serializers.SerializerMethodField()
+    ssh_verification_receipt = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+    )
 
     class Meta:
         model = MonitoringHost
@@ -254,10 +356,16 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
             "ssh_key_id",
             "ssh_key_name",
             "has_ssh_password",
+            "ssh_verification",
+            "ssh_verification_receipt",
             "profiles",
             "labels",
             "params",
             "component_statuses",
+            "roles",
+            "collection_state",
+            "probe_state",
+            "next_action",
             "enabled",
             "created_at",
             "updated_at",
@@ -268,6 +376,7 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
         return clean_ssh_key(value)
 
     def validate(self, attrs):
+        receipt = str(attrs.pop("ssh_verification_receipt", "") or "").strip()
         auth_type = attrs.get(
             "ssh_auth_type", getattr(self.instance, "ssh_auth_type", MonitoringHost.SSH_AUTH_KEY)
         )
@@ -277,6 +386,44 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
         credential = attrs.get("ssh_key_credential")
         if auth_type == MonitoringHost.SSH_AUTH_KEY and credential and not attrs.get("ssh_key"):
             attrs["ssh_key"] = credential.file_name
+
+        instance = self.instance
+        address = attrs.get("address", getattr(instance, "address", ""))
+        ssh_user = attrs.get("ssh_user", getattr(instance, "ssh_user", "root"))
+        ssh_port = attrs.get("ssh_port", getattr(instance, "ssh_port", 22))
+        password = attrs.get("ssh_password", getattr(instance, "ssh_password", ""))
+        final_credential = attrs.get(
+            "ssh_key_credential",
+            getattr(instance, "ssh_key_credential", None),
+        )
+        ssh_key_name = attrs.get("ssh_key", getattr(instance, "ssh_key", ""))
+        proposed_fingerprint = connection_fingerprint(
+            address=address,
+            ssh_user=ssh_user,
+            ssh_port=ssh_port,
+            ssh_auth_type=auth_type,
+            password=password,
+            ssh_key_id=getattr(final_credential, "id", None),
+            ssh_key_name=ssh_key_name,
+        )
+
+        if receipt:
+            request = self.context.get("request")
+            try:
+                verification = load_verification_receipt(
+                    receipt,
+                    user_id=request.user.id,
+                    host_id=getattr(instance, "id", None),
+                    expected_fingerprint=proposed_fingerprint,
+                )
+            except (AttributeError, SshVerificationReceiptError) as exc:
+                code = getattr(exc, "code", "SSH_VERIFICATION_MISMATCH")
+                raise serializers.ValidationError(
+                    {"ssh_verification_receipt": code}
+                ) from exc
+            attrs.update(verified_verification_defaults(verification))
+        elif instance and proposed_fingerprint != connection_fingerprint_for_host(instance):
+            attrs.update(unverified_verification_defaults())
         return attrs
 
     def get_ssh_key_name(self, obj):
@@ -286,6 +433,35 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
 
     def get_has_ssh_password(self, obj):
         return bool(obj.ssh_password)
+
+    def get_ssh_verification(self, obj):
+        matches_current_settings = bool(
+            obj.ssh_verification_signature
+            and obj.ssh_verification_signature == connection_fingerprint_for_host(obj)
+        )
+        return {
+            "status": obj.ssh_verification_status,
+            "checked_at": (
+                obj.ssh_verification_checked_at.isoformat()
+                if obj.ssh_verification_checked_at
+                else None
+            ),
+            "latency_ms": obj.ssh_verification_latency_ms,
+            "error_code": obj.ssh_verification_error_code,
+            "matches_current_settings": matches_current_settings,
+        }
+
+    def get_roles(self, obj):
+        return self._asset_presentation(obj)["roles"]
+
+    def get_collection_state(self, obj):
+        return self._asset_presentation(obj)["collection_state"]
+
+    def get_probe_state(self, obj):
+        return self._asset_presentation(obj)["probe_state"]
+
+    def get_next_action(self, obj):
+        return self._asset_presentation(obj)["next_action"]
 
     def validate_external_id(self, value):
         return str(value).strip() or None
@@ -316,7 +492,10 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
             "updated_at": None,
         }
 
-    def get_component_statuses(self, obj):
+    def _component_status_rows(self, obj):
+        presentation_cache = self.context.setdefault("host_component_rows", {})
+        if obj.id in presentation_cache:
+            return presentation_cache[obj.id]
         cache = self.context.setdefault("component_runtime_health_cache", {})
         existing = list(obj.component_statuses.all())
         rows = MonitoringComponentStatusSerializer(
@@ -329,15 +508,12 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
             AnsibleInstallJob.COMPONENT_CATEGRAF not in existing_components
             and host_visible_in_n9e(obj, cache=cache)
         ):
+            runtime = n9e_runtime_for_host(obj, cache=cache)
             rows.append(
                 self._external_status(
                     obj,
                     AnsibleInstallJob.COMPONENT_CATEGRAF,
-                    {
-                        "runtime_status": "online",
-                        "runtime_reason": "",
-                        "runtime_endpoint": "",
-                    },
+                    runtime,
                 )
             )
         if AnsibleInstallJob.COMPONENT_BLACKBOX not in existing_components:
@@ -350,7 +526,36 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
                         runtime,
                     )
                 )
+        presentation_cache[obj.id] = rows
         return rows
+
+    def get_component_statuses(self, obj):
+        return self._component_status_rows(obj)
+
+    def _asset_presentation(self, obj):
+        cache = self.context.setdefault("host_asset_presentation", {})
+        if obj.id in cache:
+            return cache[obj.id]
+        roles = host_roles(obj)
+        rows = self._component_status_rows(obj)
+        collection_state = normalize_component_state(rows, "categraf")
+        probe_state = normalize_component_state(
+            rows,
+            "blackbox",
+            required="probe_node" in roles,
+        )
+        next_action = choose_next_action(
+            collection_state=collection_state,
+            probe_state=probe_state,
+            ssh_state=self.get_ssh_verification(obj),
+        )
+        cache[obj.id] = {
+            "roles": roles,
+            "collection_state": collection_state,
+            "probe_state": probe_state,
+            "next_action": next_action,
+        }
+        return cache[obj.id]
 
 
 class AnsiblePreviewSerializer(serializers.Serializer):
@@ -396,6 +601,7 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
     vars = serializers.SerializerMethodField()
     manual_command = serializers.SerializerMethodField()
     failed_hostnames = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
 
     class Meta:
         model = AnsibleInstallJob
@@ -417,6 +623,7 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
             "returncode",
             "logs",
             "results",
+            "progress",
             "retry_of",
             "total_hosts",
             "success_hosts",
@@ -439,6 +646,7 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
             "returncode",
             "logs",
             "results",
+            "progress",
             "retry_of",
             "total_hosts",
             "success_hosts",
@@ -457,6 +665,9 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
 
     def validate_profiles(self, value):
         return clean_string_list(value)
+
+    def get_progress(self, obj):
+        return normalize_progress(obj.progress, obj.status)
 
     def validate_labels(self, value):
         return clean_labels(value)
@@ -501,12 +712,23 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
             address = host.get("address") or ""
             ssh_user = host.get("ssh_user") or "root"
             ssh_port = host.get("ssh_port") or 22
+            auth_type = host.get("ssh_auth_type") or MonitoringHost.SSH_AUTH_KEY
             key = host.get("ssh_key") or ""
-            key_arg = f" ansible_ssh_private_key_file={key}" if key else ""
+            key_arg = (
+                f" ansible_ssh_private_key_file={key}"
+                if auth_type == MonitoringHost.SSH_AUTH_KEY and key
+                else ""
+            )
+            password_arg = (
+                " ansible_password=<configured>"
+                if auth_type == MonitoringHost.SSH_AUTH_PASSWORD
+                and host.get("has_ssh_password")
+                else ""
+            )
             lines.append(
                 f"{hostname} ansible_host={address} "
                 f"ansible_user={ssh_user} ansible_port={ssh_port} "
-                f"ansible_connection=paramiko{key_arg}"
+                f"ansible_connection=ssh{key_arg}{password_arg}"
             )
         return "\n".join(lines) + "\n"
 

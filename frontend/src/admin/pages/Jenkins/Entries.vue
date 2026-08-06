@@ -404,19 +404,6 @@
         @close="closeConfirmDialog"
         @confirm="runConfirmedAction"
       />
-
-      <!-- Toast -->
-      <div
-        v-if="toast.show"
-        :class="[
-          'admin-toast',
-          toast.type === 'success'
-            ? 'admin-toast--success'
-            : 'admin-toast--error'
-        ]"
-      >
-        {{ toast.message }}
-      </div>
     </PageFrame>
   </AdminLayout>
 </template>
@@ -434,6 +421,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
+import { useToast } from '@/composables/useToast'
 import jenkinsApi from '@/api/jenkins'
 import {
   buildParamRowsFromConfig,
@@ -449,6 +437,7 @@ import {
 } from '@/utils/jenkinsParams'
 
 const { t } = useI18n()
+const { showToast } = useToast()
 const route = useRoute()
 const router = useRouter()
 const {
@@ -476,16 +465,7 @@ const entryForm = ref({
 const paramsConfigJson = ref('{}')
 const paramRows = ref([])
 
-const toast = ref({ show: false, message: '', type: 'success' })
 const loadingDraftParams = ref(false)
-
-function showToast(message, type = 'success') {
-  toast.value = { show: true, message, type }
-  setTimeout(() => {
-    toast.value.show = false
-  }, 3000)
-}
-
 function getParamTypeLabel(type = '') {
   return t(`adminPages.jenkinsEntries.${getParamTypeLabelKey(type)}`)
 }

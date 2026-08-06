@@ -246,13 +246,13 @@ class JenkinsClient:
             return False, "连接 Jenkins 超时，请检查地址和网络"
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Jenkins connection test failed: {e}")
-            return False, f"无法连接到 Jenkins: {e}"
+            return False, "无法连接到 Jenkins，请检查地址和网络"
         except requests.exceptions.RequestException as e:
             logger.error(f"Jenkins connection test failed: {e}")
-            return False, f"Jenkins 请求失败: {e}"
+            return False, "Jenkins 请求失败，请稍后重试"
         except Exception as e:
             logger.error(f"Jenkins connection test failed: {e}")
-            return False, str(e)
+            return False, "Jenkins 连接测试失败，请检查实例配置"
 
     def get_job_params(self, job_name: str) -> list[JenkinsParamDefinition]:
         """
