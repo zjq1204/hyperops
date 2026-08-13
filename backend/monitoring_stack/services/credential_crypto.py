@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
+
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
+
+
+_FERNET_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}=")
 
 
 class CredentialEncryptionUnavailable(Exception):
@@ -26,12 +33,20 @@ def configured_key_ring() -> list[tuple[str, Fernet]]:
     entries: list[tuple[str, Fernet]] = []
     key_ids: set[str] = set()
 
-    for item in (part.strip() for part in raw.split(",")):
-        if not item:
-            continue
+    if not raw.strip():
+        raise CredentialEncryptionUnavailable(
+            "credential encryption key ring is not configured"
+        )
+
+    items = raw.split(",")
+    if any(not item.strip() for item in items):
+        raise CredentialEncryptionUnavailable(
+            "invalid credential encryption key ring"
+        )
+
+    for item in items:
         key_id, separator, encoded_key = item.partition(":")
         key_id = key_id.strip()
-        encoded_key = encoded_key.strip()
         if not separator or not key_id or not encoded_key:
             raise CredentialEncryptionUnavailable(
                 "invalid credential encryption key ring"
@@ -41,18 +56,21 @@ def configured_key_ring() -> list[tuple[str, Fernet]]:
                 "duplicate credential encryption key id"
             )
         try:
+            if not _FERNET_KEY_PATTERN.fullmatch(encoded_key):
+                raise ValueError("noncanonical Fernet key")
+            decoded_key = base64.b64decode(
+                encoded_key.encode("ascii"), altchars=b"-_", validate=True
+            )
+            if len(decoded_key) != 32:
+                raise ValueError("invalid Fernet key length")
             cipher = Fernet(encoded_key.encode("ascii"))
-        except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        except (binascii.Error, TypeError, ValueError, UnicodeEncodeError) as exc:
             raise CredentialEncryptionUnavailable(
                 "invalid credential encryption key"
             ) from exc
         key_ids.add(key_id)
         entries.append((key_id, cipher))
 
-    if not entries:
-        raise CredentialEncryptionUnavailable(
-            "credential encryption key ring is not configured"
-        )
     return entries
 
 

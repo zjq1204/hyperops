@@ -62,6 +62,29 @@ def test_malformed_key_ring_is_rejected(key_ring):
             configured_key_ring()
 
 
+@pytest.mark.parametrize(
+    "key_ring",
+    [
+        f",primary:{FERNET_A}",
+        f"primary:{FERNET_A},",
+        f"primary:{FERNET_A},,old:{FERNET_B}",
+        f"primary:{FERNET_A[:12]} {FERNET_A[12:]}",
+        f"primary:{FERNET_A[:12]}!\n{FERNET_A[12:]}",
+    ],
+    ids=[
+        "leading-comma",
+        "trailing-comma",
+        "doubled-comma",
+        "space-in-key",
+        "punctuation-and-newline-in-key",
+    ],
+)
+def test_key_ring_rejects_noncanonical_syntax(key_ring):
+    with override_settings(MONITORING_CREDENTIAL_ENCRYPTION_KEYS=key_ring):
+        with pytest.raises(CredentialEncryptionUnavailable):
+            configured_key_ring()
+
+
 @override_settings(
     MONITORING_CREDENTIAL_ENCRYPTION_KEYS=f"duplicate:{FERNET_A},duplicate:{FERNET_B}"
 )
