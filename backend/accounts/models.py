@@ -28,7 +28,11 @@ from django.db import models
 from django.utils.text import slugify
 from django.utils import timezone
 
-from accounts.access import normalize_feature_keys, normalize_platform_key
+from accounts.access import (
+    normalize_feature_keys,
+    normalize_operation_permission_keys,
+    normalize_platform_key,
+)
 
 
 class Role(models.Model):
@@ -44,6 +48,7 @@ class Role(models.Model):
         blank=True,
         help_text="Feature keys visible to users who hold this role.",
     )
+    operation_permissions = models.JSONField(default=list, blank=True)
     preferred_platform = models.CharField(
         max_length=50,
         blank=True,
@@ -73,6 +78,9 @@ class Role(models.Model):
     def save(self, *args, **kwargs):
         """Normalize stored feature and platform values."""
         self.visible_features = normalize_feature_keys(self.visible_features)
+        self.operation_permissions = normalize_operation_permission_keys(
+            self.operation_permissions
+        )
         self.preferred_platform = normalize_platform_key(
             self.preferred_platform
         )

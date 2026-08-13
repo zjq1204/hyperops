@@ -1,10 +1,13 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import requests
 import yaml
 from accounts.permissions import HasRequiredFeature
 from django.conf import settings
 from django.http import FileResponse
+from django.db import transaction
+from django.db.models import Count, Prefetch
 from django.utils import timezone
 from monitoring_stack.models import (
     AnsibleInstallJob,
@@ -13,7 +16,8 @@ from monitoring_stack.models import (
     MonitoringHost,
     MonitoringIntegrationConfig,
     MonitoringProfile,
-    MonitoringSshKey,
+    MonitoringSshCredential,
+    MonitoringSshCredentialVersion,
     N9eRuleSnapshot,
     ProbeTarget,
     RuleImportRecord,
@@ -28,7 +32,10 @@ from monitoring_stack.serializers import (
     MonitoringIntegrationConfigSerializer,
     MonitoringProfileSerializer,
     MonitoringSnapshotRunSerializer,
-    MonitoringSshKeySerializer,
+    CredentialCreateSerializer,
+    CredentialDetailSerializer,
+    CredentialListSerializer,
+    CredentialRotateSerializer,
     PrometheusProbeNodeOnboardSerializer,
     ProbeTargetSerializer,
 )
@@ -66,6 +73,31 @@ from monitoring_stack.services.job_dispatch import (
     JobDispatchError,
     dispatch_error_response,
     dispatch_install_job,
+)
+from monitoring_stack.permissions import (
+    CredentialOperationPermission,
+    has_credential_permission,
+)
+from monitoring_stack.services.credential_ingestion import (
+    DuplicateCredentialFingerprint,
+    PrivateKeyValidationError,
+    create_credential_version,
+)
+from monitoring_stack.services.credential_lifecycle import (
+    CredentialActivationError,
+    CredentialLifecycleError,
+    CredentialReferenceConflict,
+    activate_version,
+    archive_credential,
+    delete_credential,
+    record_credential_audit,
+    request_context_from_request,
+    validate_version_on_hosts,
+)
+from monitoring_stack.services.credential_runtime import (
+    CredentialRuntimeError,
+    DatabaseSshCredentialProvider,
+    materialize_legacy_credential,
 )
 from monitoring_stack.services.reconcile import governance_overview
 from monitoring_stack.services.ssh_verification import (
@@ -597,12 +629,75 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(enabled=enabled == "true")
         return queryset
 
+    def _require_credential_use(self, serializer):
+        explicit_assignment = (
+            "ssh_key_credential" in serializer.validated_data
+            or serializer.validated_data.get("ssh_auth_type")
+            == MonitoringHost.SSH_AUTH_KEY
+        )
+        if not explicit_assignment:
+            return
+        credential = serializer.validated_data.get(
+            "ssh_key_credential",
+            getattr(serializer.instance, "ssh_key_credential", None),
+        )
+        auth_type = serializer.validated_data.get(
+            "ssh_auth_type",
+            getattr(serializer.instance, "ssh_auth_type", None),
+        )
+        if (
+            auth_type == MonitoringHost.SSH_AUTH_KEY
+            and credential
+            and not has_credential_permission(
+                self.request.user, "monitoring_credentials_use"
+            )
+        ):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("credential use permission required")
+
+    def perform_create(self, serializer):
+        self._require_credential_use(serializer)
+        host = serializer.save()
+        if host.ssh_key_credential_id:
+            record_credential_audit(
+                action="assign", status="success",
+                credential=host.ssh_key_credential, actor=self.request.user,
+                affected_host_ids=[host.id],
+                request_context=request_context_from_request(self.request),
+            )
+
+    def perform_update(self, serializer):
+        old_credential = getattr(serializer.instance, "ssh_key_credential", None)
+        self._require_credential_use(serializer)
+        host = serializer.save()
+        new_credential = host.ssh_key_credential
+        if getattr(old_credential, "id", None) == getattr(new_credential, "id", None):
+            return
+        context = request_context_from_request(self.request)
+        if old_credential:
+            record_credential_audit(
+                action="unassign", status="success", credential=old_credential,
+                actor=self.request.user, affected_host_ids=[host.id],
+                request_context=context,
+            )
+        if new_credential:
+            record_credential_audit(
+                action="assign", status="success", credential=new_credential,
+                actor=self.request.user, affected_host_ids=[host.id],
+                request_context=context,
+            )
+
     @action(detail=False, methods=["post"], url_path="test-connection")
     def test_connection(self, request):
         serializer = MonitoringHostConnectionTestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         credential = data.get("ssh_key_credential")
+        if credential and not has_credential_permission(
+            request.user, "monitoring_credentials_use"
+        ):
+            return Response({"detail": "credential use permission required"}, status=403)
+        version = getattr(credential, "active_version", None)
         fingerprint = connection_fingerprint(
             address=data["address"],
             ssh_user=data.get("ssh_user") or "root",
@@ -610,16 +705,38 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
             ssh_auth_type=data["ssh_auth_type"],
             password=data.get("resolved_password") or "",
             ssh_key_id=getattr(credential, "id", None),
-            ssh_key_name=getattr(credential, "file_name", ""),
+            ssh_key_name="",
+            ssh_credential_id=getattr(credential, "id", None),
+            ssh_credential_version_id=getattr(version, "id", None),
+            ssh_public_key_fingerprint=getattr(version, "public_key_fingerprint", ""),
         )
         try:
-            result = check_monitoring_ssh_connection(
-                address=data["address"],
-                ssh_user=data.get("ssh_user") or "root",
-                ssh_port=data.get("ssh_port") or 22,
-                password=data.get("resolved_password"),
-                key_path=credential.storage_path if credential else None,
-            )
+            if credential:
+                provider_context = (
+                    DatabaseSshCredentialProvider().materialize([version])
+                    if version
+                    else materialize_legacy_credential(credential)
+                )
+                with provider_context as bundle:
+                    key_path = (
+                        bundle.key_paths[version.id]
+                        if version else bundle.key_paths[credential.id]
+                    )
+                    result = check_monitoring_ssh_connection(
+                        address=data["address"], ssh_user=data.get("ssh_user") or "root",
+                        ssh_port=data.get("ssh_port") or 22,
+                        password=None, key_path=key_path,
+                        process_env=bundle.process_env, key_prevalidated=True,
+                    )
+            else:
+                result = check_monitoring_ssh_connection(
+                    address=data["address"], ssh_user=data.get("ssh_user") or "root",
+                    ssh_port=data.get("ssh_port") or 22,
+                    password=data.get("resolved_password"),
+                    key_path=None,
+                )
+        except CredentialRuntimeError as exc:
+            return Response({"detail": "credential unavailable", "error_code": exc.code}, status=400)
         except MonitoringSshConnectionError as exc:
             saved_host = data.get("saved_host")
             if (
@@ -657,9 +774,161 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
         )
 
 
-class MonitoringSshKeyViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
-    serializer_class = MonitoringSshKeySerializer
-    queryset = MonitoringSshKey.objects.all()
+class MonitoringCredentialViewSet(viewsets.ModelViewSet):
+    permission_classes = [CredentialOperationPermission]
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = MonitoringSshCredential.objects.select_related("active_version").prefetch_related(
+            "versions__validations", "hosts", "audit_records"
+        ).annotate(usage_count=Count("hosts", distinct=True))
+        status_value = self.request.query_params.get("status")
+        if status_value:
+            queryset = queryset.filter(status=status_value)
+        elif self.action == "list":
+            queryset = queryset.exclude(status=MonitoringSshCredential.STATUS_ARCHIVED)
+        if self.request.query_params.get("assignable") == "true":
+            queryset = queryset.filter(
+                status=MonitoringSshCredential.STATUS_ACTIVE,
+                active_version__validation_status=MonitoringSshCredentialVersion.VALIDATION_VALID,
+            )
+        return queryset.order_by("name", "id")
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return CredentialCreateSerializer
+        if self.action == "rotate":
+            return CredentialRotateSerializer
+        if self.action == "retrieve":
+            return CredentialDetailSerializer
+        return CredentialListSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        context = request_context_from_request(request)
+        try:
+            with transaction.atomic():
+                credential = MonitoringSshCredential.objects.create(
+                    name=data["name"], created_by=request.user, updated_by=request.user
+                )
+                version = create_credential_version(
+                    credential=credential, private_key=data["private_key"],
+                    passphrase=data.get("passphrase", ""), actor=request.user,
+                )
+                record_credential_audit(
+                    action="create", status="success", credential=credential,
+                    version=version, actor=request.user,
+                    metadata={"public_key_fingerprint": version.public_key_fingerprint, "algorithm": version.algorithm, "key_size": version.key_size, "curve": version.curve},
+                    request_context=context,
+                )
+        except PrivateKeyValidationError as exc:
+            return Response({exc.field: [exc.code]}, status=400)
+        except DuplicateCredentialFingerprint as exc:
+            return Response({"private_key": [exc.code], "credential_id": exc.credential_id}, status=409)
+        credential.usage_count = 0
+        return Response(CredentialDetailSerializer(credential).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def rotate(self, request, pk=None):
+        credential = self.get_object()
+        if credential.status == credential.STATUS_ARCHIVED:
+            return Response({"code": "CREDENTIAL_ARCHIVED"}, status=409)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            version = create_credential_version(
+                credential=credential, actor=request.user, **serializer.validated_data
+            )
+        except PrivateKeyValidationError as exc:
+            return Response({exc.field: [exc.code]}, status=400)
+        except DuplicateCredentialFingerprint as exc:
+            return Response({"private_key": [exc.code], "credential_id": exc.credential_id}, status=409)
+        record_credential_audit(action="rotate_start", status="success", credential=credential, version=version, actor=request.user, request_context=request_context_from_request(request))
+        return Response(CredentialDetailSerializer(self.get_object()).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def validate(self, request, pk=None):
+        credential = self.get_object()
+        version_id = request.data.get("version_id") or credential.active_version_id
+        try:
+            version = credential.versions.get(pk=version_id)
+        except MonitoringSshCredentialVersion.DoesNotExist:
+            return Response({"version_id": ["invalid version"]}, status=400)
+        host_ids = request.data.get("host_ids") or list(
+            credential.hosts.filter(enabled=True).values_list("id", flat=True)
+        )
+        hosts = list(MonitoringHost.objects.filter(id__in=host_ids, enabled=True))
+        for candidate in request.data.get("candidate_hosts") or []:
+            if not isinstance(candidate, dict) or not candidate.get("address"):
+                continue
+            hosts.append(SimpleNamespace(
+                id=None,
+                pk=None,
+                hostname=str(candidate.get("hostname") or candidate["address"]),
+                address=str(candidate["address"]),
+                ssh_user=str(candidate.get("ssh_user") or "root"),
+                ssh_port=int(candidate.get("ssh_port") or 22),
+            ))
+        if not hosts:
+            return Response({"host_ids": ["at least one host is required"]}, status=400)
+        try:
+            results = validate_version_on_hosts(
+                version=version, hosts=hosts, actor=request.user,
+                request_context=request_context_from_request(request),
+            )
+        except CredentialRuntimeError as exc:
+            return Response({"code": exc.code, "detail": "credential unavailable"}, status=400)
+        from monitoring_stack.serializers import CredentialValidationSerializer
+        return Response({"results": CredentialValidationSerializer(results, many=True).data})
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        try:
+            credential = activate_version(
+                credential_id=self.get_object().id,
+                version_id=request.data.get("version_id"), actor=request.user,
+                request_context=request_context_from_request(request),
+            )
+        except (CredentialActivationError, CredentialLifecycleError) as exc:
+            return Response({"code": exc.code, "detail": exc.code}, status=409)
+        credential.usage_count = credential.hosts.count()
+        return Response(CredentialDetailSerializer(credential).data)
+
+    @action(detail=True, methods=["post"])
+    def archive(self, request, pk=None):
+        try:
+            credential = archive_credential(
+                credential_id=self.get_object().id, actor=request.user,
+                request_context=request_context_from_request(request),
+            )
+        except CredentialReferenceConflict as exc:
+            return Response({"code": exc.code, "hosts": exc.hosts}, status=409)
+        credential.usage_count = 0
+        return Response(CredentialDetailSerializer(credential).data)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            delete_credential(
+                credential_id=self.get_object().id, actor=request.user,
+                request_context=request_context_from_request(request),
+            )
+        except CredentialReferenceConflict as exc:
+            return Response({"code": exc.code, "hosts": exc.hosts}, status=409)
+        except CredentialLifecycleError as exc:
+            return Response({"code": exc.code, "detail": exc.code}, status=409)
+        return Response(status=204)
+
+
+class MonitoringSshKeyCompatibilityViewSet(MonitoringCredentialViewSet):
+    http_method_names = ["get", "head", "options"]
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        response["Deprecation"] = "true"
+        response["Link"] = '</api/v1/monitoring/credentials/>; rel="successor-version"'
+        return response
 
 
 class PrometheusHttpSdView(APIView):

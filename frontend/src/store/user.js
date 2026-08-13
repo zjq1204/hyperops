@@ -4,7 +4,8 @@ import { authApi } from '@/api/auth'
 import {
   getAvailablePlatforms,
   getLandingPath,
-  hasFeature
+  hasFeature,
+  hasOperationPermission
 } from '@/utils/platformAccess'
 
 export const useUserStore = defineStore('user', () => {
@@ -187,6 +188,8 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const userHasFeature = (featureKey) => hasFeature(user.value, featureKey)
+  const userHasOperationPermission = (permissionKey) =>
+    hasOperationPermission(user.value, permissionKey)
   const getUserLandingPath = () => getLandingPath(user.value)
 
   // Platform feature flags (e.g. enable_notifier). Loaded once per session so
@@ -247,6 +250,7 @@ export const useUserStore = defineStore('user', () => {
     setUser,
     setToken,
     userHasFeature,
+    userHasOperationPermission,
     getUserLandingPath,
     loadPlatformFlags,
     hasModuleFlag,

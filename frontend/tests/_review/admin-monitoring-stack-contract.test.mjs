@@ -526,6 +526,21 @@ assert.match(
 )
 assert.match(
   assetsSource,
+  /AdminMonitoringCredentials/,
+  'host form should link to the dedicated credential center'
+)
+assert.match(
+  assetsSource,
+  /getCredentials\(\{\s*status:\s*'active',\s*assignable:\s*true/,
+  'host form should only load active assignable credentials'
+)
+assert.doesNotMatch(
+  assetsSource,
+  /handleSshKeyFile|uploadSshKey|sshKeyUploadContent|createSshKey/,
+  'host form must not ingest private key material'
+)
+assert.match(
+  assetsSource,
   /hostConnectionSignature/,
   'host form should track the exact SSH settings that were tested'
 )

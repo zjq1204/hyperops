@@ -1,7 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { adminRoutes } from '@/admin/routes'
-import { getLandingPath, hasFeature } from '@/utils/platformAccess'
+import {
+  getLandingPath,
+  hasFeature,
+  hasOperationPermission
+} from '@/utils/platformAccess'
 
 const routes = [
   {
@@ -140,6 +144,17 @@ router.beforeEach(async (to, from, next) => {
     if (
       to.meta.requiredFeature &&
       !hasFeature(currentUser, to.meta.requiredFeature)
+    ) {
+      next(getLandingPath(currentUser))
+      return
+    }
+
+    if (
+      to.meta.requiredOperationPermission &&
+      !hasOperationPermission(
+        currentUser,
+        to.meta.requiredOperationPermission
+      )
     ) {
       next(getLandingPath(currentUser))
       return

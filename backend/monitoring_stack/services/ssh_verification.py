@@ -27,6 +27,9 @@ def connection_fingerprint(
     password="",
     ssh_key_id=None,
     ssh_key_name="",
+    ssh_credential_id=None,
+    ssh_credential_version_id=None,
+    ssh_public_key_fingerprint="",
 ):
     if ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
         secret_identity = salted_hmac(
@@ -35,7 +38,11 @@ def connection_fingerprint(
             algorithm="sha256",
         ).hexdigest()
     else:
-        secret_identity = str(ssh_key_id or ssh_key_name or "")
+        secret_identity = ":".join(str(value or "") for value in (
+            ssh_credential_id or ssh_key_id,
+            ssh_credential_version_id,
+            ssh_public_key_fingerprint or ssh_key_name,
+        ))
     normalized = {
         "address": str(address or "").strip().lower(),
         "ssh_user": str(ssh_user or "root").strip(),
@@ -51,6 +58,8 @@ def connection_fingerprint(
 
 
 def connection_fingerprint_for_host(host):
+    credential = getattr(host, "ssh_key_credential", None)
+    version = getattr(credential, "active_version", None)
     return connection_fingerprint(
         address=host.address,
         ssh_user=host.ssh_user,
@@ -59,6 +68,9 @@ def connection_fingerprint_for_host(host):
         password=host.ssh_password,
         ssh_key_id=host.ssh_key_credential_id,
         ssh_key_name=host.ssh_key,
+        ssh_credential_id=getattr(credential, "id", None),
+        ssh_credential_version_id=getattr(version, "id", None),
+        ssh_public_key_fingerprint=getattr(version, "public_key_fingerprint", ""),
     )
 
 

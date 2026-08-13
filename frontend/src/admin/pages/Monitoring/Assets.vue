@@ -415,67 +415,80 @@
             </label>
           </div>
 
-          <div v-else class="mt-4 grid gap-4">
-            <label class="admin-filter-field">
-              <span class="admin-filter-label">{{
-                t('adminPages.monitoring.savedSshKey')
-              }}</span>
-              <select v-model="form.sshKeyId" class="admin-filter-control">
-                <option value="">
-                  {{ t('adminPages.monitoring.selectSshKey') }}
-                </option>
-                <option v-for="key in sshKeys" :key="key.id" :value="key.id">
-                  {{ key.name }}
-                </option>
-              </select>
-            </label>
-            <div
-              class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3"
-            >
-              <div
-                class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+          <div v-else class="mt-4 grid gap-3">
+            <div class="flex items-end gap-2">
+              <label class="admin-filter-field min-w-0 flex-1">
+                <span class="admin-filter-label">{{
+                  t('adminPages.monitoring.savedSshCredential')
+                }}</span>
+                <select v-model="form.sshKeyId" class="admin-filter-control">
+                  <option value="">
+                    {{ t('adminPages.monitoring.selectSshCredential') }}
+                  </option>
+                  <option
+                    v-for="credential in sshCredentials"
+                    :key="credential.id"
+                    :value="credential.id"
+                  >
+                    {{ credentialOptionText(credential) }}
+                  </option>
+                </select>
+              </label>
+              <BaseButton
+                variant="outline"
+                type="button"
+                size="sm"
+                :aria-label="t('adminPages.monitoring.manageCredentials')"
+                :title="t('adminPages.monitoring.manageCredentials')"
+                @click="router.push({ name: 'AdminMonitoringCredentials' })"
               >
-                <label class="admin-filter-field">
-                  <span class="admin-filter-label">{{
-                    t('adminPages.monitoring.sshKeyName')
-                  }}</span>
-                  <input
-                    v-model="form.sshKeyUploadName"
-                    class="admin-filter-control"
-                  />
-                </label>
-                <label class="admin-filter-field">
-                  <span class="admin-filter-label">{{
-                    t('adminPages.monitoring.uploadSshKey')
-                  }}</span>
-                  <input
-                    type="file"
-                    class="admin-filter-control"
-                    accept=".pem,.key,.txt"
-                    @change="handleSshKeyFile"
-                  />
-                </label>
-              </div>
-              <div
-                class="mt-3 flex flex-wrap items-center justify-between gap-3"
-              >
-                <p class="text-xs text-slate-500">
-                  {{ t('adminPages.monitoring.sshKeyUploadHint') }}
-                </p>
-                <BaseButton
-                  variant="outline"
-                  type="button"
-                  size="sm"
-                  :disabled="
-                    !form.sshKeyUploadName || !form.sshKeyUploadContent
-                  "
-                  :loading="uploadingSshKey"
-                  @click="uploadSshKey"
+                <svg
+                  class="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
                 >
-                  {{ t('adminPages.monitoring.saveSshKey') }}
-                </BaseButton>
-              </div>
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15 7a4 4 0 11-7.75 1.37L3 12.62V16h3v3h3v-3h2.38l1.25-1.25M17 7h.01"
+                  />
+                </svg>
+              </BaseButton>
             </div>
+            <p v-if="credentialSelectionError" class="text-xs text-rose-600">
+              {{ credentialSelectionError }}
+            </p>
+            <dl
+              v-if="selectedSshCredential"
+              class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-y border-slate-200 py-2 text-xs"
+            >
+              <dt class="text-slate-500">
+                {{ t('monitoringCredentials.algorithm') }}
+              </dt>
+              <dd class="truncate font-medium text-slate-700">
+                {{ credentialAlgorithmLabel(selectedSshCredential) }}
+              </dd>
+              <dt class="text-slate-500">
+                {{ t('monitoringCredentials.fingerprint') }}
+              </dt>
+              <dd class="truncate font-mono text-slate-700">
+                {{ credentialFingerprint(selectedSshCredential) }}
+              </dd>
+              <dt class="text-slate-500">
+                {{ t('monitoringCredentials.validation') }}
+              </dt>
+              <dd class="font-medium text-slate-700">
+                {{ selectedCredentialValidationText }} ·
+                {{
+                  credentialHasPassphrase(selectedSshCredential)
+                    ? t('adminPages.monitoring.passphraseProtected')
+                    : t('adminPages.monitoring.noPassphrase')
+                }}
+              </dd>
+            </dl>
           </div>
         </section>
         <div
@@ -1086,6 +1099,13 @@ import {
   filterHosts
 } from '@/admin/pages/Monitoring/assets/hostListState'
 import { getApiErrorMessage } from '@/utils/apiError'
+import {
+  credentialAlgorithmLabel,
+  credentialFingerprint,
+  credentialHasPassphrase,
+  credentialValidationKey,
+  shortFingerprint
+} from '@/admin/pages/Monitoring/credentials/credentialState'
 
 const { locale, t } = useI18n()
 const router = useRouter()
@@ -1097,11 +1117,10 @@ const runningCategraf = ref(false)
 const error = ref('')
 const profiles = ref([])
 const hosts = ref([])
-const sshKeys = ref([])
+const sshCredentials = ref([])
 const assetReconciliation = ref({})
 const selectedHostIds = ref([])
 const importingAssetKey = ref('')
-const uploadingSshKey = ref(false)
 const testingHostConnection = ref(false)
 const hostConnectionStatus = ref('idle')
 const attemptedHostConnectionSignature = ref('')
@@ -1154,6 +1173,23 @@ const canTestHostConnection = computed(() => {
     return Boolean(form.sshPassword || (form.id && form.hasSshPassword))
   return Boolean(form.sshKeyId)
 })
+const selectedSshCredential = computed(() =>
+  sshCredentials.value.find(
+    (credential) => String(credential.id) === String(form.sshKeyId)
+  )
+)
+const credentialSelectionError = computed(() =>
+  form.sshAuthType === 'key' && !form.sshKeyId
+    ? t('adminPages.monitoring.credentialRequired')
+    : ''
+)
+const selectedCredentialValidationText = computed(() =>
+  selectedSshCredential.value
+    ? t(
+        `monitoringCredentials.validationStates.${credentialValidationKey(selectedSshCredential.value)}`
+      )
+    : ''
+)
 const hostConnectionStatusText = computed(() => {
   const keys = {
     idle: 'sshConnectionRequired',
@@ -1287,14 +1323,22 @@ function defaultHostForm() {
     sshAuthType: 'password',
     sshPassword: '',
     hasSshPassword: false,
-    sshKeyId: '',
-    sshKeyUploadName: '',
-    sshKeyUploadContent: ''
+    sshKeyId: ''
   }
 }
 
 function normalizeList(data) {
   return data?.results || data || []
+}
+
+function credentialOptionText(credential) {
+  return [
+    credential.name,
+    credentialAlgorithmLabel(credential),
+    shortFingerprint(credential)
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function discoveredSourceText(source) {
@@ -1449,9 +1493,12 @@ function editHost(host, options = {}) {
       (host.ssh_key_id || host.ssh_key ? 'key' : 'password'),
     sshPassword: '',
     hasSshPassword: Boolean(host.has_ssh_password),
-    sshKeyId: host.ssh_key_id || '',
-    sshKeyUploadName: '',
-    sshKeyUploadContent: ''
+    sshKeyId:
+      host.ssh_key_id ||
+      host.sshKeyId ||
+      host.ssh_credential_id ||
+      host.sshCredentialId ||
+      ''
   })
   resetHostConnectionTest()
   showHostForm.value = true
@@ -1546,34 +1593,6 @@ async function testHostConnection() {
   }
 }
 
-async function handleSshKeyFile(event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  form.sshKeyUploadContent = await file.text()
-  if (!form.sshKeyUploadName) {
-    form.sshKeyUploadName = file.name.replace(/\.(pem|key|txt)$/i, '')
-  }
-}
-
-async function uploadSshKey() {
-  uploadingSshKey.value = true
-  error.value = ''
-  try {
-    const key = await monitoringStackApi.createSshKey({
-      name: form.sshKeyUploadName,
-      private_key: form.sshKeyUploadContent
-    })
-    sshKeys.value = [key, ...sshKeys.value.filter((item) => item.id !== key.id)]
-    form.sshKeyId = key.id
-    form.sshKeyUploadName = ''
-    form.sshKeyUploadContent = ''
-  } catch (err) {
-    error.value = err?.response?.data?.detail || err.message
-  } finally {
-    uploadingSshKey.value = false
-  }
-}
-
 function toggleHost(id, checked) {
   const next = new Set(selectedHostIds.value)
   if (checked) next.add(id)
@@ -1658,17 +1677,23 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [configData, profileData, hostData, sshKeyData, reconciliationData] =
+    const [
+      configData,
+      profileData,
+      hostData,
+      credentialData,
+      reconciliationData
+    ] =
       await Promise.all([
         monitoringStackApi.getConfig(),
         monitoringStackApi.getProfiles(),
         monitoringStackApi.getHosts(),
-        monitoringStackApi.getSshKeys(),
+        monitoringStackApi.getCredentials({ status: 'active', assignable: true }),
         monitoringStackApi.getAssetsReconciliation()
       ])
     profiles.value = normalizeList(profileData)
     hosts.value = normalizeList(hostData)
-    sshKeys.value = normalizeList(sshKeyData)
+    sshCredentials.value = normalizeList(credentialData)
     assetReconciliation.value = reconciliationData || {}
     selectedHostIds.value = selectedHostIds.value.filter((id) =>
       hosts.value.some((host) => host.id === id)

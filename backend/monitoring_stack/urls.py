@@ -15,7 +15,8 @@ from monitoring_stack.views import (
     MonitoringGovernanceSyncView,
     MonitoringHostViewSet,
     MonitoringProfileViewSet,
-    MonitoringSshKeyViewSet,
+    MonitoringCredentialViewSet,
+    MonitoringSshKeyCompatibilityViewSet,
     N9eDiscoverView,
     N9eImportRulesView,
     N9ePlatformSummaryView,
@@ -38,7 +39,8 @@ router.register(
 )
 router.register(r"probe-nodes", BlackboxProbeNodeViewSet, basename="monitoring-probe-node")
 router.register(r"hosts", MonitoringHostViewSet, basename="monitoring-host")
-router.register(r"ssh-keys", MonitoringSshKeyViewSet, basename="monitoring-ssh-key")
+router.register(r"credentials", MonitoringCredentialViewSet, basename="monitoring-credential")
+router.register(r"ssh-keys", MonitoringSshKeyCompatibilityViewSet, basename="monitoring-ssh-key")
 router.register(
     r"ansible/jobs", AnsibleInstallJobViewSet, basename="monitoring-ansible-job"
 )

@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import textwrap
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -37,6 +38,11 @@ from monitoring_stack.services.ansible_progress import (
     current_host_for_line,
     failure_reason_code,
     stream_process_output,
+)
+from monitoring_stack.services.credential_runtime import (
+    CredentialRuntimeError,
+    DatabaseSshCredentialProvider,
+    materialize_legacy_credential,
 )
 from monitoring_stack.services.ssh_verification import (
     connection_fingerprint_for_host,
@@ -579,13 +585,8 @@ def clean_ssh_key(value):
 
 
 def host_ssh_key_path(host):
-    if host.ssh_auth_type != MonitoringHost.SSH_AUTH_KEY:
-        return None
-    credential = getattr(host, "ssh_key_credential", None)
-    if credential and credential.file_name:
-        return credential.storage_path
-    ssh_key = clean_ssh_key(host.ssh_key)
-    return ssh_dir() / ssh_key if ssh_key else None
+    """Long-lived SSH paths are intentionally unavailable to runtime callers."""
+    return None
 
 
 class MonitoringSshConnectionError(Exception):
@@ -596,7 +597,14 @@ class MonitoringSshConnectionError(Exception):
 
 
 def check_monitoring_ssh_connection(
-    *, address, ssh_user, ssh_port, password=None, key_path=None
+    *,
+    address,
+    ssh_user,
+    ssh_port,
+    password=None,
+    key_path=None,
+    process_env=None,
+    key_prevalidated=False,
 ):
     started_at = time.monotonic()
     key_file = Path(key_path) if key_path else None
@@ -604,6 +612,7 @@ def check_monitoring_ssh_connection(
         raise MonitoringSshConnectionError("SSH_KEY_OR_PROTOCOL_FAILED", 400)
 
     env = dict(os.environ)
+    env.update(process_env or {})
     ssh_command = [
         "ssh",
         "-o",
@@ -616,19 +625,22 @@ def check_monitoring_ssh_connection(
         str(int(ssh_port or 22)),
     ]
     if key_file:
-        try:
-            validation = subprocess.run(
-                ["ssh-keygen", "-y", "-f", str(key_file)],
-                capture_output=True,
-                text=True,
-                timeout=8,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            raise MonitoringSshConnectionError(
-                "SSH_KEY_OR_PROTOCOL_FAILED", 400
-            ) from exc
-        if validation.returncode != 0:
-            raise MonitoringSshConnectionError("SSH_KEY_OR_PROTOCOL_FAILED", 400)
+        if not key_prevalidated:
+            try:
+                validation = subprocess.run(
+                    ["ssh-keygen", "-y", "-f", str(key_file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+                raise MonitoringSshConnectionError(
+                    "SSH_KEY_OR_PROTOCOL_FAILED", 400
+                ) from exc
+            if validation.returncode != 0:
+                raise MonitoringSshConnectionError(
+                    "SSH_KEY_OR_PROTOCOL_FAILED", 400
+                )
         ssh_command.extend(
             [
                 "-o",
@@ -1803,7 +1815,9 @@ def build_installer_archives():
 
 
 def selected_hosts(host_ids):
-    qs = MonitoringHost.objects.select_related("ssh_key_credential")
+    qs = MonitoringHost.objects.select_related(
+        "ssh_key_credential", "ssh_key_credential__active_version"
+    )
     if host_ids:
         qs = qs.filter(id__in=host_ids)
     return list(qs.order_by("hostname", "id"))
@@ -1900,12 +1914,20 @@ def install_command_for_host(host, job):
     return f"curl -fsSL {script_url} | sudo bash -s -- {args}"
 
 
-def render_inventory(hosts):
+def render_inventory(hosts, key_paths=None):
+    key_paths = key_paths or {}
     lines = ["[categraf_targets]"]
     for host in hosts:
+        credential = getattr(host, "ssh_key_credential", None)
         key_path = (
-            host_ssh_key_path(host)
-            if host.ssh_auth_type == MonitoringHost.SSH_AUTH_KEY
+            (
+                key_paths.get(getattr(credential, "active_version_id", None))
+                or key_paths.get(f"credential:{host.ssh_key_credential_id}")
+            )
+            if (
+                host.ssh_auth_type == MonitoringHost.SSH_AUTH_KEY
+                and credential is not None
+            )
             else None
         )
         key_arg = (
@@ -1942,11 +1964,9 @@ def job_vars(job, hosts):
                 "ssh_user": host.ssh_user or "root",
                 "ssh_port": host.ssh_port or 22,
                 "ssh_auth_type": host.ssh_auth_type,
-                "ssh_key": clean_ssh_key(
-                    host.ssh_key_credential.file_name
-                    if host.ssh_key_credential_id
-                    else host.ssh_key
-                ),
+                "ssh_credential_id": host.ssh_key_credential_id,
+                "ssh_credential_version_id": getattr(getattr(host.ssh_key_credential, "active_version", None), "id", None),
+                "ssh_public_key_fingerprint": getattr(getattr(host.ssh_key_credential, "active_version", None), "public_key_fingerprint", ""),
                 "ssh_key_name": (
                     host.ssh_key_credential.name if host.ssh_key_credential_id else ""
                 ),
@@ -2293,55 +2313,102 @@ def execute_ansible_job(job_id):
     logs = []
     current_stage = "connecting"
     current_host = ""
-    with tempfile.TemporaryDirectory(prefix="hyperops-monitoring-ansible-") as tmp:
-        tmp_path = Path(tmp)
-        inventory_path = tmp_path / "inventory.ini"
-        playbook_path = tmp_path / "playbook.yml"
-        inventory_path.write_text(render_inventory(hosts), encoding="utf-8")
-        playbook_path.write_text(
-            yaml.safe_dump(
-                build_playbook(hosts, payload), allow_unicode=True, sort_keys=False
-            ),
-            encoding="utf-8",
-        )
-        proc = subprocess.Popen(
-            ["ansible-playbook", "-i", str(inventory_path), str(playbook_path)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=1,
-            env={
-                **os.environ,
-                "ANSIBLE_HOST_KEY_CHECKING": "False",
-                "ANSIBLE_FORCE_COLOR": "0",
-                "PYTHONUNBUFFERED": "1",
-            },
-        )
-        job.progress = build_progress("connecting")
-        job.save(update_fields=["progress"])
+    versions = []
+    for host in hosts:
+        if host.ssh_auth_type != MonitoringHost.SSH_AUTH_KEY:
+            continue
+        credential = host.ssh_key_credential
+        if not credential:
+            continue
+        version = getattr(credential, "active_version", None)
+        if version:
+            versions.append(version)
 
-        def persist_output(lines, stage):
-            nonlocal current_stage, current_host
-            logs.extend(lines)
-            if stage:
-                current_stage = stage
-            for line in reversed(lines):
-                line_host = current_host_for_line(line)
-                if line_host:
-                    current_host = line_host
-                    break
-            job.logs = list(logs)
-            job.progress = build_progress(
-                current_stage,
-                current_host=current_host,
+    try:
+        with ExitStack() as stack:
+            bundle = stack.enter_context(
+                DatabaseSshCredentialProvider().materialize(versions)
             )
-            job.save(update_fields=["logs", "progress"])
+            key_paths = dict(bundle.key_paths)
+            snapshots = list(bundle.snapshots)
+            legacy_credentials = {
+                host.ssh_key_credential_id: host.ssh_key_credential
+                for host in hosts
+                if host.ssh_auth_type == MonitoringHost.SSH_AUTH_KEY
+                and host.ssh_key_credential_id
+                and not host.ssh_key_credential.active_version_id
+            }
+            for credential in legacy_credentials.values():
+                legacy = stack.enter_context(materialize_legacy_credential(credential))
+                key_paths[f"credential:{credential.id}"] = legacy.key_paths[credential.id]
+                snapshots.extend(legacy.snapshots)
+            job.credential_snapshots = snapshots
+            job.hosts_snapshot = snapshot_hosts(hosts, payload)
+            job.save(update_fields=["credential_snapshots", "hosts_snapshot"])
+            with tempfile.TemporaryDirectory(prefix="hyperops-monitoring-ansible-") as tmp:
+                tmp_path = Path(tmp)
+                inventory_path = tmp_path / "inventory.ini"
+                playbook_path = tmp_path / "playbook.yml"
+                inventory_path.write_text(
+                    render_inventory(hosts, key_paths), encoding="utf-8"
+                )
+                playbook_path.write_text(
+                    yaml.safe_dump(
+                        build_playbook(hosts, payload), allow_unicode=True, sort_keys=False
+                    ),
+                    encoding="utf-8",
+                )
+                proc = subprocess.Popen(
+                    ["ansible-playbook", "-i", str(inventory_path), str(playbook_path)],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=1,
+                    env={
+                        **os.environ,
+                        **bundle.process_env,
+                        "ANSIBLE_HOST_KEY_CHECKING": "False",
+                        "ANSIBLE_FORCE_COLOR": "0",
+                        "PYTHONUNBUFFERED": "1",
+                    },
+                )
+                job.progress = build_progress("connecting")
+                job.save(update_fields=["progress"])
 
-        stream_result = stream_process_output(
-            proc,
-            timeout_seconds=1800,
-            on_flush=persist_output,
-        )
+                def persist_output(lines, stage):
+                    nonlocal current_stage, current_host
+                    logs.extend(lines)
+                    if stage:
+                        current_stage = stage
+                    for line in reversed(lines):
+                        line_host = current_host_for_line(line)
+                        if line_host:
+                            current_host = line_host
+                            break
+                    job.logs = list(logs)
+                    job.progress = build_progress(current_stage, current_host=current_host)
+                    job.save(update_fields=["logs", "progress"])
+
+                stream_result = stream_process_output(
+                    proc, timeout_seconds=1800, on_flush=persist_output
+                )
+    except CredentialRuntimeError:
+        credential_ids = sorted({
+            host.ssh_key_credential_id
+            for host in hosts
+            if host.ssh_auth_type == MonitoringHost.SSH_AUTH_KEY
+            and host.ssh_key_credential_id
+        })
+        logs = [f"credential unavailable: {credential_id}" for credential_id in credential_ids]
+        job.status = AnsibleInstallJob.STATUS_FAILED
+        job.returncode = 1
+        job.logs = logs
+        job.results = [{"hostname": host.hostname, "status": "failed"} for host in hosts]
+        job.progress = build_progress("failed", message="credential_unavailable")
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "returncode", "logs", "results", "progress", "finished_at"])
+        mark_component_finished(job, hosts, MonitoringComponentStatus.STATUS_FAILED, logs)
+        return job
 
     status, effective_returncode, results = _ansible_execution_result(
         hosts,

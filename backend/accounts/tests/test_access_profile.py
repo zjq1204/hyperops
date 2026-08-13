@@ -2,6 +2,8 @@ from django.contrib.auth.models import Group, User
 from django.test import TestCase
 
 from accounts.access import (
+    MONITORING_CREDENTIAL_PERMISSION_KEYS,
+    get_effective_operation_permission_keys,
     get_access_profile,
     normalize_feature_keys,
     normalize_platform_key,
@@ -10,6 +12,31 @@ from accounts.models import Role
 
 
 class AccessProfileTests(TestCase):
+    def test_operation_permissions_are_unioned_across_roles(self):
+        user = User.objects.create_user(username="credential-operator")
+        first = Role.objects.create(
+            name="Credential viewer",
+            operation_permissions=["monitoring_credentials_view"],
+        )
+        second = Role.objects.create(
+            name="Credential user",
+            operation_permissions=["monitoring_credentials_use", "unknown"],
+        )
+        user.platform_roles.add(first, second)
+        self.assertEqual(
+            get_access_profile(user)["operation_permissions"],
+            ["monitoring_credentials_view", "monitoring_credentials_use"],
+        )
+
+    def test_superuser_has_all_operation_permissions(self):
+        user = User.objects.create_superuser(
+            username="credential-root", email="root@example.com", password="x"
+        )
+        self.assertEqual(
+            get_effective_operation_permission_keys(user),
+            list(MONITORING_CREDENTIAL_PERMISSION_KEYS),
+        )
+
     def test_workspace_aliases_expand_to_workspace_modules(self):
         self.assertEqual(
             normalize_feature_keys(['ai_model_pricing', 'hyperbdr_dashboard']),

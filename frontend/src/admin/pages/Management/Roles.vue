@@ -137,6 +137,31 @@
               class="admin-modal-control"
             />
           </div>
+          <section
+            v-if="monitoringAccessSelected && operationPermissionOptions.length"
+            class="border-t border-slate-200 pt-4"
+          >
+            <div class="admin-modal-field-label">
+              {{ t('management.monitoringCredentialOperations') }}
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <label
+                v-for="permission in operationPermissionOptions"
+                :key="permission.key"
+                class="admin-permission-option"
+              >
+                <input
+                  v-model="form.operation_permissions"
+                  type="checkbox"
+                  class="admin-modal-checkbox mt-0.5"
+                  :value="permission.key"
+                />
+                <span class="text-sm font-medium text-slate-800">
+                  {{ operationPermissionLabel(permission.key) }}
+                </span>
+              </label>
+            </div>
+          </section>
           <div>
             <label class="admin-modal-field-label">{{
               t('management.visibleFeatures')
@@ -262,6 +287,7 @@ const { t } = useI18n()
 const roles = ref([])
 const featureOptions = ref([])
 const apiPlatformOptions = ref([])
+const apiOperationPermissionOptions = ref([])
 const loading = ref(false)
 const error = ref(null)
 const currentPage = ref(1)
@@ -276,6 +302,7 @@ const submitError = ref(null)
 const form = ref({
   name: '',
   visible_features: [],
+  operation_permissions: [],
   preferred_platform: '',
   is_active: true
 })
@@ -359,6 +386,17 @@ const selectedPlatformOptions = computed(() =>
 const selectedFeatureSet = computed(
   () => new Set(form.value.visible_features || [])
 )
+const monitoringAccessSelected = computed(() =>
+  selectedFeatureSet.value.has('admin_monitoring')
+)
+const operationPermissionOptions = computed(() =>
+  apiOperationPermissionOptions.value.filter(
+    (item) => (item.feature || item.feature_key) === 'admin_monitoring'
+  )
+)
+const operationPermissionKeySet = computed(
+  () => new Set(operationPermissionOptions.value.map((item) => item.key))
+)
 
 watch(
   () => form.value.visible_features,
@@ -369,8 +407,22 @@ watch(
     if (!selectedPlatformKeys.has(form.value.preferred_platform)) {
       form.value.preferred_platform = ''
     }
+    if (!monitoringAccessSelected.value) {
+      form.value.operation_permissions = []
+    }
   }
 )
+
+function operationPermissionLabel(key) {
+  return t(`management.operationPermissions.${key}`)
+}
+
+function normalizeOperationPermissions(items) {
+  if (!Array.isArray(items) || !monitoringAccessSelected.value) return []
+  return operationPermissionOptions.value
+    .map((item) => item.key)
+    .filter((key) => items.includes(key) && operationPermissionKeySet.value.has(key))
+}
 
 function isFeatureSelected(featureKey) {
   return selectedFeatureSet.value.has(featureKey)
@@ -449,11 +501,18 @@ function normalizeSelectedFeatures(items) {
 }
 
 function syncOptionsFromPayload(data) {
-  if (Array.isArray(data?.feature_options)) {
-    featureOptions.value = data.feature_options
+  const nextFeatureOptions = data?.feature_options || data?.featureOptions
+  const nextPlatformOptions = data?.platform_options || data?.platformOptions
+  if (Array.isArray(nextFeatureOptions)) {
+    featureOptions.value = nextFeatureOptions
   }
-  if (Array.isArray(data?.platform_options)) {
-    apiPlatformOptions.value = data.platform_options
+  if (Array.isArray(nextPlatformOptions)) {
+    apiPlatformOptions.value = nextPlatformOptions
+  }
+  const operationOptions =
+    data?.operation_permission_options || data?.operationPermissionOptions
+  if (Array.isArray(operationOptions)) {
+    apiOperationPermissionOptions.value = operationOptions
   }
 }
 
@@ -461,7 +520,11 @@ function syncRolesFromPayload(data) {
   const nextRoles = Array.isArray(data) ? data : (data?.results ?? [])
   roles.value = nextRoles.map((role) => ({
     ...role,
-    visible_features: normalizeSelectedFeatures(role.visible_features)
+    visible_features: normalizeSelectedFeatures(
+      role.visible_features || role.visibleFeatures
+    ),
+    operation_permissions:
+      role.operation_permissions || role.operationPermissions || []
   }))
   totalCount.value = Array.isArray(data)
     ? data.length
@@ -481,6 +544,7 @@ function closeModal() {
   form.value = {
     name: '',
     visible_features: [],
+    operation_permissions: [],
     preferred_platform: '',
     is_active: true
   }
@@ -499,6 +563,11 @@ function openEditModal(role) {
   form.value = {
     name: role.name || '',
     visible_features: normalizeSelectedFeatures(role.visible_features),
+    operation_permissions: Array.isArray(role.operation_permissions)
+      ? role.operation_permissions.filter((key) =>
+          operationPermissionKeySet.value.has(key)
+        )
+      : [],
     preferred_platform: role.preferred_platform || '',
     is_active: role.is_active !== false
   }
@@ -520,6 +589,9 @@ async function submitRole() {
       visible_features: Array.isArray(form.value.visible_features)
         ? form.value.visible_features
         : [],
+      operation_permissions: normalizeOperationPermissions(
+        form.value.operation_permissions
+      ),
       preferred_platform: form.value.preferred_platform || '',
       is_active: !!form.value.is_active
     }

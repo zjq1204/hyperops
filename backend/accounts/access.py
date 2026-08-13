@@ -138,6 +138,16 @@ FEATURE_ALIASES = {
 
 LEGACY_DEFAULT_FEATURES = ("workspace",)
 
+OPERATION_PERMISSION_DEFINITIONS = (
+    {"key": "monitoring_credentials_view", "label": "查看 SSH 凭据", "feature": "admin_monitoring"},
+    {"key": "monitoring_credentials_use", "label": "使用 SSH 凭据", "feature": "admin_monitoring"},
+    {"key": "monitoring_credentials_manage", "label": "管理 SSH 凭据", "feature": "admin_monitoring"},
+    {"key": "monitoring_credentials_delete", "label": "删除 SSH 凭据", "feature": "admin_monitoring"},
+)
+MONITORING_CREDENTIAL_PERMISSION_KEYS = tuple(
+    item["key"] for item in OPERATION_PERMISSION_DEFINITIONS
+)
+
 ACCESS_POLICY = AccessPolicy(
     FEATURE_DEFINITIONS,
     feature_aliases=FEATURE_ALIASES,
@@ -181,6 +191,16 @@ def serialize_platforms(platform_keys: Iterable[str]) -> list[dict[str, str]]:
     return ACCESS_POLICY.serialize_platforms(platform_keys)
 
 
+def normalize_operation_permission_keys(values: Iterable[str] | None) -> list[str]:
+    """Return canonical monitoring operation permission keys."""
+    selected = set(values or [])
+    return [key for key in MONITORING_CREDENTIAL_PERMISSION_KEYS if key in selected]
+
+
+def serialize_operation_permission_options() -> list[dict[str, str]]:
+    return [dict(item) for item in OPERATION_PERMISSION_DEFINITIONS]
+
+
 def get_effective_roles(
     user,
     *,
@@ -207,6 +227,22 @@ def get_effective_feature_keys(
     )
 
 
+def get_effective_operation_permission_keys(
+    user,
+    *,
+    effective_roles=None,
+) -> list[str]:
+    if user and user.is_authenticated and user.is_superuser:
+        return list(MONITORING_CREDENTIAL_PERMISSION_KEYS)
+    roles = effective_roles if effective_roles is not None else get_effective_roles(user)
+    selected = {
+        key
+        for role in roles
+        for key in (getattr(role, "operation_permissions", None) or [])
+    }
+    return [key for key in MONITORING_CREDENTIAL_PERMISSION_KEYS if key in selected]
+
+
 def get_preferred_platform(
     user,
     *,
@@ -229,9 +265,16 @@ def get_access_profile(
     effective_roles=None,
 ) -> dict[str, object]:
     """Build the effective access profile for a user."""
-    return ACCESS_POLICY.get_access_profile(
+    profile = ACCESS_POLICY.get_access_profile(
         user,
         direct_roles=direct_roles,
         groups=groups,
         effective_roles=effective_roles,
     )
+    roles = effective_roles
+    if roles is None:
+        roles = get_effective_roles(user, direct_roles=direct_roles, groups=groups)
+    profile["operation_permissions"] = get_effective_operation_permission_keys(
+        user, effective_roles=roles
+    )
+    return profile

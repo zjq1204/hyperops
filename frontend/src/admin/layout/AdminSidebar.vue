@@ -169,7 +169,7 @@ import { useWindowSize } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/store/user'
-import { hasFeature } from '@/utils/platformAccess'
+import { hasFeature, hasOperationPermission } from '@/utils/platformAccess'
 
 defineProps({
   showMobileMenu: {
@@ -420,6 +420,15 @@ const allNavSections = computed(() => [
         iconPaths: ['M4 6h16M4 12h16M4 18h16']
       },
       {
+        path: '/management/monitoring/credentials',
+        label: t('adminNav.monitoringCredentials'),
+        requiredOperationPermission: 'monitoring_credentials_view',
+        iconPaths: [
+          'M15 7a4 4 0 11-7.75 1.37L3 12.62V16h3v3h3v-3h2.38l1.25-1.25',
+          'M17 7h.01'
+        ]
+      },
+      {
         path: '/management/monitoring/probes',
         label: t('adminNav.monitoringProbeManagement'),
         iconPaths: ['M4 12h4l2-6 4 12 2-6h4']
@@ -447,15 +456,28 @@ const allNavSections = computed(() => [
 ])
 
 const navSections = computed(() =>
-  allNavSections.value.filter((section) => {
-    if (
-      section.requiredModuleFlag &&
-      !userStore.hasModuleFlag(section.requiredModuleFlag)
-    ) {
-      return false
-    }
-    return hasFeature(currentUser.value, section.requiredFeature)
-  })
+  allNavSections.value
+    .filter((section) => {
+      if (
+        section.requiredModuleFlag &&
+        !userStore.hasModuleFlag(section.requiredModuleFlag)
+      ) {
+        return false
+      }
+      return hasFeature(currentUser.value, section.requiredFeature)
+    })
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          !item.requiredOperationPermission ||
+          hasOperationPermission(
+            currentUser.value,
+            item.requiredOperationPermission
+          )
+      )
+    }))
+    .filter((section) => section.items.length)
 )
 
 const openSections = ref({

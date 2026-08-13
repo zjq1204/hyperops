@@ -186,6 +186,15 @@ export function getAccessProfile(user) {
   )
 }
 
+export function getOperationPermissions(user) {
+  const values = getAccessProfile(user).operation_permissions
+  return Array.isArray(values) ? [...new Set(values.filter(Boolean))] : []
+}
+
+export function hasOperationPermission(user, permissionKey) {
+  return getOperationPermissions(user).includes(permissionKey)
+}
+
 export function hasFeature(user, featureKey) {
   const normalizedFeatureKeys = expandFeatureKey(featureKey)
   const visibleFeatures = normalizeFeatureKeys(

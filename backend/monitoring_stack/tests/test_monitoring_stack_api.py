@@ -3,7 +3,11 @@ import json
 import subprocess
 
 import pytest
-from accounts.access import get_access_profile, normalize_feature_keys
+from accounts.access import (
+    MONITORING_CREDENTIAL_PERMISSION_KEYS,
+    get_access_profile,
+    normalize_feature_keys,
+)
 from accounts.models import Role
 from django.contrib.auth import get_user_model
 from django.apps import apps
@@ -16,7 +20,7 @@ from monitoring_stack.models import (
     MonitoringComponentStatus,
     MonitoringIntegrationConfig,
     MonitoringHost,
-    MonitoringSshKey,
+    MonitoringSshCredential,
     ProbeTarget,
     RuleImportRecord,
 )
@@ -31,6 +35,8 @@ from monitoring_stack.services.core import (
     execute_ansible_job,
     snapshot_hosts,
 )
+from monitoring_stack.services.credential_ingestion import create_credential_version
+from monitoring_stack.tests.ssh_key_fixtures import generate_private_key
 from rest_framework.test import APIClient
 
 User = get_user_model()
@@ -53,6 +59,7 @@ def monitoring_admin(db):
     role = Role.objects.create(
         name="Monitoring Admin",
         visible_features=["admin_monitoring"],
+        operation_permissions=list(MONITORING_CREDENTIAL_PERMISSION_KEYS),
         preferred_platform="admin_console",
     )
     user.platform_roles.add(role)
@@ -73,6 +80,9 @@ def test_admin_monitoring_feature_is_available(monitoring_admin):
     profile = get_access_profile(monitoring_admin)
 
     assert profile["visible_features"] == ["admin_monitoring"]
+    assert profile["operation_permissions"] == list(
+        MONITORING_CREDENTIAL_PERMISSION_KEYS
+    )
     assert profile["landing_path"] == "/management/monitoring/overview"
 
 
@@ -2662,7 +2672,7 @@ def test_failed_install_job_creates_retryable_finding(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_host_asset_cleans_ssh_key_and_ansible_preview_uses_all_hosts(client):
+def test_host_asset_hides_legacy_ssh_key_and_preview_uses_all_hosts(client):
     create_response = client.post(
         "/api/v1/monitoring/hosts/",
         {
@@ -2679,7 +2689,10 @@ def test_host_asset_cleans_ssh_key_and_ansible_preview_uses_all_hosts(client):
         format="json",
     )
     assert create_response.status_code == 201
-    assert _payload(create_response)["ssh_key"] == "id_rsa_ops"
+    host_payload = _payload(create_response)
+    assert "ssh_key" not in host_payload
+    assert host_payload["ssh_key_id"] is None
+    assert host_payload["ssh_key_name"] == ""
 
     client.post(
         "/api/v1/monitoring/hosts/",
@@ -2701,7 +2714,9 @@ def test_host_asset_cleans_ssh_key_and_ansible_preview_uses_all_hosts(client):
     data = _payload(preview_response)
     assert "app-01 ansible_host=10.0.0.11" in data["inventory"]
     assert "disabled-01 ansible_host=10.0.0.12" in data["inventory"]
-    assert data["vars"]["hosts"][0]["ssh_key"] == "id_rsa_ops"
+    assert "ansible_ssh_private_key_file" not in data["inventory"]
+    assert data["vars"]["hosts"][0]["ssh_credential_id"] is None
+    assert data["vars"]["hosts"][0]["ssh_key_name"] == ""
     assert (
         "--mysql-address mysql.example.com:3306"
         in data["vars"]["hosts"][0]["install_command"]
@@ -2709,16 +2724,12 @@ def test_host_asset_cleans_ssh_key_and_ansible_preview_uses_all_hosts(client):
 
 
 @pytest.mark.django_db
-def test_ssh_key_upload_is_saved_as_reusable_credential(client):
+def test_credential_upload_is_saved_as_encrypted_version(client, tmp_path):
     response = client.post(
-        "/api/v1/monitoring/ssh-keys/",
+        "/api/v1/monitoring/credentials/",
         {
             "name": "beijing-idc-key",
-            "private_key": (
-                "-----BEGIN OPENSSH PRIVATE KEY-----\n"
-                "test-key-material\n"
-                "-----END OPENSSH PRIVATE KEY-----\n"
-            ),
+            "private_key": generate_private_key(tmp_path),
         },
         format="json",
     )
@@ -2726,28 +2737,55 @@ def test_ssh_key_upload_is_saved_as_reusable_credential(client):
     assert response.status_code == 201
     data = _payload(response)
     assert data["name"] == "beijing-idc-key"
-    assert data["file_name"].endswith(".pem")
+    assert data["status"] == MonitoringSshCredential.STATUS_ACTIVE
+    assert data["active_version"] is None
+    assert data["versions"][0]["algorithm"] == "ssh-ed25519"
+    assert data["versions"][0]["public_key_fingerprint"].startswith("SHA256:")
+    assert "file_name" not in data
     assert "private_key" not in data
 
-    key = MonitoringSshKey.objects.get(id=data["id"])
+    key = MonitoringSshCredential.objects.get(id=data["id"])
     assert key.name == "beijing-idc-key"
-    assert (key.storage_path).exists()
-    assert key.storage_path.read_text(encoding="utf-8").startswith(
-        "-----BEGIN OPENSSH PRIVATE KEY-----"
+    assert key.storage_path is None
+    assert key.versions.count() == 1
+
+
+@pytest.mark.django_db
+def test_ssh_key_compatibility_route_is_read_only(client, tmp_path):
+    response = client.post(
+        "/api/v1/monitoring/ssh-keys/",
+        {"name": "legacy-write", "private_key": generate_private_key(tmp_path)},
+        format="json",
+    )
+
+    assert response.status_code == 405
+    assert response["Deprecation"] == "true"
+    assert response["Link"] == (
+        '</api/v1/monitoring/credentials/>; rel="successor-version"'
     )
 
 
 @pytest.mark.django_db
-def test_host_supports_password_or_saved_ssh_key_inventory(client):
+def test_host_supports_password_or_saved_ssh_key_inventory(client, tmp_path):
     key_response = client.post(
-        "/api/v1/monitoring/ssh-keys/",
+        "/api/v1/monitoring/credentials/",
         {
             "name": "ops-key",
-            "private_key": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n",
+            "private_key": generate_private_key(tmp_path),
         },
         format="json",
     )
     ssh_key_id = _payload(key_response)["id"]
+    credential = MonitoringSshCredential.objects.get(id=ssh_key_id)
+    version = credential.versions.get()
+    version.validation_status = version.VALIDATION_VALID
+    version.save(update_fields=["validation_status"])
+    activate_response = client.post(
+        f"/api/v1/monitoring/credentials/{credential.id}/activate/",
+        {"version_id": version.id},
+        format="json",
+    )
+    assert activate_response.status_code == 200
 
     key_host_response = client.post(
         "/api/v1/monitoring/hosts/",
@@ -2791,11 +2829,18 @@ def test_host_supports_password_or_saved_ssh_key_inventory(client):
     )
 
     assert preview_response.status_code == 200
-    inventory = _payload(preview_response)["inventory"]
+    preview = _payload(preview_response)
+    inventory = preview["inventory"]
     assert "key-host ansible_host=10.0.0.21" in inventory
-    assert "ansible_ssh_private_key_file=" in inventory
+    assert "ansible_ssh_private_key_file=" not in inventory
     assert "password-host ansible_host=10.0.0.22" in inventory
     assert "ansible_password=secret123" in inventory
+    preview_hosts = {item["hostname"]: item for item in preview["vars"]["hosts"]}
+    assert preview_hosts["key-host"]["ssh_credential_id"] == credential.id
+    assert preview_hosts["key-host"]["ssh_credential_version_id"] == version.id
+    assert preview_hosts["key-host"]["ssh_public_key_fingerprint"].startswith(
+        "SHA256:"
+    )
 
 
 @pytest.mark.django_db
@@ -2892,11 +2937,22 @@ def test_host_connection_test_can_reuse_saved_password(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_host_connection_test_resolves_saved_ssh_key(client, monkeypatch):
-    credential = MonitoringSshKey.objects.create(
+def test_host_connection_test_resolves_saved_ssh_key(
+    client, monkeypatch, tmp_path
+):
+    credential = MonitoringSshCredential.objects.create(
         name="connection-test-key",
-        file_name="connection-test-key.pem",
+        legacy_file_name="connection-test-key.pem",
     )
+    version = create_credential_version(
+        credential=credential,
+        private_key=generate_private_key(tmp_path),
+        actor=None,
+    )
+    version.validation_status = version.VALIDATION_VALID
+    version.save(update_fields=["validation_status"])
+    credential.active_version = version
+    credential.save(update_fields=["active_version", "updated_at"])
     calls = []
 
     def fake_connection_test(**kwargs):
@@ -2926,7 +2982,10 @@ def test_host_connection_test_resolves_saved_ssh_key(client, monkeypatch):
 
     assert response.status_code == 200
     assert calls[0]["password"] is None
-    assert calls[0]["key_path"] == credential.storage_path
+    assert calls[0]["key_path"].name == f"{version.id}.key"
+    assert calls[0]["process_env"] == {}
+    assert calls[0]["key_prevalidated"] is True
+    assert not calls[0]["key_path"].exists()
 
 
 def test_host_connection_test_classifies_refused_port_as_unreachable(monkeypatch):

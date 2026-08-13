@@ -82,11 +82,47 @@ export const monitoringStackApi = {
       .post('/v1/monitoring/hosts/test-connection/', body)
       .then(extractData)
   },
-  getSshKeys() {
-    return apiClient.get('/v1/monitoring/ssh-keys/').then(extractData)
+  getCredentials(params = {}) {
+    return apiClient
+      .get('/v1/monitoring/credentials/', { params })
+      .then(extractData)
   },
-  createSshKey(body) {
-    return apiClient.post('/v1/monitoring/ssh-keys/', body).then(extractData)
+  getCredential(id) {
+    return apiClient
+      .get(`/v1/monitoring/credentials/${id}/`)
+      .then(extractData)
+  },
+  createCredential(body) {
+    return apiClient
+      .post('/v1/monitoring/credentials/', body)
+      .then(extractData)
+  },
+  rotateCredential(id, body) {
+    return apiClient
+      .post(`/v1/monitoring/credentials/${id}/rotate/`, body)
+      .then(extractData)
+  },
+  validateCredential(id, body) {
+    return apiClient
+      .post(`/v1/monitoring/credentials/${id}/validate/`, body)
+      .then(extractData)
+  },
+  activateCredential(id, versionId) {
+    return apiClient
+      .post(`/v1/monitoring/credentials/${id}/activate/`, {
+        version_id: versionId
+      })
+      .then(extractData)
+  },
+  archiveCredential(id) {
+    return apiClient
+      .post(`/v1/monitoring/credentials/${id}/archive/`)
+      .then(extractData)
+  },
+  deleteCredential(id) {
+    return apiClient
+      .delete(`/v1/monitoring/credentials/${id}/`)
+      .then(extractData)
   },
   getAssetsReconciliation() {
     return apiClient

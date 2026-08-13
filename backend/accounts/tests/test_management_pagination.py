@@ -175,6 +175,29 @@ class TestManagementGroupsPagination:
 
 @pytest.mark.django_db
 class TestManagementRolesPagination:
+    def test_role_api_normalizes_operation_permissions(self):
+        admin = User.objects.create_superuser(
+            username="operation_admin", password="x"
+        )
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        response = client.post(
+            "/api/v1/management/roles/",
+            {
+                "name": "Credential operator",
+                "visible_features": ["admin_monitoring"],
+                "operation_permissions": [
+                    "monitoring_credentials_view",
+                    "unknown",
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == 201
+        assert response.json()["operation_permissions"] == [
+            "monitoring_credentials_view"
+        ]
+
     def test_roles_list_returns_options_and_role_payloads(self):
         admin = User.objects.create_user(
             username="admin_for_roles",

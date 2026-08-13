@@ -23,8 +23,10 @@ from accounts.access import (
     get_access_profile,
     get_effective_roles,
     normalize_feature_keys,
+    normalize_operation_permission_keys,
     normalize_platform_key,
     serialize_feature_options,
+    serialize_operation_permission_options,
     serialize_platform_options,
 )
 from accounts.models import GroupNotificationConfig, Profile, Role
@@ -36,12 +38,14 @@ ROLE_SUMMARY_SERIALIZER = partial(
     build_role_summary,
     normalize_features=normalize_feature_keys,
     normalize_platform=normalize_platform_key,
+    normalize_operations=normalize_operation_permission_keys,
 )
 
 ROLE_PAYLOAD_SERIALIZER = partial(
     build_role_payload,
     normalize_features=normalize_feature_keys,
     normalize_platform=normalize_platform_key,
+    normalize_operations=normalize_operation_permission_keys,
 )
 
 
@@ -514,6 +518,7 @@ class ManagementRoleListView(APIView):
             page,
             page_size,
             feature_options=serialize_feature_options(),
+            operation_permission_options=serialize_operation_permission_options(),
             platform_options=serialize_platform_options(),
         )
         return Response(payload)
@@ -525,6 +530,9 @@ class ManagementRoleListView(APIView):
         )
         preferred_platform = normalize_platform_key(
             request.data.get('preferred_platform')
+        )
+        operation_permissions = normalize_operation_permission_keys(
+            request.data.get('operation_permissions')
         )
         is_active = bool(request.data.get('is_active', True))
 
@@ -545,6 +553,7 @@ class ManagementRoleListView(APIView):
         role = Role.objects.create(
             name=name,
             visible_features=visible_features,
+            operation_permissions=operation_permissions,
             preferred_platform=preferred_platform,
             is_active=is_active,
         )
@@ -567,6 +576,7 @@ class ManagementRoleDetailView(APIView):
         visible_features = request.data.get('visible_features')
         preferred_platform = request.data.get('preferred_platform')
         is_active = request.data.get('is_active')
+        operation_permissions = request.data.get('operation_permissions')
 
         update_fields = []
 
@@ -595,6 +605,12 @@ class ManagementRoleDetailView(APIView):
         if preferred_platform is not None:
             role.preferred_platform = normalize_platform_key(preferred_platform)
             update_fields.append('preferred_platform')
+
+        if operation_permissions is not None:
+            role.operation_permissions = normalize_operation_permission_keys(
+                operation_permissions
+            )
+            update_fields.append('operation_permissions')
 
         if is_active is not None:
             role.is_active = bool(is_active)

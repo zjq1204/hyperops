@@ -21,12 +21,16 @@ def build_role_summary(
     *,
     normalize_features,
     normalize_platform,
+    normalize_operations=lambda values: list(values or []),
 ):
     """Serialize a compact role payload using injected normalizers."""
     return {
         "id": role.pk,
         "name": role.name,
         "visible_features": normalize_features(role.visible_features),
+        "operation_permissions": normalize_operations(
+            getattr(role, "operation_permissions", [])
+        ),
         "preferred_platform": normalize_platform(role.preferred_platform),
         "is_active": role.is_active,
     }
@@ -37,6 +41,7 @@ def build_role_payload(
     *,
     normalize_features,
     normalize_platform,
+    normalize_operations=lambda values: list(values or []),
     user_count=None,
     group_count=None,
 ):
@@ -45,6 +50,7 @@ def build_role_payload(
         role,
         normalize_features=normalize_features,
         normalize_platform=normalize_platform,
+        normalize_operations=normalize_operations,
     )
     payload.update(
         {

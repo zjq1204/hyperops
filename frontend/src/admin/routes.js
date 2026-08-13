@@ -233,6 +233,17 @@ export const adminRoutes = [
     }
   },
   {
+    path: '/management/monitoring/credentials',
+    name: 'AdminMonitoringCredentials',
+    component: () => import('@/admin/pages/Monitoring/Credentials.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring',
+      requiredOperationPermission: 'monitoring_credentials_view'
+    }
+  },
+  {
     path: '/management/monitoring/rules',
     name: 'AdminMonitoringRules',
     component: () => import('@/admin/pages/Monitoring/Rules.vue'),
