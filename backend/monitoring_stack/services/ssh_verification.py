@@ -31,7 +31,19 @@ def connection_fingerprint(
     ssh_credential_version_id=None,
     ssh_public_key_fingerprint="",
 ):
-    if ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
+    if (
+        ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD
+        and (ssh_credential_id or ssh_key_id)
+    ):
+        secret_identity = ":".join(
+            str(value or "")
+            for value in (
+                ssh_credential_id or ssh_key_id,
+                ssh_credential_version_id,
+                "managed-password",
+            )
+        )
+    elif ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
         secret_identity = salted_hmac(
             RECEIPT_SALT,
             str(password or ""),
@@ -65,7 +77,11 @@ def connection_fingerprint_for_host(host):
         ssh_user=host.ssh_user,
         ssh_port=host.ssh_port,
         ssh_auth_type=host.ssh_auth_type,
-        password=host.ssh_password,
+        password=(
+            ""
+            if credential and credential.credential_type == credential.TYPE_PASSWORD
+            else host.ssh_password
+        ),
         ssh_key_id=host.ssh_key_credential_id,
         ssh_key_name=host.ssh_key,
         ssh_credential_id=getattr(credential, "id", None),

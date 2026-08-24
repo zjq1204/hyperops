@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import ModelBackend
 from django.db import IntegrityError
@@ -18,6 +20,7 @@ from accounts.services.ldap_sync import (
 )
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _set_auth_error(request, *, code, detail):
@@ -117,6 +120,13 @@ class DirectoryAwareBackend(ModelBackend):
         try:
             ldap_record = authenticate_ldap_user(ldap_config, username, password)
         except LdapServiceError as exc:
+            logger.warning(
+                "LDAP 认证服务不可用 | operation=authenticate "
+                "ldap_instance_id=%s error_code=%s error_type=%s",
+                ldap_config.id,
+                exc.code,
+                type(exc).__name__,
+            )
             _set_auth_error(request, code=exc.code, detail=exc.detail)
             return None
         if ldap_record is None:

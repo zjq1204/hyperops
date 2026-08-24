@@ -102,7 +102,8 @@ class SendPasswordResetEmailView(APIView):
 
             if success:
                 logger.info(
-                    f"Sent password reset email to {email}"
+                    "密码重置邮件已提交 | operation=send_password_reset_email user_id=%s",
+                    user.id,
                 )
                 return Response(
                     {
@@ -115,13 +116,9 @@ class SendPasswordResetEmailView(APIView):
                 )
             else:
                 logger.error(
-                    f"Password reset email send failed - "
-                    f"Email: {email}",
-                    extra={
-                        'email': email,
-                        'endpoint': 'password_reset_send',
-                        'error_type': 'email_send_failed',
-                    }
+                    "密码重置邮件提交失败 | operation=send_password_reset_email "
+                    "user_id=%s error_code=EMAIL_SEND_FAILED",
+                    user.id,
                 )
                 return Response(
                     {
@@ -137,15 +134,6 @@ class SendPasswordResetEmailView(APIView):
                 )
 
         except User.DoesNotExist:
-            logger.warning(
-                f"Password reset email failed: User not found - "
-                f"Email: {email}",
-                extra={
-                    'email': email,
-                    'endpoint': 'password_reset_send',
-                    'error_type': 'user_not_found',
-                }
-            )
             return Response(
                 {
                     'success': False,
@@ -157,21 +145,11 @@ class SendPasswordResetEmailView(APIView):
         except Exception as e:
             error_type = type(e).__name__
             error_message = str(e)
-            client_ip = request.META.get('REMOTE_ADDR', 'unknown')
-            logger.error(
-                f"Error in password reset email flow - "
-                f"IP: {client_ip}, "
-                f"Email: {email}, "
-                f"Error: {error_type}: {error_message}",
-                exc_info=True,
-                extra={
-                    'client_ip': client_ip,
-                    'email': email,
-                    'exception_type': error_type,
-                    'exception_message': error_message,
-                    'endpoint': 'password_reset_send',
-                    'error_type': 'password_reset_error',
-                }
+            logger.exception(
+                "密码重置邮件流程失败 | operation=send_password_reset_email "
+                "user_id=%s error_type=%s",
+                getattr(user, "id", None),
+                error_type,
             )
 
             if 'email' in error_message.lower() or 'SMTP' in error_message:
@@ -245,19 +223,6 @@ class ConfirmPasswordResetView(APIView):
         ) as e:
             error_type = type(e).__name__
             error_message = str(e)
-            client_ip = request.META.get('REMOTE_ADDR', 'unknown')
-            logger.warning(
-                f"Password reset confirmation failed: Invalid reset link - "
-                f"IP: {client_ip}, "
-                f"Error: {error_type}: {error_message}",
-                extra={
-                    'client_ip': client_ip,
-                    'exception_type': error_type,
-                    'exception_message': error_message,
-                    'endpoint': 'password_reset_confirm',
-                    'error_type': 'invalid_reset_link',
-                }
-            )
             return Response(
                 {
                     'success': False,
@@ -284,7 +249,8 @@ class ConfirmPasswordResetView(APIView):
             user.save()
 
             logger.info(
-                f"Password reset successful for user: {user.email}"
+                "密码已重置 | operation=reset_password user_id=%s",
+                user.id,
             )
 
             return Response(
@@ -300,22 +266,10 @@ class ConfirmPasswordResetView(APIView):
         except Exception as e:
             error_type = type(e).__name__
             error_message = str(e)
-            client_ip = request.META.get('REMOTE_ADDR', 'unknown')
-            logger.error(
-                f"Error resetting password - "
-                f"IP: {client_ip}, "
-                f"Email: {user.email}, "
-                f"Error: {error_type}: {error_message}",
-                exc_info=True,
-                extra={
-                    'client_ip': client_ip,
-                    'email': user.email,
-                    'user_id': user.id,
-                    'exception_type': error_type,
-                    'exception_message': error_message,
-                    'endpoint': 'password_reset_confirm',
-                    'error_type': 'password_reset_failed',
-                }
+            logger.exception(
+                "密码重置失败 | operation=reset_password user_id=%s error_type=%s",
+                user.id,
+                error_type,
             )
 
             if isinstance(e, ValueError):

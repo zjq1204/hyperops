@@ -2,7 +2,6 @@
 Registration service for handling user registration operations.
 """
 
-import logging
 import secrets
 from datetime import timedelta
 
@@ -21,7 +20,6 @@ from accounts.models import Profile
 # from threadline.models import EmailAlias, Settings
 # from threadline.utils.prompt_config_manager import PromptConfigManager
 
-logger = logging.getLogger(__name__)
 
 class RegistrationService:
     """
@@ -144,7 +142,6 @@ class RegistrationService:
                 email=email,
                 password=password
             )
-            logger.info(f"Created user: {username}")
 
             profile, profile_created = Profile.objects.get_or_create(
                 user=user,
@@ -160,12 +157,6 @@ class RegistrationService:
                 profile.language = language
                 profile.timezone = timezone_str
                 profile.save()
-                logger.info(
-                    f"Updated profile for user: {username} "
-                    f"(profile was created by signal)"
-                )
-            else:
-                logger.info(f"Created profile for user: {username}")
 
             # Note: EmailAlias creation is from threadline
             # If you have EmailAlias, uncomment and adapt:
@@ -240,29 +231,7 @@ class RegistrationService:
 
             return user
 
-        except Exception as e:
-            error_type = type(e).__name__
-            error_message = str(e)
-            logger.error(
-                f"Failed to create user with config - "
-                f"Email: {email}, "
-                f"Username: {username}, "
-                f"Scene: {scene}, "
-                f"Language: {language}, "
-                f"Error: {error_type}: {error_message}",
-                exc_info=True,
-                extra={
-                    'email': email,
-                    'username': username,
-                    'scene': scene,
-                    'language': language,
-                    'timezone': timezone_str,
-                    'exception_type': error_type,
-                    'exception_message': error_message,
-                    'service': 'RegistrationService',
-                    'method': 'create_user_with_config',
-                }
-            )
+        except Exception:
             raise
 
     @staticmethod
@@ -312,7 +281,6 @@ class RegistrationService:
             )
             user.set_unusable_password()
             user.save()
-            logger.info(f"Created new user: {username} for email: {email}")
 
         profile, profile_created = Profile.objects.get_or_create(
             user=user,
@@ -333,17 +301,6 @@ class RegistrationService:
         if profile.registration_completed:
             raise ValueError(
                 'User already exists and registration is completed'
-            )
-
-        if profile_created:
-            logger.info(
-                f"Created profile for user: {user.username} "
-                f"(email: {email})"
-            )
-        else:
-            logger.info(
-                f"Updated registration token for user: {user.username} "
-                f"(email: {email})"
             )
 
         return token, profile
@@ -371,16 +328,9 @@ class RegistrationService:
                 profile.registration_token_expires and
                 profile.registration_token_expires < timezone.now()
             ):
-                logger.warning(
-                    f"Registration token expired for user: "
-                    f"{profile.user.username}"
-                )
                 return False, None
 
             return True, profile
 
         except Profile.DoesNotExist:
-            logger.warning(
-                f"Registration token not found or already used: {token}"
-            )
             return False, None

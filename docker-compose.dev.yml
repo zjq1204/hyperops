@@ -5,6 +5,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.dev
+    environment:
+      HYPEROPS_LOG_SERVICE: api
+      HYPEROPS_LOG_FILE: /var/log/gunicorn/application.log
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,6 +41,8 @@ services:
     env_file:
       - ./.env.dev
     environment:
+      HYPEROPS_LOG_SERVICE: worker
+      HYPEROPS_LOG_FILE: /var/log/celery/worker.log
       WORKSPACE_ROOT: /opt/backend
     volumes:
       - ./cache.dev:/opt/cache
@@ -58,6 +63,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.dev
+    environment:
+      HYPEROPS_LOG_SERVICE: scheduler
+      HYPEROPS_LOG_FILE: /var/log/celery/beat.log
     volumes:
       - ./data.dev/logs/scheduler:/var/log/celery
       - ./backend:/opt/backend

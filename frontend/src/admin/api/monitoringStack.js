@@ -146,6 +146,11 @@ export const monitoringStackApi = {
       .get('/v1/monitoring/ansible/jobs/', { params })
       .then(extractData)
   },
+  getJobHostSummaries(params = {}) {
+    return apiClient
+      .get('/v1/monitoring/ansible/jobs/host-summaries/', { params })
+      .then(extractData)
+  },
   getJob(id) {
     return apiClient
       .get(`/v1/monitoring/ansible/jobs/${id}/`)
@@ -154,9 +159,9 @@ export const monitoringStackApi = {
   createJob(body) {
     return apiClient.post('/v1/monitoring/ansible/jobs/', body).then(extractData)
   },
-  retryJob(id) {
+  retryJob(id, body = {}) {
     return apiClient
-      .post(`/v1/monitoring/ansible/jobs/${id}/retry/`)
+      .post(`/v1/monitoring/ansible/jobs/${id}/retry/`, body)
       .then(extractData)
   },
   getPrometheusTargetsSummary() {

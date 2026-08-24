@@ -66,6 +66,10 @@
     @apply mt-1 block text-xl font-semibold text-slate-900;
   }
 
+  .admin-scope-stat-hint {
+    @apply mt-0.5 block text-[10px] text-slate-400;
+  }
+
   .admin-scope-step-card {
     @apply rounded-lg border px-4 py-4 text-left text-slate-600 transition-all duration-150;
     border-color: rgba(226, 232, 240, 0.72);
@@ -853,6 +857,68 @@
     border-color: rgba(226, 232, 240, 0.96);
     background: rgba(248, 250, 252, 0.96);
     color: rgb(100 116 139);
+  }
+
+  .admin-webhook-events {
+    @apply flex flex-wrap gap-1.5;
+  }
+
+  .admin-webhook-event-badge {
+    @apply inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em];
+    border-color: rgba(186, 230, 253, 0.7);
+    background: rgba(240, 249, 255, 0.85);
+    color: rgb(3 105 161);
+  }
+
+  .admin-webhook-event-detail {
+    @apply ml-1 not-italic font-normal text-[10px] opacity-70;
+  }
+
+  .admin-webhook-branch-filter {
+    @apply inline-flex items-center rounded border border-amber-200/60 bg-amber-50/70 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 mr-1;
+  }
+
+  .admin-table-group-row {
+    cursor: pointer;
+    background: rgba(248, 250, 252, 0.96);
+    border-top: 1px solid rgba(226, 232, 240, 0.8);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.4);
+  }
+
+  .admin-table-group-row:hover {
+    background: rgba(241, 245, 249, 0.96);
+  }
+
+  .admin-table-group-row td {
+    padding: 0.5rem 1rem !important;
+  }
+
+  .admin-table-group-head {
+    @apply flex items-center gap-3;
+  }
+
+  .admin-table-group-toggle {
+    @apply flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition-transform duration-200;
+  }
+
+  .admin-table-group-toggle.is-collapsed {
+    transform: rotate(-90deg);
+  }
+
+  .admin-table-group-url {
+    @apply flex-1 truncate text-xs font-mono text-slate-500 leading-5 min-w-0;
+  }
+
+  .admin-table-group-events {
+    @apply flex items-center gap-1 flex-shrink-0;
+  }
+
+  .admin-table-group-events .admin-webhook-event-badge {
+    @apply text-[9px] px-1.5 py-0.5;
+  }
+
+  .admin-table-group-count {
+    @apply inline-flex items-center justify-center min-w-[1.25rem] h-5 rounded-full bg-slate-200/70 px-1.5 text-[10px] font-bold text-slate-500;
   }
 
   .admin-status-badge--danger {

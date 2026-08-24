@@ -3,7 +3,7 @@ import json
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from monitoring_stack.models import MonitoringSshCredentialVersion
+from monitoring_stack.models import MonitoringSshCredential, MonitoringSshCredentialVersion
 from monitoring_stack.services.credential_crypto import (
     decrypt_secret,
     encrypt_secret,
@@ -24,7 +24,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         batch_size = max(1, options["batch_size"])
         primary_id = configured_key_ring()[0][0]
-        versions = MonitoringSshCredentialVersion.objects.filter(
+        versions = MonitoringSshCredentialVersion.objects.select_related("credential").filter(
             id__gt=options["resume_after_id"]
         ).order_by("id")[:batch_size]
         summary = {"processed": 0, "reencrypted": 0, "already_primary": 0, "failed": 0, "last_id": options["resume_after_id"], "remaining_old_key_envelopes": 0}
@@ -32,6 +32,21 @@ class Command(BaseCommand):
             summary["processed"] += 1
             summary["last_id"] = version.id
             try:
+                if version.credential.credential_type == MonitoringSshCredential.TYPE_PASSWORD:
+                    secret = decrypt_secret(version.secret_encrypted)
+                    is_primary = envelope_key_id(version.secret_encrypted) == primary_id
+                    if is_primary:
+                        summary["already_primary"] += 1
+                        continue
+                    if not options["dry_run"]:
+                        secret_envelope = encrypt_secret(secret)
+                        if decrypt_secret(secret_envelope) != secret:
+                            raise ValueError("post-encryption password mismatch")
+                        MonitoringSshCredentialVersion.objects.filter(pk=version.pk).update(
+                            secret_encrypted=secret_envelope
+                        )
+                    summary["reencrypted"] += 1
+                    continue
                 private_key = decrypt_secret(version.private_key_encrypted)
                 passphrase = decrypt_secret(version.passphrase_encrypted) if version.has_passphrase else ""
                 parsed = inspect_private_key(private_key, passphrase)
@@ -63,9 +78,13 @@ class Command(BaseCommand):
                 summary["reencrypted"] += 1
             except Exception:
                 summary["failed"] += 1
-        for private_envelope, passphrase_envelope, has_passphrase in MonitoringSshCredentialVersion.objects.values_list("private_key_encrypted", "passphrase_encrypted", "has_passphrase"):
+        for credential_type, private_envelope, secret_envelope, passphrase_envelope, has_passphrase in MonitoringSshCredentialVersion.objects.values_list("credential__credential_type", "private_key_encrypted", "secret_encrypted", "passphrase_encrypted", "has_passphrase"):
             try:
-                if envelope_key_id(private_envelope) != primary_id or (has_passphrase and envelope_key_id(passphrase_envelope) != primary_id):
+                if credential_type == MonitoringSshCredential.TYPE_PASSWORD:
+                    old_envelope = envelope_key_id(secret_envelope) != primary_id
+                else:
+                    old_envelope = envelope_key_id(private_envelope) != primary_id or (has_passphrase and envelope_key_id(passphrase_envelope) != primary_id)
+                if old_envelope:
                     summary["remaining_old_key_envelopes"] += 1
             except Exception:
                 summary["remaining_old_key_envelopes"] += 1

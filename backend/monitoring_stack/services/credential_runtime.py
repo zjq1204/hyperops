@@ -36,6 +36,7 @@ class CredentialRuntimeError(Exception):
 @dataclass
 class MaterializedCredentialBundle:
     key_paths: dict[int, Path]
+    passwords: dict[int, str]
     process_env: dict[str, str]
     snapshots: list[dict]
 
@@ -60,14 +61,18 @@ class DatabaseSshCredentialProvider:
     def materialize(self, versions):
         unique = {version.id: version for version in versions}
         decrypted = {}
+        passwords = {}
         try:
             for version in unique.values():
-                decrypted[version.id] = (
-                    decrypt_secret(version.private_key_encrypted),
-                    decrypt_secret(version.passphrase_encrypted)
-                    if version.has_passphrase
-                    else "",
-                )
+                if version.credential.credential_type == version.credential.TYPE_PASSWORD:
+                    passwords[version.id] = decrypt_secret(version.secret_encrypted)
+                else:
+                    decrypted[version.id] = (
+                        decrypt_secret(version.private_key_encrypted),
+                        decrypt_secret(version.passphrase_encrypted)
+                        if version.has_passphrase
+                        else "",
+                    )
         except (CredentialDecryptionError, CredentialEncryptionUnavailable) as exc:
             raise CredentialRuntimeError("CREDENTIAL_UNAVAILABLE") from exc
 
@@ -82,7 +87,11 @@ class DatabaseSshCredentialProvider:
                 _private_write(path, private_key)
                 key_paths[version_id] = path
 
-            protected = [v for v in unique.values() if v.has_passphrase]
+            protected = [
+                v for v in unique.values()
+                if v.credential.credential_type == v.credential.TYPE_PRIVATE_KEY
+                and v.has_passphrase
+            ]
             if protected:
                 try:
                     agent = subprocess.run(
@@ -137,14 +146,20 @@ class DatabaseSshCredentialProvider:
                         raise CredentialRuntimeError("CREDENTIAL_AGENT_LOAD_FAILED")
 
             snapshots = [
-                {
+                ({
+                    "credential_id": version.credential_id,
+                    "version_id": version.id,
+                    "credential_type": version.credential.credential_type,
+                } if version.credential.credential_type == version.credential.TYPE_PASSWORD else {
                     "credential_id": version.credential_id,
                     "version_id": version.id,
                     "public_key_fingerprint": version.public_key_fingerprint,
-                }
+                })
                 for version in unique.values()
             ]
-            yield MaterializedCredentialBundle(key_paths, agent_env, snapshots)
+            yield MaterializedCredentialBundle(
+                key_paths, passwords, agent_env, snapshots
+            )
         finally:
             if agent_env:
                 try:
@@ -189,7 +204,9 @@ def materialize_legacy_credential(credential):
     except (OSError, PrivateKeyValidationError) as exc:
         raise CredentialRuntimeError("CREDENTIAL_NEEDS_REUPLOAD") from exc
     logger.warning(
-        "using staged legacy monitoring SSH credential id=%s", credential.id
+        "使用兼容模式加载旧版 SSH 凭据 | operation=materialize_legacy_credential "
+        "credential_id=%s",
+        credential.id,
     )
     from monitoring_stack.models import MonitoringCredentialAudit
     MonitoringCredentialAudit.objects.create(
@@ -205,6 +222,7 @@ def materialize_legacy_credential(credential):
         _private_write(key_path, parsed.normalized_private_key)
         yield MaterializedCredentialBundle(
             key_paths={credential.id: key_path},
+            passwords={},
             process_env={},
             snapshots=[{
                 "credential_id": credential.id,

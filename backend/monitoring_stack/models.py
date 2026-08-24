@@ -173,6 +173,13 @@ class BlackboxProbeNode(models.Model):
 class MonitoringSshCredential(models.Model):
     """Stable logical SSH credential with immutable encrypted versions."""
 
+    TYPE_PRIVATE_KEY = "private_key"
+    TYPE_PASSWORD = "password"
+    TYPE_CHOICES = [
+        (TYPE_PRIVATE_KEY, "SSH private key"),
+        (TYPE_PASSWORD, "Password"),
+    ]
+
     STATUS_ACTIVE = "active"
     STATUS_ARCHIVED = "archived"
     STATUS_NEEDS_REUPLOAD = "needs_reupload"
@@ -183,6 +190,9 @@ class MonitoringSshCredential(models.Model):
     ]
 
     name = models.CharField(max_length=120)
+    credential_type = models.CharField(
+        max_length=24, choices=TYPE_CHOICES, default=TYPE_PRIVATE_KEY
+    )
     legacy_file_name = models.CharField(max_length=255, null=True, blank=True)
     status = models.CharField(
         max_length=24, choices=STATUS_CHOICES, default=STATUS_ACTIVE
@@ -261,14 +271,17 @@ class MonitoringSshCredentialVersion(models.Model):
         MonitoringSshCredential, on_delete=models.CASCADE, related_name="versions"
     )
     version = models.PositiveIntegerField()
-    private_key_encrypted = models.TextField()
+    private_key_encrypted = models.TextField(blank=True, default="")
+    secret_encrypted = models.TextField(blank=True, default="")
     passphrase_encrypted = models.TextField(blank=True, default="")
     has_passphrase = models.BooleanField(default=False)
-    algorithm = models.CharField(max_length=64)
+    algorithm = models.CharField(max_length=64, blank=True, default="")
     key_size = models.PositiveIntegerField(null=True, blank=True)
     curve = models.CharField(max_length=64, blank=True, default="")
-    public_key_fingerprint = models.CharField(max_length=160, db_index=True)
-    public_key_text = models.TextField()
+    public_key_fingerprint = models.CharField(
+        max_length=160, blank=True, default="", db_index=True
+    )
+    public_key_text = models.TextField(blank=True, default="")
     validation_status = models.CharField(
         max_length=16,
         choices=VALIDATION_CHOICES,
@@ -529,6 +542,13 @@ class AnsibleInstallJob(models.Model):
         on_delete=models.SET_NULL,
         related_name="retry_jobs",
     )
+    base_job = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="capability_update_jobs",
+    )
     created_by = models.ForeignKey(
         "auth.User",
         null=True,
@@ -583,6 +603,13 @@ class MonitoringComponentStatus(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="component_statuses",
+    )
+    active_job = models.ForeignKey(
+        AnsibleInstallJob,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="active_component_statuses",
     )
     last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)

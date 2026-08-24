@@ -3,6 +3,7 @@
     :show="show"
     :title="mode === 'rotate' ? t('monitoringCredentials.rotateTitle', { name: credential?.name || '' }) : t('monitoringCredentials.createTitle')"
     size="lg"
+    :z-index="90"
     :close-on-backdrop="false"
     @close="handleClose"
   >
@@ -20,30 +21,52 @@
           </label>
           <input id="credential-name" v-model="name" class="admin-modal-control" required autocomplete="off" />
         </div>
-        <div>
+        <div v-if="mode === 'create'">
+          <span class="admin-modal-field-label">{{ t('monitoringCredentials.type') }}</span>
+          <div class="grid grid-cols-2 gap-2 rounded-md bg-slate-100 p-1">
+            <button v-for="type in credentialTypes" :key="type" type="button" class="rounded-md px-3 py-2 text-sm font-semibold transition" :class="credentialType === type ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'" @click="credentialType = type">
+              {{ t(`monitoringCredentials.types.${type}`) }}
+            </button>
+          </div>
+        </div>
+        <div v-if="credentialType === 'private_key'">
           <label for="credential-file" class="admin-modal-field-label">
             {{ t('monitoringCredentials.privateKeyFile') }}
           </label>
           <input id="credential-file" type="file" class="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:font-medium file:text-slate-700 hover:file:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500" required @change="readFile" />
           <p v-if="fileName" class="mt-2 truncate text-xs text-slate-500">{{ fileName }}</p>
         </div>
-        <div>
+        <div v-if="credentialType === 'private_key'">
           <label for="credential-passphrase" class="admin-modal-field-label">
             {{ t('monitoringCredentials.passphraseOptional') }}
           </label>
           <input id="credential-passphrase" v-model="passphrase" type="password" class="admin-modal-control" autocomplete="new-password" />
         </div>
+        <template v-else>
+          <div>
+            <label for="credential-password" class="admin-modal-field-label">{{ t('monitoringCredentials.password') }}</label>
+            <input id="credential-password" v-model="password" type="password" class="admin-modal-control" autocomplete="new-password" />
+          </div>
+          <div>
+            <label for="credential-password-confirm" class="admin-modal-field-label">{{ t('monitoringCredentials.passwordConfirm') }}</label>
+            <input id="credential-password-confirm" v-model="passwordConfirm" type="password" class="admin-modal-control" autocomplete="new-password" />
+          </div>
+        </template>
         <p v-if="error" role="alert" class="text-sm text-rose-600">{{ error }}</p>
       </form>
 
       <section v-else-if="stage === 2 && submittedCredential" class="space-y-4">
         <dl class="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
-          <dt class="text-slate-500">{{ t('monitoringCredentials.algorithm') }}</dt>
-          <dd class="font-medium text-slate-900">{{ credentialAlgorithmLabel(submittedMetadata) || t('common.emptyValue') }}</dd>
-          <dt class="text-slate-500">{{ t('monitoringCredentials.fingerprint') }}</dt>
-          <dd class="break-all font-mono text-xs text-slate-800">{{ credentialFingerprint(submittedMetadata) || t('common.emptyValue') }}</dd>
-          <dt class="text-slate-500">{{ t('monitoringCredentials.passphrase') }}</dt>
-          <dd class="font-medium text-slate-900">{{ credentialHasPassphrase(submittedMetadata) ? t('common.yes') : t('common.no') }}</dd>
+          <dt class="text-slate-500">{{ t('monitoringCredentials.type') }}</dt>
+          <dd class="font-medium text-slate-900">{{ t(`monitoringCredentials.types.${credentialType}`) }}</dd>
+          <template v-if="credentialType === 'private_key'">
+            <dt class="text-slate-500">{{ t('monitoringCredentials.algorithm') }}</dt>
+            <dd class="font-medium text-slate-900">{{ credentialAlgorithmLabel(submittedMetadata) || t('common.emptyValue') }}</dd>
+            <dt class="text-slate-500">{{ t('monitoringCredentials.fingerprint') }}</dt>
+            <dd class="break-all font-mono text-xs text-slate-800">{{ credentialFingerprint(submittedMetadata) || t('common.emptyValue') }}</dd>
+            <dt class="text-slate-500">{{ t('monitoringCredentials.passphrase') }}</dt>
+            <dd class="font-medium text-slate-900">{{ credentialHasPassphrase(submittedMetadata) ? t('common.yes') : t('common.no') }}</dd>
+          </template>
           <dt class="text-slate-500">{{ t('monitoringCredentials.validation') }}</dt>
           <dd class="font-medium text-slate-900">{{ validationLabel(submittedMetadata) }}</dd>
         </dl>
@@ -86,6 +109,7 @@ import {
   credentialFingerprint,
   credentialHasPassphrase,
   credentialValidationKey,
+  credentialTypeKey,
   readField
 } from './credentialState'
 
@@ -102,19 +126,28 @@ const name = ref('')
 const fileName = ref('')
 const fileText = ref('')
 const passphrase = ref('')
+const credentialType = ref('private_key')
+const password = ref('')
+const passwordConfirm = ref('')
 const submittedCredential = ref(null)
 const activationEligible = ref(false)
 const submitting = ref(false)
 const activating = ref(false)
 const error = ref('')
 const validationPanel = ref(null)
+const credentialTypes = ['private_key', 'password']
 
 const steps = computed(() => [
   { value: 1, label: t('monitoringCredentials.upload') },
   { value: 2, label: t('monitoringCredentials.review') },
   { value: 3, label: t('monitoringCredentials.validate') }
 ])
-const canSubmit = computed(() => Boolean(fileText.value && (props.mode === 'rotate' || name.value.trim())))
+const canSubmit = computed(() => Boolean(
+  (props.mode === 'rotate' || name.value.trim()) &&
+  (credentialType.value === 'password'
+    ? password.value && password.value === passwordConfirm.value
+    : fileText.value)
+))
 const submittedMetadata = computed(() => {
   const versions = readField(submittedCredential.value, 'versions', 'versions', [])
   const newestDraft = Array.isArray(versions)
@@ -155,11 +188,13 @@ async function submitKey() {
   submitting.value = true
   error.value = ''
   try {
-    const body = {
-      private_key: fileText.value,
-      passphrase: passphrase.value
+    const body = credentialType.value === 'password'
+      ? { password: password.value, password_confirm: passwordConfirm.value }
+      : { private_key: fileText.value, passphrase: passphrase.value }
+    if (props.mode === 'create') {
+      body.name = name.value.trim()
+      body.credential_type = credentialType.value
     }
-    if (props.mode === 'create') body.name = name.value.trim()
     submittedCredential.value = props.mode === 'rotate'
       ? await monitoringStackApi.rotateCredential(props.credential.id, body)
       : await monitoringStackApi.createCredential(body)
@@ -167,7 +202,7 @@ async function submitKey() {
     stage.value = 2
   } catch (submitError) {
     const fields = submitError?.response?.data || {}
-    error.value = fields.private_key?.[0] || fields.passphrase?.[0] || fields.detail || submitError?.message || t('monitoringCredentials.uploadFailed')
+    error.value = fields.private_key?.[0] || fields.passphrase?.[0] || fields.password?.[0] || fields.password_confirm?.[0] || fields.detail || submitError?.message || t('monitoringCredentials.uploadFailed')
   } finally {
     submitting.value = false
   }
@@ -193,12 +228,17 @@ async function activateVersion() {
 function clearSecrets() {
   fileText.value = ''
   passphrase.value = ''
+  password.value = ''
+  passwordConfirm.value = ''
 }
 
 function reset() {
   clearSecrets()
   stage.value = 1
   name.value = ''
+  credentialType.value = props.mode === 'rotate' && props.credential
+    ? credentialTypeKey(props.credential)
+    : 'private_key'
   fileName.value = ''
   submittedCredential.value = null
   activationEligible.value = false
@@ -219,5 +259,10 @@ function complete() {
   emit('completed', id)
 }
 
-watch(() => props.show, (show) => { if (!show) reset() })
+watch(() => props.show, (show) => {
+  if (!show) reset()
+  else credentialType.value = props.mode === 'rotate' && props.credential
+    ? credentialTypeKey(props.credential)
+    : 'private_key'
+})
 </script>

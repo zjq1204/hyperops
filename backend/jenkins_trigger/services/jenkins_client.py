@@ -2,15 +2,11 @@
 Jenkins API client.
 """
 
-import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import quote
 
 import requests
-
-logger = logging.getLogger(__name__)
-
 
 @dataclass
 class JenkinsParamDefinition:
@@ -242,16 +238,12 @@ class JenkinsClient:
 
             return False, f"Jenkins 返回 HTTP {response.status_code} {response.reason}"
         except requests.exceptions.Timeout:
-            logger.error("Jenkins connection test timed out")
             return False, "连接 Jenkins 超时，请检查地址和网络"
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"Jenkins connection test failed: {e}")
+        except requests.exceptions.ConnectionError:
             return False, "无法连接到 Jenkins，请检查地址和网络"
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Jenkins connection test failed: {e}")
+        except requests.exceptions.RequestException:
             return False, "Jenkins 请求失败，请稍后重试"
-        except Exception as e:
-            logger.error(f"Jenkins connection test failed: {e}")
+        except Exception:
             return False, "Jenkins 连接测试失败，请检查实例配置"
 
     def get_job_params(self, job_name: str) -> list[JenkinsParamDefinition]:
@@ -306,8 +298,7 @@ class JenkinsClient:
                         )
                     )
             return params
-        except Exception as e:
-            logger.error(f"Failed to get job params for {job_name}: {e}")
+        except Exception:
             raise
 
     def get_last_successful_build_params(self, job_name: str) -> dict[str, str]:
@@ -325,12 +316,7 @@ class JenkinsClient:
             )
             response.raise_for_status()
             data = response.json()
-        except Exception as e:
-            logger.error(
-                "Failed to get last successful build params for %s: %s",
-                job_name,
-                e,
-            )
+        except Exception:
             raise
 
         last_successful_build = data.get("lastSuccessfulBuild") or {}
@@ -383,11 +369,6 @@ class JenkinsClient:
             if response.status_code in {200, 201, 202, 302, 303, 307, 308}:
                 location = response.headers.get("Location", "")
                 if not location:
-                    logger.error(
-                        "Trigger response for %s returned HTTP %s without Location header",
-                        job_name,
-                        response.status_code,
-                    )
                     raise Exception(
                         f"Jenkins returned HTTP {response.status_code} but did not provide queue/build location"
                     )
@@ -400,11 +381,9 @@ class JenkinsClient:
                     queue_id=queue_id,
                     build_number=build_number,
                 )
-            logger.error(f"Failed to trigger build: {response.status_code} {response.text}")
             raise Exception(f"Failed to trigger build: {response.status_code}")
 
-        except Exception as e:
-            logger.error(f"Failed to trigger build for {job_name}: {e}")
+        except Exception:
             raise
 
     def get_queue_item(self, queue_url: str) -> JenkinsQueueItem:
@@ -427,8 +406,7 @@ class JenkinsClient:
                 cancelled=bool(data.get("cancelled")),
                 why=data.get("why") or "",
             )
-        except Exception as e:
-            logger.error(f"Failed to get Jenkins queue item {queue_url}: {e}")
+        except Exception:
             raise
 
     def get_queue_item_by_id(self, queue_id: int) -> JenkinsQueueItem:
@@ -452,13 +430,7 @@ class JenkinsClient:
                     build_number = build.get("number")
                     return None if build_number is None else int(build_number)
             return None
-        except Exception as e:
-            logger.error(
-                "Failed to find build number for %s by queue id %s: %s",
-                job_name,
-                queue_id,
-                e,
-            )
+        except Exception:
             raise
 
     def get_build_result(self, job_name: str, build_number: int) -> JenkinsBuildResult:
@@ -481,8 +453,7 @@ class JenkinsClient:
                 timestamp=data.get("timestamp", 0),
                 artifacts=data.get("artifacts", []),
             )
-        except Exception as e:
-            logger.error(f"Failed to get build result for {job_name} #{build_number}: {e}")
+        except Exception:
             raise
 
     def get_pipeline_progress(
@@ -500,14 +471,8 @@ class JenkinsClient:
                 return JenkinsPipelineProgress(pipeline_supported=False)
             response.raise_for_status()
             data = response.json()
-        except Exception as e:
-            logger.warning(
-                "Failed to get Pipeline progress for %s #%s: %s",
-                job_name,
-                build_number,
-                e,
-            )
-            return JenkinsPipelineProgress(pipeline_supported=False)
+        except Exception:
+            raise
 
         stages = data.get("stages") or []
         if not isinstance(stages, list) or not stages:
@@ -566,14 +531,12 @@ class JenkinsClient:
             )
             response.raise_for_status()
             return response.text
-        except Exception as e:
-            logger.error(f"Failed to get console for {job_name} #{build_number}: {e}")
+        except Exception:
             raise
 
     def list_jobs(self) -> list[JenkinsJobNode]:
         """List Jenkins jobs recursively."""
         try:
             return self._fetch_job_children(None)
-        except Exception as e:
-            logger.error(f"Failed to list Jenkins jobs: {e}")
+        except Exception:
             raise

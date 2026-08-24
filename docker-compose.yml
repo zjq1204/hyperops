@@ -12,6 +12,9 @@ services:
         DEV_MODE: "0"
     env_file:
       - ./.env
+    environment:
+      HYPEROPS_LOG_SERVICE: api
+      HYPEROPS_LOG_FILE: /var/log/gunicorn/application.log
     volumes:
       - ./data/django/staticfiles:/opt/backend/core/staticfiles
       - ./data/logs/api:/var/log/gunicorn
@@ -37,6 +40,9 @@ services:
     stop_grace_period: 120s
     env_file:
       - ./.env
+    environment:
+      HYPEROPS_LOG_SERVICE: worker
+      HYPEROPS_LOG_FILE: /var/log/celery/worker.log
     volumes:
       - ./data/logs/worker:/var/log/celery
       - ./data/storage:/opt/storage
@@ -59,6 +65,9 @@ services:
     stop_grace_period: 30s
     env_file:
       - ./.env
+    environment:
+      HYPEROPS_LOG_SERVICE: scheduler
+      HYPEROPS_LOG_FILE: /var/log/celery/beat.log
     volumes:
       - ./data/logs/scheduler:/var/log/celery
     networks:

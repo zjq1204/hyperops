@@ -10,21 +10,20 @@
                 <input v-model.trim="filters.query" class="admin-filter-control w-full" :placeholder="t('monitoringCredentials.searchPlaceholder')" />
               </label>
               <label class="sm:w-40">
+                <span class="sr-only">{{ t('monitoringCredentials.type') }}</span>
+                <select v-model="filters.type" class="admin-filter-control w-full">
+                  <option value="">{{ t('common.all') }}</option>
+                  <option value="private_key">{{ t('monitoringCredentials.types.private_key') }}</option>
+                  <option value="password">{{ t('monitoringCredentials.types.password') }}</option>
+                </select>
+              </label>
+              <label class="sm:w-40">
                 <span class="sr-only">{{ t('monitoringCredentials.lifecycle') }}</span>
                 <select v-model="filters.status" class="admin-filter-control w-full">
                   <option value="">{{ t('common.all') }}</option>
                   <option value="active">{{ t('monitoringCredentials.lifecycleStates.active') }}</option>
                   <option value="archived">{{ t('monitoringCredentials.lifecycleStates.archived') }}</option>
                   <option value="needs_reupload">{{ t('monitoringCredentials.lifecycleStates.needs_reupload') }}</option>
-                </select>
-              </label>
-              <label class="sm:w-40">
-                <span class="sr-only">{{ t('monitoringCredentials.validation') }}</span>
-                <select v-model="filters.validation" class="admin-filter-control w-full">
-                  <option value="">{{ t('common.all') }}</option>
-                  <option value="valid">{{ t('monitoringCredentials.validationStates.valid') }}</option>
-                  <option value="unverified">{{ t('monitoringCredentials.validationStates.unverified') }}</option>
-                  <option value="invalid">{{ t('monitoringCredentials.validationStates.invalid') }}</option>
                 </select>
               </label>
             </div>
@@ -44,30 +43,20 @@
             <table class="min-w-full table-fixed text-left text-sm">
               <thead class="border-y border-slate-200 bg-slate-50 text-xs font-semibold text-slate-500">
                 <tr>
-                  <th class="w-40 px-3 py-2.5">{{ t('common.name') }}</th>
-                  <th class="w-20 px-3 py-2.5">{{ t('monitoringCredentials.activeVersion') }}</th>
-                  <th class="w-36 px-3 py-2.5">{{ t('monitoringCredentials.algorithm') }}</th>
-                  <th class="w-48 px-3 py-2.5">{{ t('monitoringCredentials.fingerprint') }}</th>
-                  <th class="w-24 px-3 py-2.5">{{ t('monitoringCredentials.passphrase') }}</th>
-                  <th class="w-24 px-3 py-2.5">{{ t('monitoringCredentials.lifecycle') }}</th>
-                  <th class="w-24 px-3 py-2.5">{{ t('monitoringCredentials.validation') }}</th>
-                  <th class="w-20 px-3 py-2.5">{{ t('monitoringCredentials.hostUsage') }}</th>
-                  <th class="w-36 px-3 py-2.5">{{ t('monitoringCredentials.validationTime') }}</th>
-                  <th class="w-36 px-3 py-2.5">{{ t('monitoringCredentials.updatedTime') }}</th>
+                  <th class="w-2/5 px-4 py-3">{{ t('common.name') }}</th>
+                  <th class="w-24 px-4 py-3">{{ t('monitoringCredentials.activeVersion') }}</th>
+                  <th class="w-28 px-4 py-3">{{ t('monitoringCredentials.lifecycle') }}</th>
+                  <th class="w-28 px-4 py-3">{{ t('monitoringCredentials.hostUsage') }}</th>
+                  <th class="w-40 px-4 py-3">{{ t('monitoringCredentials.updatedTime') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
                 <tr v-for="item in filteredCredentials" :key="item.id" tabindex="0" class="cursor-pointer hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-sky-500" @click="openDetail(item)" @keydown.enter.prevent="openDetail(item)" @keydown.space.prevent="openDetail(item)">
-                  <td class="truncate px-3 py-3 font-semibold text-slate-900">{{ item.name }}</td>
-                  <td class="px-3 py-3 text-slate-600">{{ versionText(item) }}</td>
-                  <td class="truncate px-3 py-3 text-slate-600">{{ credentialAlgorithmLabel(item) || t('common.emptyValue') }}</td>
-                  <td class="truncate px-3 py-3 font-mono text-xs text-slate-600" :title="credentialFingerprint(item)">{{ shortFingerprint(item) || t('common.emptyValue') }}</td>
-                  <td class="px-3 py-3 text-slate-600">{{ credentialHasPassphrase(item) ? t('common.yes') : t('common.no') }}</td>
-                  <td class="px-3 py-3"><span :class="badgeClass(credentialLifecycleKey(item))">{{ lifecycleLabel(item) }}</span></td>
-                  <td class="px-3 py-3"><span :class="badgeClass(credentialValidationKey(item))">{{ validationLabel(item) }}</span></td>
-                  <td class="px-3 py-3 text-slate-600">{{ credentialHostCount(item) }}</td>
-                  <td class="px-3 py-3 text-xs text-slate-500">{{ formatDate(credentialLastValidatedAt(item)) }}</td>
-                  <td class="px-3 py-3 text-xs text-slate-500">{{ formatDate(credentialUpdatedAt(item)) }}</td>
+                  <td class="truncate px-4 py-3.5 font-semibold text-slate-900">{{ item.name }}</td>
+                  <td class="px-4 py-3.5 text-slate-600">{{ versionText(item) }}</td>
+                  <td class="px-4 py-3.5"><span :class="badgeClass(credentialLifecycleKey(item))">{{ lifecycleLabel(item) }}</span></td>
+                  <td class="px-4 py-3.5 text-slate-600">{{ credentialHostCount(item) }}</td>
+                  <td class="px-4 py-3.5 text-xs text-slate-500">{{ formatDate(credentialUpdatedAt(item)) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -76,8 +65,7 @@
           <div data-testid="credential-mobile-list" class="divide-y divide-slate-200 border-y border-slate-200 md:hidden">
             <button v-for="item in filteredCredentials" :key="item.id" type="button" class="block w-full px-1 py-4 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-sky-500" @click="openDetail(item)">
               <span class="flex items-start justify-between gap-3"><span class="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">{{ item.name }}</span><span :class="badgeClass(credentialLifecycleKey(item))">{{ lifecycleLabel(item) }}</span></span>
-              <span class="mt-2 block break-all font-mono text-xs text-slate-500">{{ shortFingerprint(item, 16) || t('common.emptyValue') }}</span>
-              <span class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500"><span>{{ versionText(item) }} · {{ credentialAlgorithmLabel(item) }}</span><span class="text-right">{{ validationLabel(item) }}</span><span>{{ t('monitoringCredentials.hostUsageCount', { count: credentialHostCount(item) }) }}</span><span class="text-right">{{ formatDate(credentialUpdatedAt(item)) }}</span></span>
+              <span class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500"><span>{{ versionText(item) }}</span><span class="text-right">{{ t('monitoringCredentials.hostUsageCount', { count: credentialHostCount(item) }) }}</span><span class="col-span-2">{{ formatDate(credentialUpdatedAt(item)) }}</span></span>
             </button>
           </div>
         </AdminPageState>
@@ -117,16 +105,11 @@ import CredentialUploadModal from './credentials/CredentialUploadModal.vue'
 import {
   collectionFromPayload,
   credentialActiveVersionNumber,
-  credentialAlgorithmLabel,
-  credentialFingerprint,
-  credentialHasPassphrase,
   credentialHostCount,
-  credentialLastValidatedAt,
   credentialLifecycleKey,
+  credentialTypeKey,
   credentialUpdatedAt,
-  credentialValidationKey,
-  hasCredentialPermission,
-  shortFingerprint
+  hasCredentialPermission
 } from './credentials/credentialState'
 
 const { t } = useI18n()
@@ -142,7 +125,7 @@ const credentials = ref([])
 const hosts = ref([])
 const loading = ref(false)
 const error = ref('')
-const filters = reactive({ query: '', status: '', validation: '' })
+const filters = reactive({ query: '', type: '', status: '' })
 const drawerOpen = ref(false)
 const detailLoading = ref(false)
 const detailError = ref('')
@@ -154,15 +137,14 @@ const canManage = computed(() => hasCredentialPermission(currentUser.value, 'man
 const filteredCredentials = computed(() => {
   const query = filters.query.toLocaleLowerCase()
   return credentials.value.filter((item) => {
-    const haystack = `${item.name || ''} ${credentialAlgorithmLabel(item)} ${credentialFingerprint(item)}`.toLocaleLowerCase()
-    return (!query || haystack.includes(query)) && (!filters.status || credentialLifecycleKey(item) === filters.status) && (!filters.validation || credentialValidationKey(item) === filters.validation)
+    const haystack = `${item.name || ''}`.toLocaleLowerCase()
+    return (!query || haystack.includes(query)) && (!filters.type || credentialTypeKey(item) === filters.type) && (!filters.status || credentialLifecycleKey(item) === filters.status)
   })
 })
 
 function formatDate(value) { return value ? formatDateValue(value) : t('common.emptyValue') }
 function versionText(item) { const value = credentialActiveVersionNumber(item); return value ? `v${value}` : t('common.emptyValue') }
 function lifecycleLabel(item) { return t(`monitoringCredentials.lifecycleStates.${credentialLifecycleKey(item)}`) }
-function validationLabel(item) { return t(`monitoringCredentials.validationStates.${credentialValidationKey(item)}`) }
 function badgeClass(status) { const tones = { active: 'bg-emerald-50 text-emerald-700', valid: 'bg-emerald-50 text-emerald-700', archived: 'bg-slate-100 text-slate-600', invalid: 'bg-rose-50 text-rose-700', unavailable: 'bg-rose-50 text-rose-700', needs_reupload: 'bg-amber-50 text-amber-700', unverified: 'bg-amber-50 text-amber-700', draft: 'bg-sky-50 text-sky-700' }; return `inline-flex rounded-md px-2 py-1 text-xs font-semibold ${tones[status] || 'bg-slate-100 text-slate-600'}` }
 
 async function loadCredentials() {

@@ -10,7 +10,17 @@ from monitoring_stack.services.credential_crypto import decrypt_secret
 def check_monitoring_credential_encryption(app_configs, **kwargs):
     configured = bool(str(getattr(settings, "MONITORING_CREDENTIAL_ENCRYPTION_KEYS", "") or "").strip())
     try:
-        versions = list(MonitoringSshCredentialVersion.objects.only("id", "credential_id", "private_key_encrypted", "passphrase_encrypted", "has_passphrase"))
+        versions = list(
+            MonitoringSshCredentialVersion.objects.select_related("credential").only(
+                "id",
+                "credential_id",
+                "credential__credential_type",
+                "private_key_encrypted",
+                "secret_encrypted",
+                "passphrase_encrypted",
+                "has_passphrase",
+            )
+        )
     except (OperationalError, ProgrammingError):
         return []
     try:
@@ -22,9 +32,12 @@ def check_monitoring_credential_encryption(app_configs, **kwargs):
     affected = []
     for version in versions:
         try:
-            decrypt_secret(version.private_key_encrypted)
-            if version.has_passphrase:
-                decrypt_secret(version.passphrase_encrypted)
+            if version.credential.credential_type == MonitoringSshCredential.TYPE_PASSWORD:
+                decrypt_secret(version.secret_encrypted)
+            else:
+                decrypt_secret(version.private_key_encrypted)
+                if version.has_passphrase:
+                    decrypt_secret(version.passphrase_encrypted)
         except Exception:
             affected.append(version.credential_id)
     if affected:

@@ -6,7 +6,7 @@
         <header class="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
           <div class="min-w-0">
             <h2 class="truncate text-base font-semibold text-slate-950">{{ credential?.name || t('monitoringCredentials.details') }}</h2>
-            <p v-if="credential" class="mt-1 truncate font-mono text-xs text-slate-500">{{ credentialFingerprint(credential) || t('common.emptyValue') }}</p>
+            <p v-if="credential" class="mt-1 truncate text-xs text-slate-500">{{ t(`monitoringCredentials.types.${credentialTypeKey(credential)}`) }}</p>
           </div>
           <button type="button" class="inline-flex h-9 w-9 flex-none items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500" :aria-label="t('common.close')" @click="emit('close')">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -18,8 +18,8 @@
         <div v-else-if="credential" class="grid flex-1 content-start gap-6 px-5 py-5 sm:px-6">
           <section class="border-b border-slate-200 pb-5">
             <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div><dt class="text-xs text-slate-500">{{ t('monitoringCredentials.type') }}</dt><dd class="mt-1 text-sm font-semibold text-slate-900">{{ t(`monitoringCredentials.types.${credentialTypeKey(credential)}`) }}</dd></div>
               <div><dt class="text-xs text-slate-500">{{ t('monitoringCredentials.activeVersion') }}</dt><dd class="mt-1 text-sm font-semibold text-slate-900">{{ activeVersionText }}</dd></div>
-              <div><dt class="text-xs text-slate-500">{{ t('monitoringCredentials.algorithm') }}</dt><dd class="mt-1 text-sm font-semibold text-slate-900">{{ credentialAlgorithmLabel(credential) || t('common.emptyValue') }}</dd></div>
               <div><dt class="text-xs text-slate-500">{{ t('monitoringCredentials.lifecycle') }}</dt><dd class="mt-1 text-sm font-semibold text-slate-900">{{ lifecycleLabel(credential) }}</dd></div>
               <div><dt class="text-xs text-slate-500">{{ t('monitoringCredentials.validation') }}</dt><dd class="mt-1 text-sm font-semibold text-slate-900">{{ validationLabel(credential) }}</dd></div>
             </dl>
@@ -52,7 +52,7 @@
             <div class="mt-3 divide-y divide-slate-100 border-y border-slate-200">
               <div v-for="version in versionHistory" :key="version.id" class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-3 text-sm">
                 <span class="flex items-center gap-2 font-semibold text-slate-900">v{{ version.version }}<span v-if="isActiveVersion(version)" class="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-emerald-700">{{ t('monitoringCredentials.active') }}</span></span>
-                <span class="min-w-0 truncate font-mono text-xs text-slate-500">{{ credentialFingerprint(version) || t('common.emptyValue') }}</span>
+                <span class="min-w-0 truncate text-xs text-slate-500">{{ credentialTypeKey(credential) === 'private_key' ? credentialFingerprint(version) || credentialAlgorithmLabel(version) : t('monitoringCredentials.passwordManaged') }}</span>
                 <span class="text-xs font-semibold" :class="validationClass(credentialValidationKey(version))">{{ validationLabel(version) }}</span>
               </div>
               <p v-if="!versionHistory.length" class="py-3 text-sm text-slate-500">{{ t('common.noData') }}</p>
@@ -96,6 +96,7 @@ import {
   credentialFingerprint,
   credentialHostCount,
   credentialLifecycleKey,
+  credentialTypeKey,
   credentialValidationKey,
   hasCredentialPermission,
   readField

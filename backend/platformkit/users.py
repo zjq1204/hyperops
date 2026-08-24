@@ -96,9 +96,9 @@ def build_auth_info(user, *, social_accounts=None) -> dict[str, object]:
             auth_info["login_identifier"] = user.email
     except Exception as exc:
         logger.error(
-            "Error getting auth info for user %s: %s",
+            "用户认证信息降级 | operation=get_auth_info user_id=%s error_type=%s",
             getattr(user, "id", None),
-            exc,
+            type(exc).__name__,
             exc_info=True,
         )
 

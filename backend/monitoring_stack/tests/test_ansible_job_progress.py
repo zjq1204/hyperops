@@ -67,12 +67,27 @@ def test_inventory_uses_builtin_ssh_connection(monkeypatch):
         lambda selected_host: "/tmp/stale-key.pem",
     )
 
-    inventory = render_inventory([host])
+    inventory = render_inventory([host], passwords={host.id: "secret"})
 
     assert "ansible_connection=ssh" in inventory
     assert "ansible_connection=paramiko" not in inventory
     assert "ansible_password=secret" in inventory
     assert "ansible_ssh_private_key_file" not in inventory
+
+
+@pytest.mark.django_db
+def test_password_inventory_preview_does_not_leak_secret():
+    host = MonitoringHost.objects.create(
+        hostname="password-target",
+        address="10.0.0.30",
+        ssh_auth_type=MonitoringHost.SSH_AUTH_PASSWORD,
+        ssh_password="legacy-secret",
+    )
+
+    inventory = render_inventory([host])
+
+    assert "legacy-secret" not in inventory
+    assert "ansible_password=<configured>" in inventory
 
 
 @pytest.mark.django_db
@@ -319,3 +334,179 @@ def test_job_create_marks_failed_when_celery_dispatch_fails(
     assert job.status == "failed"
     assert job.progress["stage"] == "failed"
     assert job.returncode == 1
+
+
+@pytest.mark.django_db
+def test_host_job_summaries_fan_out_batch_history_and_keep_retry_attempts(
+    api_client,
+):
+    host_a = MonitoringHost.objects.create(
+        hostname="summary-a",
+        address="10.0.0.31",
+        enabled=True,
+    )
+    host_b = MonitoringHost.objects.create(
+        hostname="summary-b",
+        address="10.0.0.32",
+        enabled=True,
+    )
+    payload = {
+        "component": AnsibleInstallJob.COMPONENT_CATEGRAF,
+        "profiles": [],
+        "labels": {},
+        "params": {},
+        "base_url": "http://hyperops.local/installer",
+        "n9e_url": "",
+        "install_dir": "/opt/categraf",
+        "image": "flashcatcloud/categraf:latest",
+        "probe_name": "",
+        "blackbox_port": "9115",
+    }
+    batch = AnsibleInstallJob.objects.create(
+        status=AnsibleInstallJob.STATUS_FAILED,
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        host_ids=[host_a.id, host_b.id],
+        hosts_snapshot=core_service.snapshot_hosts([host_a, host_b], payload),
+        base_url=payload["base_url"],
+        results=[
+            {"hostname": host_a.hostname, "status": "success"},
+            {"hostname": host_b.hostname, "status": "failed"},
+        ],
+        progress=build_progress("failed", reason_code="ssh_auth_failed"),
+    )
+    retry = AnsibleInstallJob.objects.create(
+        status=AnsibleInstallJob.STATUS_FAILED,
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        host_ids=[host_b.id],
+        hosts_snapshot=core_service.snapshot_hosts([host_b], payload),
+        base_url=payload["base_url"],
+        results=[{"hostname": host_b.hostname, "status": "failed"}],
+        progress=build_progress("failed", reason_code="ssh_key_invalid"),
+        retry_of=batch,
+    )
+
+    response = api_client.get(
+        "/api/v1/monitoring/ansible/jobs/host-summaries/"
+    )
+
+    assert response.status_code == 200
+    rows = response.data["results"] if "results" in response.data else response.data
+    by_host = {row["host_id"]: row for row in rows}
+    history_a = by_host[host_a.id]["components"]["categraf"]["history"]
+    history_b = by_host[host_b.id]["components"]["categraf"]["history"]
+    assert [item["job_id"] for item in history_a] == [batch.id]
+    assert [item["host_status"] for item in history_a] == ["success"]
+    assert [item["job_id"] for item in history_b] == [retry.id, batch.id]
+    assert by_host[host_b.id]["components"]["categraf"]["attempt_count"] == 2
+    assert history_b[0]["reason_code"] == "ssh_key_invalid"
+    assert "logs" not in history_b[0]
+
+
+@pytest.mark.django_db
+def test_scoped_retry_creates_job_for_only_requested_failed_host(
+    api_client, monkeypatch
+):
+    host_a = MonitoringHost.objects.create(
+        hostname="retry-a",
+        address="10.0.0.41",
+        enabled=True,
+    )
+    host_b = MonitoringHost.objects.create(
+        hostname="retry-b",
+        address="10.0.0.42",
+        enabled=True,
+    )
+    payload = {
+        "component": AnsibleInstallJob.COMPONENT_CATEGRAF,
+        "profiles": [],
+        "labels": {},
+        "params": {},
+        "base_url": "http://hyperops.local/installer",
+        "n9e_url": "",
+        "install_dir": "/opt/categraf",
+        "image": "flashcatcloud/categraf:latest",
+        "probe_name": "",
+        "blackbox_port": "9115",
+    }
+    job = AnsibleInstallJob.objects.create(
+        status=AnsibleInstallJob.STATUS_FAILED,
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        host_ids=[host_a.id, host_b.id],
+        hosts_snapshot=core_service.snapshot_hosts([host_a, host_b], payload),
+        base_url=payload["base_url"],
+        results=[
+            {"hostname": host_a.hostname, "status": "failed"},
+            {"hostname": host_b.hostname, "status": "failed"},
+        ],
+    )
+    dispatched = []
+    monkeypatch.setattr(
+        "monitoring_stack.tasks.run_ansible_install_job.delay",
+        lambda job_id: dispatched.append(job_id),
+    )
+
+    response = api_client.post(
+        f"/api/v1/monitoring/ansible/jobs/{job.id}/retry/",
+        {"host_id": host_b.id},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    retry = AnsibleInstallJob.objects.get(id=response.data["id"])
+    assert retry.host_ids == [host_b.id]
+    assert [item["id"] for item in retry.hosts_snapshot] == [host_b.id]
+    assert dispatched == [retry.id]
+
+
+@pytest.mark.django_db
+def test_scoped_retry_rejects_successful_or_unrelated_host(api_client):
+    success_host = MonitoringHost.objects.create(
+        hostname="retry-success",
+        address="10.0.0.51",
+        enabled=True,
+    )
+    failed_host = MonitoringHost.objects.create(
+        hostname="retry-failed",
+        address="10.0.0.52",
+        enabled=True,
+    )
+    unrelated_host = MonitoringHost.objects.create(
+        hostname="retry-unrelated",
+        address="10.0.0.53",
+        enabled=True,
+    )
+    payload = {
+        "component": AnsibleInstallJob.COMPONENT_CATEGRAF,
+        "profiles": [],
+        "labels": {},
+        "params": {},
+        "base_url": "http://hyperops.local/installer",
+        "n9e_url": "",
+        "install_dir": "/opt/categraf",
+        "image": "flashcatcloud/categraf:latest",
+        "probe_name": "",
+        "blackbox_port": "9115",
+    }
+    job = AnsibleInstallJob.objects.create(
+        status=AnsibleInstallJob.STATUS_FAILED,
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        host_ids=[success_host.id, failed_host.id],
+        hosts_snapshot=core_service.snapshot_hosts(
+            [success_host, failed_host], payload
+        ),
+        base_url=payload["base_url"],
+        results=[
+            {"hostname": success_host.hostname, "status": "success"},
+            {"hostname": failed_host.hostname, "status": "failed"},
+        ],
+    )
+
+    for host_id in [success_host.id, unrelated_host.id]:
+        response = api_client.post(
+            f"/api/v1/monitoring/ansible/jobs/{job.id}/retry/",
+            {"host_id": host_id},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    assert AnsibleInstallJob.objects.count() == 1

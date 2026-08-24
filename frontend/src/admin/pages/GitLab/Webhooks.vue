@@ -22,9 +22,14 @@
           </p>
         </template>
         <template #actions>
-          <BaseButton size="sm" @click="openBulkWebhookModal">
-            {{ t('adminPages.gitlabWebhooks.bulkOperate') }}
-          </BaseButton>
+          <div class="flex items-center gap-2">
+            <BaseButton size="sm" variant="secondary" @click="toggleAllGroups">
+              {{ allGroupsExpanded ? t('adminPages.gitlabWebhooks.collapseAll') : t('adminPages.gitlabWebhooks.expandAll') }}
+            </BaseButton>
+            <BaseButton size="sm" @click="openBulkWebhookModal">
+              {{ t('adminPages.gitlabWebhooks.bulkOperate') }}
+            </BaseButton>
+          </div>
         </template>
         <label class="admin-scope-card">
           <span class="admin-scope-card-label">{{
@@ -90,6 +95,7 @@
               t('adminPages.gitlabWebhooks.webhooksTotal')
             }}</span>
             <strong class="admin-scope-stat-value">{{ totalCount }}</strong>
+            <span class="admin-scope-stat-hint">{{ groupedWebhooks.length }} {{ t('adminPages.gitlabWebhooks.groupsTotal') }}</span>
           </div>
           <div class="admin-scope-stat">
             <span class="admin-scope-stat-label">{{
@@ -121,64 +127,80 @@
                 class="rounded"
               />
             </th>
-            <th class="admin-table-head">{{ t('common.url') }}</th>
-            <th class="admin-table-head">{{ t('common.project') }}</th>
             <th class="admin-table-head">
-              {{ t('adminPages.gitlabWebhooks.pushColumn') }}
-            </th>
-            <th class="admin-table-head">
-              {{ t('adminPages.gitlabWebhooks.tagColumn') }}
-            </th>
-            <th class="admin-table-head">
-              {{ t('adminPages.gitlabWebhooks.mr') }}
+              {{ t('adminPages.gitlabWebhooks.eventsColumn') }}
             </th>
             <th class="admin-table-head">{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="hook in webhooks" :key="hook.id" class="admin-table-row">
-            <td class="admin-table-cell">
-              <input
-                type="checkbox"
-                v-model="selectedWebhooks"
-                :value="hook.id"
-                class="rounded"
-              />
-            </td>
-            <td
-              class="admin-table-cell max-w-xs truncate text-sm text-slate-500"
+          <template v-for="group in groupedWebhooks" :key="group.url">
+            <tr class="admin-table-group-row" @click="toggleGroup(group.url)">
+              <td class="admin-table-cell" colspan="3">
+                <div class="admin-table-group-head">
+                  <button class="admin-table-group-toggle" :class="{ 'is-collapsed': isGroupCollapsed(group.url) }">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <span class="admin-table-group-url" :title="group.url">{{ group.url }}</span>
+                  <span class="admin-table-group-events" v-if="!isGroupCollapsed(group.url)">
+                    <span
+                      v-for="evt in getGroupEvents(group)"
+                      :key="evt.key"
+                      class="admin-webhook-event-badge"
+                    >{{ evt.label }}<em v-if="evt.count > 1" class="admin-webhook-event-detail">×{{ evt.count }}</em></span>
+                  </span>
+                  <span class="admin-table-group-meta">
+                    <span class="admin-table-group-count">{{ group.hooks.length }}</span>
+                  </span>
+                </div>
+              </td>
+            </tr>
+            <tr
+              v-for="hook in group.hooks"
+              :key="hook.id"
+              v-show="!isGroupCollapsed(group.url)"
+              class="admin-table-row"
             >
-              {{ hook.url }}
-            </td>
-            <td class="admin-table-cell text-sm text-slate-500">
-              {{ hook.project_path }}
-            </td>
-            <td class="admin-table-cell">
-              {{ hook.push_events ? '✓' : t('common.emptyValue') }}
-            </td>
-            <td class="admin-table-cell">
-              {{ hook.tag_push_events ? '✓' : t('common.emptyValue') }}
-            </td>
-            <td class="admin-table-cell">
-              {{ hook.merge_requests_events ? '✓' : t('common.emptyValue') }}
-            </td>
-            <td class="admin-table-cell">
-              <div class="admin-row-actions">
-                <button
-                  @click="editWebhook(hook)"
-                  class="admin-row-action admin-row-action--primary"
-                >
-                  {{ t('common.edit') }}
-                </button>
-                <button
-                  @click="deleteWebhook(hook)"
-                  class="admin-row-action admin-row-action--danger"
-                >
-                  {{ t('common.delete') }}
-                </button>
-              </div>
-            </td>
-          </tr>
+              <td class="admin-table-cell">
+                <input
+                  type="checkbox"
+                  v-model="selectedWebhooks"
+                  :value="hook.id"
+                  class="rounded"
+                />
+              </td>
+              <td class="admin-table-cell">
+                <div class="admin-webhook-events">
+                  <span class="admin-webhook-branch-filter">{{ hook.push_events_branch_filter || t('adminPages.gitlabWebhooks.allBranches') }}</span>
+                  <span
+                    v-for="evt in getActiveEvents(hook)"
+                    :key="evt.key"
+                    class="admin-webhook-event-badge"
+                  >{{ evt.label }}</span>
+                  <span
+                    v-if="!getActiveEvents(hook).length"
+                    class="text-xs text-slate-400"
+                  >-</span>
+                </div>
+              </td>
+              <td class="admin-table-cell">
+                <div class="admin-row-actions">
+                  <button
+                    @click="editWebhook(hook)"
+                    class="admin-row-action admin-row-action--primary"
+                  >
+                    {{ t('common.edit') }}
+                  </button>
+                  <button
+                    @click="deleteWebhook(hook)"
+                    class="admin-row-action admin-row-action--danger"
+                  >
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </AdminTable>
       <PaginationBar
@@ -552,6 +574,114 @@
                     </label>
                     <label class="admin-bulk-event-card">
                       <input
+                        v-model="bulkWebhookForm.issues_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.issuesEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.confidential_issues_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.confidentialIssuesEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.note_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.noteEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.confidential_note_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.confidentialNoteEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.pipeline_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.pipelineEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.job_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.jobEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.wiki_page_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.wikiPageEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.deployment_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.deploymentEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.releases_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.releasesEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.feature_flag_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.featureFlagEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.repository_update_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.repositoryUpdateEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
+                        v-model="bulkWebhookForm.resource_access_token_events"
+                        type="checkbox"
+                      />
+                      <span>{{
+                        t('adminPages.gitlabWebhooks.resourceAccessTokenEvents')
+                      }}</span>
+                    </label>
+                    <label class="admin-bulk-event-card">
+                      <input
                         v-model="bulkWebhookForm.enable_ssl_verification"
                         type="checkbox"
                       />
@@ -559,6 +689,28 @@
                         t('adminPages.gitlabWebhooks.sslVerification')
                       }}</span>
                     </label>
+                  </div>
+                  <div class="space-y-2">
+                    <label class="admin-bulk-input-label">{{
+                      t('adminPages.gitlabWebhooks.pushEventsBranchFilter')
+                    }}</label>
+                    <input
+                      v-model="bulkWebhookForm.push_events_branch_filter"
+                      type="text"
+                      class="admin-modal-control"
+                      :placeholder="t('adminPages.gitlabWebhooks.pushEventsBranchFilterHint')"
+                    />
+                  </div>
+                  <div class="space-y-2">
+                    <label class="admin-bulk-input-label">{{
+                      t('adminPages.gitlabWebhooks.secretToken')
+                    }}</label>
+                    <input
+                      v-model="bulkWebhookForm.token"
+                      type="password"
+                      class="admin-modal-control"
+                      :placeholder="t('adminPages.gitlabWebhooks.secretTokenHint')"
+                    />
                   </div>
                 </section>
               </section>
@@ -731,6 +883,126 @@
             </label>
             <label class="flex items-center">
               <input
+                v-model="webhookForm.issues_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.issuesEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.confidential_issues_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.confidentialIssuesEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.note_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.noteEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.confidential_note_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.confidentialNoteEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.pipeline_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.pipelineEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.job_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.jobEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.wiki_page_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.wikiPageEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.deployment_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.deploymentEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.releases_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.releasesEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.feature_flag_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.featureFlagEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.repository_update_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.repositoryUpdateEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="webhookForm.resource_access_token_events"
+                type="checkbox"
+                class="mr-2"
+              />
+              <span class="text-sm">{{
+                t('adminPages.gitlabWebhooks.resourceAccessTokenEvents')
+              }}</span>
+            </label>
+            <label class="flex items-center">
+              <input
                 v-model="webhookForm.enable_ssl_verification"
                 type="checkbox"
                 class="mr-2"
@@ -739,6 +1011,14 @@
                 t('adminPages.gitlabWebhooks.sslVerification')
               }}</span>
             </label>
+          </div>
+          <div class="space-y-2">
+            <label class="admin-modal-field-label">{{ t('adminPages.gitlabWebhooks.pushEventsBranchFilter') }}</label>
+            <input v-model="webhookForm.push_events_branch_filter" type="text" class="admin-modal-control" :placeholder="t('adminPages.gitlabWebhooks.pushEventsBranchFilterHint')" />
+          </div>
+          <div class="space-y-2">
+            <label class="admin-modal-field-label">{{ t('adminPages.gitlabWebhooks.secretToken') }}</label>
+            <input v-model="webhookForm.token" type="password" class="admin-modal-control" :placeholder="t('adminPages.gitlabWebhooks.secretTokenHint')" />
           </div>
         </div>
         <template #footer>
@@ -795,6 +1075,7 @@ const projects = ref([])
 const webhooks = ref([])
 const selectedWebhooks = ref([])
 const selectAllWebhooks = ref(false)
+const collapsedGroups = ref(new Set())
 const selectedGroup = ref('')
 const webhookProjectFilter = ref('')
 const selectedLabelIds = ref([])
@@ -816,7 +1097,21 @@ const webhookForm = ref({
   push_events: true,
   tag_push_events: false,
   merge_requests_events: false,
-  enable_ssl_verification: true
+  issues_events: false,
+  confidential_issues_events: false,
+  note_events: false,
+  confidential_note_events: false,
+  pipeline_events: false,
+  job_events: false,
+  wiki_page_events: false,
+  deployment_events: false,
+  releases_events: false,
+  feature_flag_events: false,
+  repository_update_events: false,
+  resource_access_token_events: false,
+  enable_ssl_verification: true,
+  push_events_branch_filter: '',
+  token: ''
 })
 
 const bulkWebhookForm = ref({
@@ -826,7 +1121,21 @@ const bulkWebhookForm = ref({
   push_events: true,
   tag_push_events: false,
   merge_requests_events: false,
-  enable_ssl_verification: true
+  issues_events: false,
+  confidential_issues_events: false,
+  note_events: false,
+  confidential_note_events: false,
+  pipeline_events: false,
+  job_events: false,
+  wiki_page_events: false,
+  deployment_events: false,
+  releases_events: false,
+  feature_flag_events: false,
+  repository_update_events: false,
+  resource_access_token_events: false,
+  enable_ssl_verification: true,
+  push_events_branch_filter: '',
+  token: ''
 })
 
 const currentProject = computed(() =>
@@ -873,6 +1182,84 @@ const canGoToBulkWebhookProjectsStep = computed(
 const canGoToBulkWebhookComposeStep = computed(
   () => bulkWebhookForm.value.project_ids.length > 0
 )
+
+const eventLabels = {
+  push_events: { label: 'Push' },
+  tag_push_events: { label: 'Tag' },
+  merge_requests_events: { label: 'MR' },
+  pipeline_events: { label: 'Pipeline' },
+  issues_events: { label: 'Issue' },
+  note_events: { label: 'Note' },
+  confidential_issues_events: { label: 'Conf. Issue' },
+  confidential_note_events: { label: 'Conf. Note' },
+  job_events: { label: 'Job' },
+  wiki_page_events: { label: 'Wiki' },
+  deployment_events: { label: 'Deploy' },
+  releases_events: { label: 'Release' },
+  feature_flag_events: { label: 'FFlag' },
+  repository_update_events: { label: 'Repo' },
+  resource_access_token_events: { label: 'Token' }
+}
+
+function getActiveEvents(hook) {
+  return Object.keys(eventLabels)
+    .filter((key) => hook[key])
+    .map((key) => ({ key, label: eventLabels[key].label }))
+}
+
+const groupedWebhooks = computed(() => {
+  const groups = {}
+  for (const hook of webhooks.value) {
+    if (!groups[hook.url]) {
+      groups[hook.url] = { url: hook.url, hooks: [] }
+    }
+    groups[hook.url].hooks.push(hook)
+  }
+  return Object.values(groups)
+})
+
+function isGroupCollapsed(url) {
+  return collapsedGroups.value.has(url)
+}
+
+function toggleGroup(url) {
+  const next = new Set(collapsedGroups.value)
+  if (next.has(url)) {
+    next.delete(url)
+  } else {
+    next.add(url)
+  }
+  collapsedGroups.value = next
+}
+
+function uniqueProjects(hooks) {
+  const projects = [...new Set(hooks.map((h) => h.project_path))]
+  return projects.join(', ')
+}
+
+function getGroupEvents(group) {
+  const eventCounts = {}
+  for (const hook of group.hooks) {
+    for (const evt of getActiveEvents(hook)) {
+      eventCounts[evt.key] = (eventCounts[evt.key] || 0) + 1
+    }
+  }
+  return Object.keys(eventCounts).map((key) => ({
+    key,
+    label: eventLabels[key]?.label || key,
+    count: eventCounts[key]
+  }))
+}
+
+const allGroupsExpanded = computed(() => collapsedGroups.value.size === 0)
+
+function toggleAllGroups() {
+  if (allGroupsExpanded.value) {
+    collapsedGroups.value = new Set(groupedWebhooks.value.map((g) => g.url))
+  } else {
+    collapsedGroups.value = new Set()
+  }
+}
 
 function normalizeCollection(data) {
   return Array.isArray(data) ? data : (data?.results ?? [])
@@ -1038,7 +1425,21 @@ function openBulkWebhookModal() {
     push_events: true,
     tag_push_events: false,
     merge_requests_events: false,
-    enable_ssl_verification: true
+    issues_events: false,
+    confidential_issues_events: false,
+    note_events: false,
+    confidential_note_events: false,
+    pipeline_events: false,
+    job_events: false,
+    wiki_page_events: false,
+    deployment_events: false,
+    releases_events: false,
+    feature_flag_events: false,
+    repository_update_events: false,
+    resource_access_token_events: false,
+    enable_ssl_verification: true,
+    push_events_branch_filter: '',
+    token: ''
   }
   bulkProjectOptions.value = [...projects.value]
   showBulkWebhookModal.value = true
@@ -1173,7 +1574,20 @@ function editWebhook(hook) {
     push_events: hook.push_events,
     tag_push_events: hook.tag_push_events,
     merge_requests_events: hook.merge_requests_events,
-    enable_ssl_verification: hook.enable_ssl_verification
+    issues_events: hook.issues_events,
+    confidential_issues_events: hook.confidential_issues_events,
+    note_events: hook.note_events,
+    confidential_note_events: hook.confidential_note_events,
+    pipeline_events: hook.pipeline_events,
+    job_events: hook.job_events,
+    wiki_page_events: hook.wiki_page_events,
+    deployment_events: hook.deployment_events,
+    releases_events: hook.releases_events,
+    feature_flag_events: hook.feature_flag_events,
+    repository_update_events: hook.repository_update_events,
+    resource_access_token_events: hook.resource_access_token_events,
+    enable_ssl_verification: hook.enable_ssl_verification,
+    push_events_branch_filter: hook.push_events_branch_filter || ''
   }
   showWebhookModal.value = true
 }
@@ -1187,14 +1601,30 @@ function closeWebhookModal() {
     push_events: true,
     tag_push_events: false,
     merge_requests_events: false,
-    enable_ssl_verification: true
+    issues_events: false,
+    confidential_issues_events: false,
+    note_events: false,
+    confidential_note_events: false,
+    pipeline_events: false,
+    job_events: false,
+    wiki_page_events: false,
+    deployment_events: false,
+    releases_events: false,
+    feature_flag_events: false,
+    repository_update_events: false,
+    resource_access_token_events: false,
+    enable_ssl_verification: true,
+    push_events_branch_filter: '',
+    token: ''
   }
 }
 
 async function saveWebhook() {
   try {
     if (editingWebhook.value) {
-      await gitlabApi.updateWebhook(editingWebhook.value.id, webhookForm.value)
+      const payload = { ...webhookForm.value }
+      if (!payload.token) delete payload.token
+      await gitlabApi.updateWebhook(editingWebhook.value.id, payload)
       showToast(t('adminPages.gitlabWebhooks.toast.updated'))
     } else {
       await gitlabApi.createWebhook(webhookForm.value)
@@ -1229,7 +1659,21 @@ async function submitBulkWebhooks() {
     push_events: bulkWebhookForm.value.push_events,
     tag_push_events: bulkWebhookForm.value.tag_push_events,
     merge_requests_events: bulkWebhookForm.value.merge_requests_events,
-    enable_ssl_verification: bulkWebhookForm.value.enable_ssl_verification
+    issues_events: bulkWebhookForm.value.issues_events,
+    confidential_issues_events: bulkWebhookForm.value.confidential_issues_events,
+    note_events: bulkWebhookForm.value.note_events,
+    confidential_note_events: bulkWebhookForm.value.confidential_note_events,
+    pipeline_events: bulkWebhookForm.value.pipeline_events,
+    job_events: bulkWebhookForm.value.job_events,
+    wiki_page_events: bulkWebhookForm.value.wiki_page_events,
+    deployment_events: bulkWebhookForm.value.deployment_events,
+    releases_events: bulkWebhookForm.value.releases_events,
+    feature_flag_events: bulkWebhookForm.value.feature_flag_events,
+    repository_update_events: bulkWebhookForm.value.repository_update_events,
+    resource_access_token_events: bulkWebhookForm.value.resource_access_token_events,
+    enable_ssl_verification: bulkWebhookForm.value.enable_ssl_verification,
+    push_events_branch_filter: bulkWebhookForm.value.push_events_branch_filter,
+    token: bulkWebhookForm.value.token || undefined
   }
 
   const results = await Promise.allSettled(

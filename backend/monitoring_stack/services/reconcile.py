@@ -6,6 +6,7 @@ from monitoring_stack.models import (
     MonitoringComponentStatus,
     MonitoringGovernanceFinding,
     MonitoringHost,
+    MonitoringSnapshotRun,
     N9eTargetSnapshot,
     N9eRuleSnapshot,
     ProbeTarget,
@@ -16,6 +17,10 @@ from monitoring_stack.services.core import (
     blackbox_health_for_host,
     host_visible_in_n9e,
     rules_dir,
+)
+from monitoring_stack.services.job_history import (
+    FAILED_STATUSES,
+    build_host_job_summaries,
 )
 
 MANAGED_CATEGORIES = {
@@ -143,6 +148,23 @@ def _snapshot_matches_host(snapshot, host):
     return False
 
 
+def _current_prometheus_snapshots():
+    latest_run = (
+        MonitoringSnapshotRun.objects.filter(
+            source__in=[
+                MonitoringSnapshotRun.SOURCE_ALL,
+                MonitoringSnapshotRun.SOURCE_PROMETHEUS,
+            ],
+            status=MonitoringSnapshotRun.STATUS_SUCCESS,
+        )
+        .order_by("-started_at", "-id")
+        .first()
+    )
+    if not latest_run:
+        return PrometheusTargetSnapshot.objects.none()
+    return PrometheusTargetSnapshot.objects.filter(last_seen_run=latest_run)
+
+
 def _flatten_raw_strings(value):
     if isinstance(value, dict):
         rows = []
@@ -163,7 +185,7 @@ def reconcile_host_prometheus_scrapes():
     findings = []
     snapshots = [
         item
-        for item in PrometheusTargetSnapshot.objects.all()
+        for item in _current_prometheus_snapshots()
         if not _snapshot_is_blackbox(item)
     ]
     if not snapshots:
@@ -201,51 +223,6 @@ def reconcile_host_prometheus_scrapes():
     return findings
 
 
-def reconcile_components():
-    findings = []
-    hosts = MonitoringHost.objects.filter(enabled=True).prefetch_related(
-        "component_statuses"
-    )
-    cache = {}
-    for host in hosts:
-        subject_key = host.hostname or host.address or str(host.id)
-        if not _component_installed(
-            host,
-            AnsibleInstallJob.COMPONENT_CATEGRAF,
-            cache=cache,
-        ):
-            findings.append(
-                _finding(
-                    "categraf_not_installed",
-                    MonitoringGovernanceFinding.SEVERITY_WARNING,
-                    f"{subject_key} Categraf not installed",
-                    "host",
-                    subject_key,
-                    source="hyperops",
-                    details={"host_id": host.id, "address": host.address},
-                    recommended_action="install_categraf",
-                )
-            )
-        if not _component_installed(
-            host,
-            AnsibleInstallJob.COMPONENT_BLACKBOX,
-            cache=cache,
-        ):
-            findings.append(
-                _finding(
-                    "blackbox_not_installed",
-                    MonitoringGovernanceFinding.SEVERITY_WARNING,
-                    f"{subject_key} blackbox not installed",
-                    "host",
-                    subject_key,
-                    source="hyperops",
-                    details={"host_id": host.id, "address": host.address},
-                    recommended_action="install_blackbox",
-                )
-            )
-    return findings
-
-
 def _configured_probe_keys():
     rows = {}
     for item in ProbeTarget.objects.filter(enabled=True):
@@ -256,7 +233,7 @@ def _configured_probe_keys():
 
 def _discovered_probe_keys():
     rows = {}
-    for item in PrometheusTargetSnapshot.objects.exclude(probe_target=""):
+    for item in _current_prometheus_snapshots().exclude(probe_target=""):
         if not item.probe_type:
             continue
         key = _probe_key(item.probe_type, item.probe_target)
@@ -435,48 +412,36 @@ def reconcile_rules():
     return findings
 
 
-def _failed_host_ids(job):
-    failed_names = {
-        str(item.get("hostname") or "")
-        for item in job.results or []
-        if str(item.get("status") or "").lower() in {"failed", "error", "timeout"}
-    }
-    snapshot = job.hosts_snapshot or []
-    if failed_names:
-        return [
-            item.get("id")
-            for item in snapshot
-            if item.get("hostname") in failed_names and item.get("id")
-        ]
-    return [item.get("id") for item in snapshot if item.get("id")]
-
-
 def reconcile_failed_jobs():
     findings = []
-    failed_jobs = AnsibleInstallJob.objects.filter(
-        status=AnsibleInstallJob.STATUS_FAILED,
-    )
-    for job in failed_jobs:
-        host_ids = _failed_host_ids(job)
-        if not host_ids:
-            continue
-        subject_key = str(job.id)
-        findings.append(
-            _finding(
-                "install_job_failed",
-                MonitoringGovernanceFinding.SEVERITY_WARNING,
-                f"Install job #{job.id} failed",
-                "job",
-                subject_key,
-                source="hyperops",
-                details={
-                    "job_id": job.id,
-                    "component": job.component,
-                    "failed_host_ids": host_ids,
-                },
-                recommended_action="retry_job",
+    summaries = build_host_job_summaries(AnsibleInstallJob.objects.all())
+    for host in summaries:
+        for component, summary in host.get("components", {}).items():
+            latest = summary.get("latest") or {}
+            if str(latest.get("host_status") or "").lower() not in FAILED_STATUSES:
+                continue
+            job_id = latest.get("job_id")
+            host_id = host.get("host_id")
+            if not job_id or not host_id:
+                continue
+            findings.append(
+                _finding(
+                    "install_job_failed",
+                    MonitoringGovernanceFinding.SEVERITY_WARNING,
+                    f"{host.get('hostname')} {component} deployment failed",
+                    "job",
+                    f"{host_id}:{component}",
+                    source="hyperops",
+                    details={
+                        "job_id": job_id,
+                        "host_id": host_id,
+                        "hostname": host.get("hostname"),
+                        "component": component,
+                        "failed_host_ids": [host_id],
+                    },
+                    recommended_action="retry_job",
+                )
             )
-        )
     return findings
 
 
@@ -488,7 +453,6 @@ def rebuild_governance_findings():
     findings = [
         *reconcile_hosts(),
         *reconcile_host_prometheus_scrapes(),
-        *reconcile_components(),
         *reconcile_probes(),
         *reconcile_rules(),
         *reconcile_failed_jobs(),
@@ -500,6 +464,7 @@ def rebuild_governance_findings():
 
 def governance_overview():
     rebuild_governance_findings()
+    prometheus_targets = _current_prometheus_snapshots()
     open_findings = MonitoringGovernanceFinding.objects.filter(
         status=MonitoringGovernanceFinding.STATUS_OPEN
     )
@@ -510,8 +475,8 @@ def governance_overview():
             "rule_templates": len(_rule_template_files()),
         },
         "real_counts": {
-            "prometheus_targets": PrometheusTargetSnapshot.objects.count(),
-            "prometheus_down_targets": PrometheusTargetSnapshot.objects.filter(
+            "prometheus_targets": prometheus_targets.count(),
+            "prometheus_down_targets": prometheus_targets.filter(
                 health="down"
             ).count(),
             "n9e_targets": N9eTargetSnapshot.objects.count(),

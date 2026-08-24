@@ -179,7 +179,10 @@ def api_exception_handler(exc, context):
 
     if response is None:
         request_id = get_request_id(request)
-        logger.exception("Unhandled API error request_id=%s", request_id)
+        logger.exception(
+            "API 未处理异常 | operation=handle_api_error request_id=%s",
+            request_id,
+        )
         return api_error_response(
             request,
             error_code="INTERNAL_ERROR",

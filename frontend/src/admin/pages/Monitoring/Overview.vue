@@ -121,9 +121,9 @@
                   class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-4 py-3"
                 >
                   <div class="min-w-0">
-                    <p class="truncate text-sm font-semibold text-slate-900">{{ item.title }}</p>
+                    <p class="truncate text-sm font-semibold text-slate-900">{{ findingTitle(item) }}</p>
                     <p class="mt-1 truncate text-xs text-slate-500">
-                      {{ findingCategoryLabel(item.category) }} / {{ item.subject_key }}
+                      {{ findingCategoryLabel(item.category) }} / {{ findingSubjectLabel(item) }}
                     </p>
                   </div>
                   <div class="flex items-center gap-2">
@@ -216,10 +216,6 @@ function n9eUnavailableReason(field) {
   return n9eSummary.value?.[`${field}_unavailable_reason`] || t('adminPages.monitoring.n9eVersionNotExposed')
 }
 
-const failedJobs = computed(() =>
-  jobs.value.filter((job) => ['failed', 'error', 'timeout'].includes(String(job.status || '').toLowerCase()))
-)
-
 const hyperOpsStats = computed(() => [
   {
     label: t('adminPages.monitoring.sshHostCount'),
@@ -234,8 +230,8 @@ const hyperOpsStats = computed(() => [
     value: rules.value.length
   },
   {
-    label: t('adminPages.monitoring.failedJobCount'),
-    value: failedJobs.value.length
+    label: t('adminPages.monitoring.deploymentHistory'),
+    value: jobs.value.length
   }
 ])
 
@@ -306,8 +302,8 @@ const pendingItems = computed(() => [
     to: '/management/monitoring/assets'
   },
   {
-    title: t('adminPages.monitoring.pendingFailedJobs', { count: failedJobs.value.length }),
-    action: t('adminPages.monitoring.openJobs'),
+    title: t('adminPages.monitoring.deploymentHistory'),
+    action: t('adminPages.monitoring.viewDeploymentHistory'),
     to: '/management/monitoring/jobs'
   }
 ])
@@ -349,6 +345,7 @@ function findingCategoryLabel(category) {
     host_not_scraped_by_prometheus: t('adminPages.monitoring.categoryHostNotScrapedByPrometheus'),
     categraf_not_installed: t('adminPages.monitoring.categoryCategrafNotInstalled'),
     blackbox_not_installed: t('adminPages.monitoring.categoryBlackboxNotInstalled'),
+    install_job_failed: t('adminPages.monitoring.categoryInstallJobFailed'),
     probe_configured_not_discovered: t('adminPages.monitoring.configuredNotDiscovered'),
     probe_discovered_not_configured: t('adminPages.monitoring.discoveredNotConfigured'),
     probe_abnormal: t('adminPages.monitoring.abnormalProbeTargets')
@@ -356,7 +353,28 @@ function findingCategoryLabel(category) {
   return labels[category] || category || t('common.emptyValue')
 }
 
+function findingTitle(item) {
+  if (item.category !== 'install_job_failed') return item.title
+  return t('adminPages.monitoring.deploymentFailedFinding', {
+    host: item.details?.hostname || t('common.emptyValue'),
+    component: item.details?.component === 'blackbox' ? 'blackbox' : 'Categraf'
+  })
+}
+
+function findingSubjectLabel(item) {
+  if (item.category === 'install_job_failed') {
+    return item.details?.job_id ? `#${item.details.job_id}` : t('common.emptyValue')
+  }
+  return item.subject_key
+}
+
 function findingTargetRoute(item) {
+  if (item.subject_type === 'job') {
+    return {
+      path: '/management/monitoring/jobs',
+      query: { job: item.details?.job_id }
+    }
+  }
   if (item.subject_type === 'host') return '/management/monitoring/assets'
   if (item.subject_type === 'rule') return '/management/monitoring/rules'
   return '/management/monitoring/probes'

@@ -29,6 +29,7 @@ from monitoring_stack.models import (
     MonitoringHost,
     MonitoringIntegrationConfig,
     MonitoringProfile,
+    MonitoringSshCredential,
     N9eTargetSnapshot,
     ProbeTarget,
     PrometheusTargetSnapshot,
@@ -520,8 +521,9 @@ def component_runtime_health(component_status, cache=None):
 
     host = component_status.host
     if component_status.component == AnsibleInstallJob.COMPONENT_BLACKBOX:
+        active_job = component_status.active_job or component_status.last_job
         port = (
-            getattr(component_status.last_job, "blackbox_port", "")
+            getattr(active_job, "blackbox_port", "")
             or monitoring_config().get("installer", {}).get("blackbox_port")
             or "9115"
         )
@@ -1606,15 +1608,15 @@ def blackbox_instances_summary():
         MonitoringComponentStatus.objects.filter(
             component=AnsibleInstallJob.COMPONENT_BLACKBOX
         )
-        .select_related("host", "last_job")
+        .select_related("host", "last_job", "active_job")
         .order_by("host__hostname", "host__id")
     )
     targets_by_endpoint = _blackbox_prometheus_targets_by_endpoint()
     results = []
     for status in statuses:
         host = status.host
-        last_job = status.last_job
-        port = str(getattr(last_job, "blackbox_port", "") or default_port)
+        active_job = status.active_job or status.last_job
+        port = str(getattr(active_job, "blackbox_port", "") or default_port)
         endpoint_keys = {
             (str(host.address or "").strip().lower(), port),
             (str(host.hostname or "").strip().lower(), port),
@@ -1807,6 +1809,15 @@ def build_installer_archives():
         ],
     )
     write_checksum(base_installer_dir / "BLACKBOX_SHA256SUMS", blackbox_archive)
+
+    categraf_installer_source = (
+        Path(__file__).resolve().parent.parent / "installer" / "install.sh"
+    )
+    ensure_template_path(categraf_installer_source, "Categraf 安装脚本")
+    atomic_write(
+        base_installer_dir / "install.sh",
+        categraf_installer_source.read_text(encoding="utf-8"),
+    )
     for script in ["install.sh", "install-blackbox.sh"]:
         path = base_installer_dir / script
         if path.exists():
@@ -1914,8 +1925,9 @@ def install_command_for_host(host, job):
     return f"curl -fsSL {script_url} | sudo bash -s -- {args}"
 
 
-def render_inventory(hosts, key_paths=None):
+def render_inventory(hosts, key_paths=None, passwords=None):
     key_paths = key_paths or {}
+    passwords = passwords or {}
     lines = ["[categraf_targets]"]
     for host in hosts:
         credential = getattr(host, "ssh_key_credential", None)
@@ -1935,12 +1947,24 @@ def render_inventory(hosts, key_paths=None):
             if key_path
             else ""
         )
-        password_arg = (
-            f" ansible_password={shlex.quote(str(host.ssh_password))}"
-            if host.ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD
-            and host.ssh_password
-            else ""
+        runtime_password = passwords.get(host.id)
+        has_configured_password = bool(
+            runtime_password
+            or host.ssh_password
+            or (
+                credential
+                and credential.credential_type
+                == MonitoringSshCredential.TYPE_PASSWORD
+            )
         )
+        if host.ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD and runtime_password:
+            password_arg = (
+                f" ansible_password={shlex.quote(str(runtime_password))}"
+            )
+        elif host.ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD and has_configured_password:
+            password_arg = " ansible_password=<configured>"
+        else:
+            password_arg = ""
         lines.append(
             f"{host.hostname} ansible_host={host.address} "
             f"ansible_user={host.ssh_user or 'root'} "
@@ -1970,7 +1994,14 @@ def job_vars(job, hosts):
                 "ssh_key_name": (
                     host.ssh_key_credential.name if host.ssh_key_credential_id else ""
                 ),
-                "has_ssh_password": bool(host.ssh_password),
+                "has_ssh_password": bool(
+                    host.ssh_password
+                    or (
+                        host.ssh_key_credential_id
+                        and host.ssh_key_credential.credential_type
+                        == MonitoringSshCredential.TYPE_PASSWORD
+                    )
+                ),
                 "labels": clean_labels(host.labels),
                 "params": clean_labels(host.params),
                 "profiles": merged_profiles(host, job.get("profiles") or []),
@@ -2035,15 +2066,36 @@ def snapshot_hosts(hosts, job):
 def update_component_statuses(job, hosts, status, last_error=""):
     component = job.component or AnsibleInstallJob.COMPONENT_CATEGRAF
     for host in hosts:
-        MonitoringComponentStatus.objects.update_or_create(
+        component_status, _ = MonitoringComponentStatus.objects.get_or_create(
             host=host,
             component=component,
-            defaults={
-                "status": status,
-                "install_dir": job.install_dir or "",
-                "last_job": job,
-                "last_error": last_error or "",
-            },
+        )
+        component_status.last_job = job
+        component_status.install_dir = job.install_dir or ""
+        component_status.last_error = last_error or ""
+        if status == MonitoringComponentStatus.STATUS_SUCCESS:
+            component_status.status = MonitoringComponentStatus.STATUS_SUCCESS
+            component_status.active_job = job
+        elif status in {
+            MonitoringComponentStatus.STATUS_INSTALLING,
+            MonitoringComponentStatus.STATUS_FAILED,
+        }:
+            component_status.status = (
+                MonitoringComponentStatus.STATUS_SUCCESS
+                if component_status.active_job_id
+                else status
+            )
+        else:
+            component_status.status = status
+        component_status.save(
+            update_fields=[
+                "status",
+                "install_dir",
+                "last_job",
+                "active_job",
+                "last_error",
+                "updated_at",
+            ]
         )
 
 
@@ -2315,8 +2367,6 @@ def execute_ansible_job(job_id):
     current_host = ""
     versions = []
     for host in hosts:
-        if host.ssh_auth_type != MonitoringHost.SSH_AUTH_KEY:
-            continue
         credential = host.ssh_key_credential
         if not credential:
             continue
@@ -2330,6 +2380,20 @@ def execute_ansible_job(job_id):
                 DatabaseSshCredentialProvider().materialize(versions)
             )
             key_paths = dict(bundle.key_paths)
+            passwords = {
+                host.id: bundle.passwords[host.ssh_key_credential.active_version_id]
+                for host in hosts
+                if host.ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD
+                and host.ssh_key_credential_id
+                and host.ssh_key_credential.active_version_id in bundle.passwords
+            }
+            passwords.update({
+                host.id: host.ssh_password
+                for host in hosts
+                if host.ssh_auth_type == MonitoringHost.SSH_AUTH_PASSWORD
+                and host.ssh_password
+                and host.id not in passwords
+            })
             snapshots = list(bundle.snapshots)
             legacy_credentials = {
                 host.ssh_key_credential_id: host.ssh_key_credential
@@ -2350,7 +2414,7 @@ def execute_ansible_job(job_id):
                 inventory_path = tmp_path / "inventory.ini"
                 playbook_path = tmp_path / "playbook.yml"
                 inventory_path.write_text(
-                    render_inventory(hosts, key_paths), encoding="utf-8"
+                    render_inventory(hosts, key_paths, passwords), encoding="utf-8"
                 )
                 playbook_path.write_text(
                     yaml.safe_dump(

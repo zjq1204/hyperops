@@ -24,6 +24,8 @@ from .accounts import *
 
 from .logging_config import configure_logging
 
+LOGGING_CONFIG = None
+
 # Suppress specific warnings
 warnings.filterwarnings('ignore', category=SyntaxWarning, module='flanker')
 warnings.filterwarnings('ignore', message='.*invalid escape sequence.*')
@@ -72,7 +74,9 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # ============================
 
 LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'info').upper()
-configure_logging(LOG_LEVEL)
+LOG_SERVICE = os.getenv("HYPEROPS_LOG_SERVICE", "api")
+LOG_FILE = os.getenv("HYPEROPS_LOG_FILE", "")
+configure_logging(LOG_LEVEL, service=LOG_SERVICE, log_file=LOG_FILE)
 
 JENKINS_JOB_CATALOG_CACHE_TTL = int(
     os.getenv("JENKINS_JOB_CATALOG_CACHE_TTL", "86400")
@@ -471,31 +475,6 @@ FILE_UPLOAD_MAX_NUMBER_FILES = 100
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# ============================
-# Logging Configuration
-# ============================
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "level": "INFO",
-        },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "WARNING",
-    },
-    "loggers": {
-        "jenkins_trigger": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": False,
-        },
-    },
-}
 
 # ============================
 # URL Configuration

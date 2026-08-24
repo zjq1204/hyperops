@@ -13,11 +13,16 @@ class RequestIdMiddleware:
 
     def __call__(self, request):
         from core.api_errors import get_request_id
+        from core.logging import bind_log_context, reset_log_context
 
         request_id = get_request_id(request)
-        response = self.get_response(request)
-        response["X-Request-ID"] = request_id
-        return response
+        tokens = bind_log_context(request_id=request_id, task_id="-")
+        try:
+            response = self.get_response(request)
+            response["X-Request-ID"] = request_id
+            return response
+        finally:
+            reset_log_context(tokens)
 
 
 class LanguageCodeMappingMiddleware:

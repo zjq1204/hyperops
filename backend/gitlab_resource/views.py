@@ -3,6 +3,7 @@ GitLab Resource views.
 """
 
 import logging
+import time
 
 from django.db import transaction
 from django.db.models import Count
@@ -41,6 +42,52 @@ from .serializers import (
 from .services.gitlab_client import GitLabClient
 
 logger = logging.getLogger(__name__)
+SENSITIVE_AUDIT_KEYS = {"error", "message", "private_token", "token", "url"}
+
+
+def sanitize_audit_data(value):
+    if isinstance(value, dict):
+        return {
+            key: (
+                "[REDACTED]"
+                if key.lower() in SENSITIVE_AUDIT_KEYS
+                else sanitize_audit_data(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitize_audit_data(item) for item in value]
+    return value
+
+
+def log_gitlab_operation(
+    operation,
+    total_count,
+    success_count,
+    failed_count,
+    started_at,
+    *,
+    instance_id=None,
+    project_id=None,
+):
+    if failed_count and not success_count:
+        log_method = logger.error
+    elif failed_count:
+        log_method = logger.warning
+    else:
+        log_method = logger.info
+    log_method(
+        "GitLab 操作完成 | integration=gitlab operation=%s instance_id=%s "
+        "project_id=%s total_count=%s success_count=%s failed_count=%s "
+        "duration_ms=%s",
+        operation,
+        instance_id,
+        project_id,
+        total_count,
+        success_count,
+        failed_count,
+        int((time.monotonic() - started_at) * 1000),
+    )
 
 
 def get_gitlab_client(instance: GitLabInstance) -> GitLabClient:
@@ -80,7 +127,11 @@ def create_operation_record(
     project=None,
 ):
     """Persist a GitLab operation audit row without changing API responses."""
-    actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
+    actor = (
+        request.user
+        if getattr(request, "user", None) and request.user.is_authenticated
+        else None
+    )
     return GitLabOperationRecord.objects.create(
         actor=actor,
         action=action,
@@ -89,12 +140,12 @@ def create_operation_record(
         group=group,
         project=project,
         target_summary=target_summary,
-        request_data=request_data or {},
-        result_data=result_data or {},
+        request_data=sanitize_audit_data(request_data or {}),
+        result_data=sanitize_audit_data(result_data or {}),
         total_count=total_count,
         success_count=success_count,
         failed_count=failed_count,
-        error=error,
+        error="operation_failed" if error else "",
         finished_at=timezone.now(),
     )
 
@@ -143,7 +194,12 @@ class GitLabInstanceViewSet(viewsets.ModelViewSet):
             serializer = GroupChoiceSerializer(groups, many=True)
             return Response(serializer.data)
         except Exception as e:
-            logger.error(f"Failed to list groups: {e}")
+            logger.exception(
+                "GitLab 群组列表获取失败 | integration=gitlab operation=list_groups "
+                "instance_id=%s error_type=%s",
+                instance.id,
+                type(e).__name__,
+            )
             return Response(
                 {"message": f"获取群组列表失败: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -175,7 +231,13 @@ class RegisteredGroupViewSet(viewsets.ModelViewSet):
             serializer = ProjectChoiceSerializer(projects, many=True)
             return Response(serializer.data)
         except Exception as e:
-            logger.error(f"Failed to list projects: {e}")
+            logger.exception(
+                "GitLab 项目列表获取失败 | integration=gitlab operation=list_projects "
+                "instance_id=%s group_id=%s error_type=%s",
+                group.instance_id,
+                group.id,
+                type(e).__name__,
+            )
             return Response(
                 {"message": f"获取项目列表失败: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -186,6 +248,7 @@ class RegisteredGroupViewSet(viewsets.ModelViewSet):
         """Collect projects from GitLab and register them."""
         group = self.get_object()
         client = get_gitlab_client(group.instance)
+        started_at = time.monotonic()
         try:
             projects = client.list_projects_in_group(group.gitlab_id)
             created_count = 0
@@ -224,9 +287,26 @@ class RegisteredGroupViewSet(viewsets.ModelViewSet):
                 success_count=len(projects),
                 failed_count=0,
             )
+            logger.info(
+                "GitLab 项目采集完成 | integration=gitlab operation=collect_projects "
+                "instance_id=%s group_id=%s total_count=%s created_count=%s "
+                "duration_ms=%s",
+                group.instance_id,
+                group.id,
+                len(projects),
+                created_count,
+                int((time.monotonic() - started_at) * 1000),
+            )
             return Response(response_data)
         except Exception as e:
-            logger.error(f"Failed to collect projects: {e}")
+            logger.exception(
+                "GitLab 项目采集失败 | integration=gitlab operation=collect_projects "
+                "instance_id=%s group_id=%s error_type=%s duration_ms=%s",
+                group.instance_id,
+                group.id,
+                type(e).__name__,
+                int((time.monotonic() - started_at) * 1000),
+            )
             create_operation_record(
                 request=request,
                 action=GitLabOperationRecord.ACTION_COLLECT_PROJECTS,
@@ -305,18 +385,39 @@ class RegisteredProjectViewSet(viewsets.ModelViewSet):
             )
 
         webhooks = client.list_webhooks(project.gitlab_id)
+        gitlab_ids = set()
         for w in webhooks:
+            gitlab_ids.add(w.id)
             GitLabWebhook.objects.update_or_create(
                 project=project,
                 webhook_id=w.id,
                 defaults={
                     "url": w.url,
-                    "push_events": w.push_events,
-                    "tag_push_events": w.tag_push_events,
-                    "merge_requests_events": w.merge_requests_events,
+                    "token": w.token or "",
+                    "push_events": w.push_events or False,
+                    "push_events_branch_filter": w.push_events_branch_filter or "",
+                    "tag_push_events": w.tag_push_events or False,
+                    "merge_requests_events": w.merge_requests_events or False,
+                    "issues_events": w.issues_events or False,
+                    "confidential_issues_events": w.confidential_issues_events or False,
+                    "note_events": w.note_events or False,
+                    "confidential_note_events": w.confidential_note_events or False,
+                    "pipeline_events": w.pipeline_events or False,
+                    "job_events": w.job_events or False,
+                    "wiki_page_events": w.wiki_page_events or False,
+                    "deployment_events": w.deployment_events or False,
+                    "releases_events": w.releases_events or False,
+                    "feature_flag_events": w.feature_flag_events or False,
+                    "repository_update_events": w.repository_update_events or False,
+                    "resource_access_token_events": w.resource_access_token_events or False,
                     "enable_ssl_verification": w.enable_ssl_verification,
                 },
             )
+
+        # Remove webhooks that were deleted from GitLab
+        GitLabWebhook.objects.filter(project=project).exclude(
+            webhook_id__in=gitlab_ids
+        ).delete()
 
         project.collected_at = timezone.now()
         project.save(update_fields=["collected_at"])
@@ -347,6 +448,7 @@ class RegisteredProjectViewSet(viewsets.ModelViewSet):
     def collect(self, request, pk=None):
         """Collect branches, tags, webhooks from GitLab."""
         project = self.get_object()
+        started_at = time.monotonic()
 
         try:
             result = self._collect_project_resources(project)
@@ -372,13 +474,31 @@ class RegisteredProjectViewSet(viewsets.ModelViewSet):
                 success_count=1,
                 failed_count=0,
             )
+            logger.info(
+                "GitLab 资源采集完成 | integration=gitlab operation=collect_resources "
+                "instance_id=%s project_id=%s branch_count=%s tag_count=%s "
+                "webhook_count=%s duration_ms=%s",
+                project.instance_id,
+                project.id,
+                result["branches"],
+                result["tags"],
+                result["webhooks"],
+                int((time.monotonic() - started_at) * 1000),
+            )
             return Response(response_data)
         except Exception as e:
-            logger.error(f"Failed to collect: {e}")
+            logger.exception(
+                "GitLab 资源采集失败 | integration=gitlab operation=collect_resources "
+                "instance_id=%s project_id=%s error_type=%s duration_ms=%s",
+                project.instance_id,
+                project.id,
+                type(e).__name__,
+                int((time.monotonic() - started_at) * 1000),
+            )
             self._create_collection_record(
                 project,
                 GitLabCollectionRecord.STATUS_FAILED,
-                error=str(e),
+                error=type(e).__name__,
             )
             create_operation_record(
                 request=request,
@@ -441,6 +561,7 @@ class RegisteredProjectViewSet(viewsets.ModelViewSet):
         results = []
         success_count = 0
         failed_count = 0
+        started_at = time.monotonic()
         for project_id in project_ids:
             project = project_map[project_id]
             try:
@@ -459,11 +580,10 @@ class RegisteredProjectViewSet(viewsets.ModelViewSet):
                     **result,
                 })
             except Exception as e:
-                logger.error(f"Failed to bulk collect project {project.id}: {e}")
                 self._create_collection_record(
                     project,
                     GitLabCollectionRecord.STATUS_FAILED,
-                    error=str(e),
+                    error=type(e).__name__,
                 )
                 failed_count += 1
                 results.append({
@@ -494,6 +614,15 @@ class RegisteredProjectViewSet(viewsets.ModelViewSet):
             total_count=len(project_ids),
             success_count=success_count,
             failed_count=failed_count,
+        )
+        log_method = logger.warning if failed_count else logger.info
+        log_method(
+            "GitLab 批量采集完成 | integration=gitlab operation=bulk_collect_resources "
+            "total_count=%s success_count=%s failed_count=%s duration_ms=%s",
+            len(project_ids),
+            success_count,
+            failed_count,
+            int((time.monotonic() - started_at) * 1000),
         )
         return Response(response_data)
 
@@ -550,6 +679,7 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
         client = get_gitlab_client(project.instance)
         created = []
         errors = []
+        started_at = time.monotonic()
 
         for name in branch_names:
             try:
@@ -583,6 +713,15 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
             total_count=len(branch_names),
             success_count=len(created),
             failed_count=len(errors),
+        )
+        log_gitlab_operation(
+            "branch_create",
+            len(branch_names),
+            len(created),
+            len(errors),
+            started_at,
+            instance_id=project.instance_id,
+            project_id=project.id,
         )
         return Response(response_data)
 
@@ -632,6 +771,7 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
         results = []
         errors = []
         client_cache = {}
+        started_at = time.monotonic()
 
         for missing_id in [*invalid_project_ids, *missing_project_ids]:
             errors.append({
@@ -703,6 +843,14 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
             success_count=len(results),
             failed_count=len(errors),
         )
+        log_gitlab_operation(
+            f"branch_{operation}",
+            len(normalized_project_ids) * len(branch_names),
+            len(results),
+            len(errors),
+            started_at,
+            instance_id=projects[0].instance_id if projects else None,
+        )
         return Response(response_data)
 
     @action(detail=False, methods=["post"])
@@ -734,6 +882,7 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
 
         # Second pass: delete from GitLab first (if any fails, DB stays intact)
         errors = []
+        started_at = time.monotonic()
         for branch in branches_to_delete:
             try:
                 client = get_gitlab_client(branch.project.instance)
@@ -754,6 +903,18 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
                 success_count=0,
                 failed_count=len(errors),
                 error="部分分支删除失败，操作已取消",
+            )
+            log_gitlab_operation(
+                "branch_delete",
+                len(branches_to_delete),
+                0,
+                len(errors),
+                started_at,
+                instance_id=(
+                    branches_to_delete[0].project.instance_id
+                    if branches_to_delete
+                    else None
+                ),
             )
             return Response(
                 {
@@ -785,6 +946,18 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
             success_count=len(deleted),
             failed_count=0,
         )
+        log_gitlab_operation(
+            "branch_delete",
+            len(branches_to_delete),
+            len(deleted),
+            0,
+            started_at,
+            instance_id=(
+                branches_to_delete[0].project.instance_id
+                if branches_to_delete
+                else None
+            ),
+        )
         return Response(response_data)
 
     @action(detail=False, methods=["post"])
@@ -800,6 +973,7 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
 
         protected = []
         errors = []
+        started_at = time.monotonic()
 
         for branch_id in branch_ids:
             try:
@@ -826,6 +1000,13 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
             success_count=len(protected),
             failed_count=len(errors),
         )
+        log_gitlab_operation(
+            "branch_protect",
+            len(branch_ids),
+            len(protected),
+            len(errors),
+            started_at,
+        )
         return Response(response_data)
 
     @action(detail=False, methods=["post"])
@@ -841,6 +1022,7 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
 
         unprotected = []
         errors = []
+        started_at = time.monotonic()
 
         for branch_id in branch_ids:
             try:
@@ -866,6 +1048,13 @@ class GitLabBranchViewSet(viewsets.ModelViewSet):
             total_count=len(branch_ids),
             success_count=len(unprotected),
             failed_count=len(errors),
+        )
+        log_gitlab_operation(
+            "branch_unprotect",
+            len(branch_ids),
+            len(unprotected),
+            len(errors),
+            started_at,
         )
         return Response(response_data)
 
@@ -989,6 +1178,7 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
         client = get_gitlab_client(project.instance)
         created = []
         errors = []
+        started_at = time.monotonic()
 
         for name in tag_names:
             try:
@@ -1028,6 +1218,15 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
             success_count=len(created),
             failed_count=len(errors),
         )
+        log_gitlab_operation(
+            "tag_create",
+            len(tag_names),
+            len(created),
+            len(errors),
+            started_at,
+            instance_id=project.instance_id,
+            project_id=project.id,
+        )
         return Response(response_data)
 
     def _bulk_create_for_projects(self, project_ids, tag_names, ref="main", message=""):
@@ -1059,6 +1258,7 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
         created = []
         errors = []
         client_cache = {}
+        started_at = time.monotonic()
 
         for missing_id in [*invalid_project_ids, *missing_project_ids]:
             errors.append({
@@ -1115,6 +1315,14 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
             success_count=len(created),
             failed_count=len(errors),
         )
+        log_gitlab_operation(
+            "tag_create",
+            len(normalized_project_ids) * len(tag_names),
+            len(created),
+            len(errors),
+            started_at,
+            instance_id=projects[0].instance_id if projects else None,
+        )
         return Response(response_data)
 
     @action(detail=False, methods=["post"])
@@ -1146,6 +1354,7 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
 
         # Second pass: delete from GitLab first (if any fails, DB stays intact)
         errors = []
+        started_at = time.monotonic()
         for tag in tags_to_delete:
             try:
                 client = get_gitlab_client(tag.project.instance)
@@ -1166,6 +1375,18 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
                 success_count=0,
                 failed_count=len(errors),
                 error="部分 Tag 删除失败，操作已取消",
+            )
+            log_gitlab_operation(
+                "tag_delete",
+                len(tags_to_delete),
+                0,
+                len(errors),
+                started_at,
+                instance_id=(
+                    tags_to_delete[0].project.instance_id
+                    if tags_to_delete
+                    else None
+                ),
             )
             return Response(
                 {
@@ -1197,6 +1418,18 @@ class GitLabTagViewSet(viewsets.ModelViewSet):
             success_count=len(deleted),
             failed_count=0,
         )
+        log_gitlab_operation(
+            "tag_delete",
+            len(tags_to_delete),
+            len(deleted),
+            0,
+            started_at,
+            instance_id=(
+                tags_to_delete[0].project.instance_id
+                if tags_to_delete
+                else None
+            ),
+        )
         return Response(response_data)
 
 
@@ -1227,14 +1460,41 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
         client = get_gitlab_client(project.instance)
 
         data = serializer.validated_data
-        webhook = client.create_webhook(
-            project_id=project.gitlab_id,
-            url=data["url"],
-            push_events=data.get("push_events", True),
-            tag_push_events=data.get("tag_push_events", False),
-            merge_requests_events=data.get("merge_requests_events", False),
-            enable_ssl_verification=data.get("enable_ssl_verification", True),
-        )
+        started_at = time.monotonic()
+        try:
+            webhook = client.create_webhook(
+                project_id=project.gitlab_id,
+                url=data["url"],
+                push_events=data.get("push_events", True),
+                tag_push_events=data.get("tag_push_events", False),
+                merge_requests_events=data.get("merge_requests_events", False),
+                enable_ssl_verification=data.get("enable_ssl_verification", True),
+                push_events_branch_filter=data.get("push_events_branch_filter"),
+                issues_events=data.get("issues_events", False),
+                confidential_issues_events=data.get("confidential_issues_events", False),
+                note_events=data.get("note_events", False),
+                confidential_note_events=data.get("confidential_note_events", False),
+                pipeline_events=data.get("pipeline_events", False),
+                job_events=data.get("job_events", False),
+                wiki_page_events=data.get("wiki_page_events", False),
+                deployment_events=data.get("deployment_events", False),
+                releases_events=data.get("releases_events", False),
+                feature_flag_events=data.get("feature_flag_events", False),
+                repository_update_events=data.get("repository_update_events", False),
+                resource_access_token_events=data.get("resource_access_token_events", False),
+                token=data.get("token"),
+            )
+        except Exception as exc:
+            logger.error(
+                "GitLab Webhook 创建失败 | integration=gitlab "
+                "operation=webhook_create instance_id=%s project_id=%s "
+                "error_type=%s duration_ms=%s",
+                project.instance_id,
+                project.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
+            )
+            raise
 
         saved = serializer.save(webhook_id=webhook.id)
         create_operation_record(
@@ -1257,6 +1517,15 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
             success_count=1,
             failed_count=0,
         )
+        log_gitlab_operation(
+            "webhook_create",
+            1,
+            1,
+            0,
+            started_at,
+            instance_id=project.instance_id,
+            project_id=project.id,
+        )
 
     def perform_update(self, serializer):
         """Update webhook in GitLab and save to DB."""
@@ -1265,15 +1534,43 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
         client = get_gitlab_client(project.instance)
 
         data = serializer.validated_data
-        webhook = client.update_webhook(
-            project_id=project.gitlab_id,
-            hook_id=instance.webhook_id,
-            url=data.get("url"),
-            push_events=data.get("push_events"),
-            tag_push_events=data.get("tag_push_events"),
-            merge_requests_events=data.get("merge_requests_events"),
-            enable_ssl_verification=data.get("enable_ssl_verification"),
-        )
+        started_at = time.monotonic()
+        try:
+            webhook = client.update_webhook(
+                project_id=project.gitlab_id,
+                hook_id=instance.webhook_id,
+                url=data.get("url"),
+                push_events=data.get("push_events"),
+                tag_push_events=data.get("tag_push_events"),
+                merge_requests_events=data.get("merge_requests_events"),
+                enable_ssl_verification=data.get("enable_ssl_verification"),
+                push_events_branch_filter=data.get("push_events_branch_filter"),
+                issues_events=data.get("issues_events"),
+                confidential_issues_events=data.get("confidential_issues_events"),
+                note_events=data.get("note_events"),
+                confidential_note_events=data.get("confidential_note_events"),
+                pipeline_events=data.get("pipeline_events"),
+                job_events=data.get("job_events"),
+                wiki_page_events=data.get("wiki_page_events"),
+                deployment_events=data.get("deployment_events"),
+                releases_events=data.get("releases_events"),
+                feature_flag_events=data.get("feature_flag_events"),
+                repository_update_events=data.get("repository_update_events"),
+                resource_access_token_events=data.get("resource_access_token_events"),
+                token=data.get("token"),
+            )
+        except Exception as exc:
+            logger.error(
+                "GitLab Webhook 更新失败 | integration=gitlab "
+                "operation=webhook_update instance_id=%s project_id=%s "
+                "webhook_id=%s error_type=%s duration_ms=%s",
+                project.instance_id,
+                project.id,
+                instance.webhook_id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
+            )
+            raise
 
         saved = serializer.save()
         create_operation_record(
@@ -1296,6 +1593,15 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
             success_count=1,
             failed_count=0,
         )
+        log_gitlab_operation(
+            "webhook_update",
+            1,
+            1,
+            0,
+            started_at,
+            instance_id=project.instance_id,
+            project_id=project.id,
+        )
 
     def perform_destroy(self, instance):
         """Delete webhook from GitLab and DB.
@@ -1306,6 +1612,7 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
         """
         project = instance.project
         client = get_gitlab_client(project.instance)
+        started_at = time.monotonic()
         try:
             if instance.webhook_id:
                 # Try to delete from GitLab first. If this fails, keep the DB record.
@@ -1325,6 +1632,16 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
                 failed_count=1,
                 error=str(e),
             )
+            logger.error(
+                "GitLab Webhook 删除失败 | integration=gitlab "
+                "operation=webhook_delete instance_id=%s project_id=%s "
+                "webhook_id=%s error_type=%s duration_ms=%s",
+                project.instance_id,
+                project.id,
+                instance.webhook_id,
+                type(e).__name__,
+                int((time.monotonic() - started_at) * 1000),
+            )
             raise
         create_operation_record(
             request=self.request,
@@ -1338,6 +1655,15 @@ class GitLabWebhookViewSet(viewsets.ModelViewSet):
             total_count=1,
             success_count=1,
             failed_count=0,
+        )
+        log_gitlab_operation(
+            "webhook_delete",
+            1,
+            1,
+            0,
+            started_at,
+            instance_id=project.instance_id,
+            project_id=project.id,
         )
         # Only delete local record if GitLab deletion succeeded (or webhook_id was None)
         instance.delete()

@@ -22,6 +22,7 @@ const pagePaths = [
   'src/admin/pages/Monitoring/Rules.vue',
   'src/admin/pages/Monitoring/RuleDetail.vue',
   'src/admin/pages/Monitoring/Jobs.vue',
+  'src/admin/pages/Monitoring/HostDeploymentStatus.vue',
   'src/admin/pages/Monitoring/Settings.vue'
 ].map((path) => resolve(repoRoot, path))
 
@@ -84,16 +85,32 @@ const jobsSource = readFileSync(
   resolve(repoRoot, 'src/admin/pages/Monitoring/Jobs.vue'),
   'utf8'
 )
+const hostDeploymentSource = readFileSync(
+  resolve(repoRoot, 'src/admin/pages/Monitoring/HostDeploymentStatus.vue'),
+  'utf8'
+)
+const hostCurrentStatusSource = hostDeploymentSource.slice(
+  hostDeploymentSource.indexOf(`v-if="activeTab === 'current'"`),
+  hostDeploymentSource.indexOf(`v-else-if="activeTab === 'history'"`)
+)
 const settingsSource = readFileSync(
   resolve(repoRoot, 'src/admin/pages/Monitoring/Settings.vue'),
   'utf8'
+)
+const jobHistoryUtilsPath = resolve(
+  repoRoot,
+  'src/admin/utils/monitoringJobHistory.js'
 )
 const uiLanguageSource = readFileSync(
   resolve(repoRoot, 'src/utils/uiLanguage.js'),
   'utf8'
 )
+const i18nSource = readFileSync(resolve(repoRoot, 'src/i18n/index.js'), 'utf8')
 const uiLanguage = await import(
   pathToFileURL(resolve(repoRoot, 'src/utils/uiLanguage.js')).href
+)
+const { normalizeHostSummaries, keepLogPinnedAfterRender } = await import(
+  pathToFileURL(jobHistoryUtilsPath).href
 )
 const localeSources = {
   en: JSON.parse(
@@ -103,6 +120,22 @@ const localeSources = {
     readFileSync(resolve(repoRoot, 'src/admin/locales/zh-CN.json'), 'utf8')
   )
 }
+
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.duplicateTarget,
+  '创建副本',
+  'Chinese probe actions should label duplicate creation in Chinese'
+)
+assert.equal(
+  localeSources.en.adminPages.monitoring.duplicateTarget,
+  'Create copy',
+  'English probe actions should keep an English duplicate label'
+)
+assert.match(
+  i18nSource,
+  /import\.meta\.hot\.accept\([\s\S]*window\.location\.reload\(\)/,
+  'locale resource updates should reload atomically instead of leaving mixed-language HMR state'
+)
 
 assert.match(
   platformAccessSource,
@@ -123,6 +156,11 @@ assert.match(
   routesSource,
   /path:\s*'\/management\/monitoring\/installers'/,
   'admin routes should keep monitoring installers available as an advanced page'
+)
+assert.match(
+  routesSource,
+  /path:\s*'\/management\/monitoring\/installers',[\s\S]*redirect:[\s\S]*path:\s*'\/management\/monitoring\/jobs'[\s\S]*view:\s*'resources'/,
+  'legacy installer URLs should redirect to the deployment resource tab'
 )
 assert.match(
   routesSource,
@@ -193,6 +231,26 @@ assert.match(
   probeSettingsSource,
   /component:\s*'blackbox'/,
   'probe node management should own blackbox deployment'
+)
+assert.match(
+  probeSettingsSource,
+  /blackboxHostDeploymentState[\s\S]*blackboxDeployableHosts[\s\S]*canDeployBlackbox/,
+  'blackbox deployment should derive host eligibility from component and probe-node state'
+)
+assert.match(
+  probeSettingsSource,
+  /:disabled="blackboxHostDeploymentState\(host\)\.disabled"[\s\S]*noBlackboxDeploymentCandidates/,
+  'blackbox deployment should disable managed hosts and explain when no candidates remain'
+)
+assert.match(
+  probeSettingsSource,
+  /nodeIdentityManaged[\s\S]*nodeActionText[\s\S]*managedProbeNodeNotice/,
+  'managed probe nodes should use a management action and explain their ownership boundary'
+)
+assert.match(
+  probeSettingsSource,
+  /:readonly="nodeIdentityManaged"[\s\S]*:disabled="nodeIdentityManaged"/,
+  'deployment and discovery owned node identity fields should be read only'
 )
 assert.doesNotMatch(
   assetsSource,
@@ -391,6 +449,41 @@ assert.match(
 )
 assert.match(
   overviewSource,
+  /function findingTitle\(item\)/,
+  'overview should translate deployment failure titles instead of rendering backend English'
+)
+assert.match(
+  overviewSource,
+  /item\.subject_type === 'job'[\s\S]*path:\s*'\/management\/monitoring\/jobs'[\s\S]*job:\s*item\.details\?\.job_id/,
+  'deployment findings should open the matching deployment task detail'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.deploymentFailedFinding,
+  '{host} 的 {component} 部署失败',
+  'Chinese overview should describe deployment failures in product language'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.deploymentHistory,
+  '部署记录',
+  'overview deployment history should not be labelled as a current failure count'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.viewDeploymentHistory,
+  '查看记录',
+  'overview deployment history action should describe its destination'
+)
+assert.doesNotMatch(
+  overviewSource,
+  /failedJobs|failedJobCount|pendingFailedJobs/,
+  'overview should not present cumulative historical failures as current issues'
+)
+assert.match(
+  overviewSource,
+  /label:\s*t\('adminPages\.monitoring\.deploymentHistory'\),\s*value:\s*jobs\.value\.length/,
+  'overview statistics should label the total as deployment history'
+)
+assert.match(
+  overviewSource,
   /syncRealState/,
   'overview page should label the real-state sync action'
 )
@@ -400,29 +493,139 @@ assert.match(
   'installers page should own installer asset status'
 )
 assert.doesNotMatch(
+  installersSource,
+  /<AdminLayout>|<PageFrame/,
+  'installer resources should be embeddable inside deployment management'
+)
+assert.match(
+  installersSource,
+  /buildInstallerAssets/,
+  'installers page should allow operators to rebuild installer assets'
+)
+assert.doesNotMatch(
+  installersSource,
+  /generatedCommand|copyCommand|installCommand|installerOptions|commandProfiles/,
+  'installers page should focus on managed files instead of command generation'
+)
+assert.doesNotMatch(
+  installersSource,
+  /<details[\s\S]*installerFiles/,
+  'installer files should remain visible as the primary page content'
+)
+assert.match(
+  installersSource,
+  /sm:hidden[\s\S]*adminPages\.monitoring\.download/,
+  'installer rows should keep download actions visible in the mobile layout'
+)
+assert.match(
+  installersSource,
+  /hidden sm:table-cell/,
+  'installer metadata columns should collapse into the mobile file row'
+)
+assert.doesNotMatch(
   settingsSource,
   /getInstallerAssets|buildInstallerAssets|installerFiles/,
   'settings page should stay focused on integrations and defaults, not installer file status'
 )
-assert.match(
+assert.doesNotMatch(
   settingsSource,
-  /rotatePrometheusHttpSdToken\(\)/,
-  'settings page should allow operators to generate the Prometheus HTTP SD token'
+  /rotatePrometheusHttpSdToken\(|generatedToken|prometheusHttpSdTitle/,
+  'integration settings should not duplicate Prometheus HTTP SD management'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.advancedInstallerPage,
+  '安装资源',
+  'the Chinese settings entry should match the installer resource destination'
+)
+assert.doesNotMatch(
+  settingsSource,
+  /installerBaseUrl|categrafInstallDir|blackboxInstallDir|blackboxPort|blackboxImage|advancedInstallerPage/,
+  'integration settings should not expose deployment defaults or duplicate resource navigation'
 )
 assert.match(
   settingsSource,
-  /generatedToken/,
-  'settings page should show the generated HTTP SD token once for copying'
+  /integrationRows/,
+  'integration settings should render each external system as a distinct row'
 )
 assert.match(
-  installersSource,
-  /installerOptions/,
-  'installers page should use backend-provided installer options'
+  settingsSource,
+  /function validateUrl\(field\)/,
+  'integration URLs should validate on blur'
+)
+assert.match(
+  settingsSource,
+  /showPassword/,
+  'n9e credentials should provide a password visibility control'
+)
+assert.match(
+  settingsSource,
+  /<Teleport to="body">/,
+  'integration settings should render editing outside the list layout'
+)
+assert.match(
+  settingsSource,
+  /max-w-xl/,
+  'desktop integration editing should use a wide right-side drawer'
+)
+assert.match(
+  settingsSource,
+  /sticky bottom-0/,
+  'drawer save and cancel actions should remain visible while scrolling'
+)
+assert.match(
+  settingsSource,
+  /function cancelEdit\(\)/,
+  'each integration editor should support cancelling unsaved changes'
+)
+assert.match(
+  settingsSource,
+  /async function saveIntegration\(\)/,
+  'each integration should save independently'
+)
+assert.match(
+  settingsSource,
+  /:disabled="!activeIsDirty \|\| hasActiveError"/,
+  'the active editor should only save valid unsaved changes'
+)
+assert.match(
+  settingsSource,
+  /aria-live="polite"/,
+  'save results should be announced without stealing focus'
+)
+assert.match(
+  settingsSource,
+  /unsavedIntegrationChanges/,
+  'closing a dirty integration drawer should require confirmation'
+)
+assert.doesNotMatch(
+  settingsSource,
+  /adminPages\.monitoring\.saveChanges|@click="load"/,
+  'the integration list should not keep page-level save or refresh actions'
 )
 assert.match(
   probesSource,
   /if \(id\) await monitoringStackApi\.updateProbeTarget\(id, payload\)/,
   'probe targets page should support editing existing targets'
+)
+assert.match(
+  probesSource,
+  /openActionMenuId/,
+  'probe target actions should use one controlled menu instead of independent details elements'
+)
+assert.doesNotMatch(
+  probesSource,
+  /<details class="relative">/,
+  'probe target rows should not allow multiple native details menus to stay open'
+)
+assert.match(
+  probesSource,
+  /function duplicateTarget\(target\)/,
+  'probe targets should support opening a prefilled create form from an existing target'
+)
+assert.match(
+  probesSource,
+  /id:\s*null/,
+  'duplicated probe targets must clear the source id so save creates a new target'
 )
 assert.match(
   probesSource,
@@ -809,15 +1012,10 @@ assert.doesNotMatch(
   /password:\s*form\.password|n9ePassword/,
   'rule detail page should use saved n9e credentials instead of asking for the password again'
 )
-assert.match(
+assert.doesNotMatch(
   jobsSource,
-  /getGovernanceFindings\(\{\s*status:\s*'open',\s*subject_type:\s*'job'/,
-  'jobs page should load open job governance findings'
-)
-assert.match(
-  jobsSource,
-  /resolveGovernanceFinding\(/,
-  'jobs page should retry failed install jobs through governance finding resolution'
+  /getGovernanceFindings\(|resolveGovernanceFinding\(/,
+  'host-centered jobs should retry a specific host directly instead of coupling to governance findings'
 )
 assert.doesNotMatch(
   jobsSource,
@@ -842,7 +1040,7 @@ assert.match(
 )
 assert.match(
   jobsSource,
-  /onBeforeUnmount\([\s\S]*clearInterval/,
+  /onBeforeUnmount\(clearPolling\)/,
   'jobs should stop polling when the page unmounts'
 )
 assert.match(
@@ -850,6 +1048,326 @@ assert.match(
   /selectedJob\.progress/,
   'job detail should render structured progress'
 )
+assert.match(
+  apiSource,
+  /getJobHostSummaries\(params\s*=\s*\{\}\)/,
+  'monitoring API client should expose host-centered job summaries'
+)
+assert.match(
+  apiSource,
+  /retryJob\(id,\s*body\s*=\s*\{\}\)/,
+  'monitoring API client should support scoped retry payloads'
+)
+assert.match(
+  jobsSource,
+  /getJobHostSummaries\(/,
+  'jobs page should load host-centered summaries'
+)
+assert.match(
+  jobsSource,
+  /adminPages\.monitoring\.viewDeploymentStatus/,
+  'jobs page should label the deployment status action'
+)
+assert.doesNotMatch(
+  jobsSource,
+  /hostFailureSummary\(host\)|<th[\s\S]{0,160}adminPages\.monitoring\.latestExecution/,
+  'deployment list should stay focused on host and component state without execution-detail columns'
+)
+assert.doesNotMatch(
+  jobsSource,
+  /adminPages\.monitoring\.attemptShort/,
+  'deployment list should show current component state without execution-count noise'
+)
+assert.doesNotMatch(
+  jobsSource,
+  /#\{\{\s*latestExecution|`#\$\{selectedJob/,
+  'deployment list should present task references without hash-prefixed IDs'
+)
+assert.match(
+  routesSource,
+  /path:\s*'\/management\/monitoring\/jobs\/hosts\/:hostId'[\s\S]*name:\s*'AdminMonitoringHostDeploymentStatus'[\s\S]*HostDeploymentStatus\.vue/,
+  'host deployment status should have a shareable authenticated route'
+)
+assert.match(
+  jobsSource,
+  /name:\s*'AdminMonitoringHostDeploymentStatus'[\s\S]*hostId:\s*host\.host_id/,
+  'deployment list should navigate to the selected host status workspace'
+)
+assert.doesNotMatch(
+  jobsSource,
+  /selectedComponentSummary|selectedHost\s*=\s*ref|retryHostJob\(/,
+  'deployment list should not retain the obsolete host-history modal state'
+)
+assert.match(
+  hostDeploymentSource,
+  /getJobHostSummaries\([\s\S]*getJob\(/,
+  'host status workspace should combine the host summary with full task details'
+)
+assert.match(
+  hostDeploymentSource,
+  /retryJob\([\s\S]*host_id:/,
+  'host status workspace should retry only the selected host'
+)
+assert.match(
+  hostDeploymentSource,
+  /currentStatusTab[\s\S]*executionHistoryTab[\s\S]*executionDetailTab/,
+  'host status workspace should separate current status, history, and execution detail'
+)
+assert.doesNotMatch(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.attemptOption|attemptNumber\(/,
+  'host status workspace should identify records by task, status, and time instead of ordinal attempts'
+)
+assert.match(
+  hostDeploymentSource,
+  /function formatExecutionOption\(attempt\)[\s\S]*taskTypeLabel\(attempt\.component\)[\s\S]*statusLabel[\s\S]*formatDateTime/,
+  'execution selectors should present task type, status, and execution time'
+)
+assert.doesNotMatch(
+  hostDeploymentSource,
+  /deployment-component-switch|deployment-status-band/,
+  'current status should not split components into separate workspaces'
+)
+assert.doesNotMatch(
+  hostCurrentStatusSource,
+  /adminPages\.monitoring\.(executionProgress|taskInfo|jobNumber)/,
+  'current status should not foreground task execution details'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.installedComponents[\s\S]*adminPages\.monitoring\.enabledCapabilities/,
+  'current status should show installed components and enabled capabilities'
+)
+assert.match(
+  hostDeploymentSource,
+  /component_statuses[\s\S]*componentJobs/,
+  'component overview should combine runtime status with the latest component configuration'
+)
+assert.match(
+  hostDeploymentSource,
+  /const allHistory\s*=\s*computed[\s\S]*componentOptions[\s\S]*flatMap/,
+  'execution history should merge records across all host components'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.taskType[\s\S]*function taskTypeLabel[\s\S]*componentLabel/,
+  'execution history should identify the component installation type instead of a task number'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.allTaskTypes,
+  '全部任务类型',
+  'the history task filter should describe all task types clearly'
+)
+assert.match(
+  hostDeploymentSource,
+  /historyComponentFilter[\s\S]*adminPages\.monitoring\.allTaskTypes[\s\S]*componentOptions/,
+  'execution history should offer a task type filter for each deployable component'
+)
+assert.match(
+  hostDeploymentSource,
+  /const filteredHistory = computed[\s\S]*historyComponentFilter\.value[\s\S]*attempt\.component === historyComponentFilter\.value[\s\S]*historyStatusFilter\.value/,
+  'task type and status filters should apply together to execution history'
+)
+assert.doesNotMatch(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.installationLogsTab/,
+  'raw installation logs should not remain a primary workspace tab'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.returnToExecutionHistory[\s\S]*adminPages\.monitoring\.executionProgress[\s\S]*progressStages/,
+  'execution detail should provide a return path and show the selected task process'
+)
+assert.match(
+  hostDeploymentSource,
+  /const currentProgressStep = computed[\s\S]*jobFailureReason\(selectedJob\.value\)\.startsWith\('ssh_'\)[\s\S]*selectedJob\.value\?\.progress\?\.current/,
+  'SSH failures should stop at host connection even when a stale backend progress value is present'
+)
+assert.match(
+  hostDeploymentSource,
+  /function progressStepMarker\(index\)[\s\S]*!detailFailed\.value[\s\S]*currentProgressStep\.value[\s\S]*'✓'/,
+  'successful execution details should mark the final stage as completed'
+)
+assert.match(
+  hostDeploymentSource,
+  /@media \(max-width: 720px\)[\s\S]*\.execution-progress \{[\s\S]*grid-template-columns:\s*1fr/,
+  'mobile execution details should show the full process as a vertical timeline'
+)
+assert.doesNotMatch(
+  hostDeploymentSource,
+  /\.execution-progress \{\s*min-width:\s*34rem/,
+  'mobile execution progress should not require horizontal scrolling'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.failureDiagnosis[\s\S]*jobFailureSummary[\s\S]*deployment-log-block/,
+  'execution detail should combine failure diagnosis with the full log'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.deploymentCapabilities[\s\S]*selectedJobCapabilities[\s\S]*componentCapabilities\(\s*selectedAttempt\.value\.component,\s*selectedJob\.value\s*\)/,
+  'execution detail should show the capabilities configured by the selected task'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.deploymentCapabilities,
+  '本次部署能力',
+  'capability details should describe the selected deployment without implying a failed task was installed'
+)
+assert.equal(
+  localeSources.zhCN.adminPages.monitoring.adjustCapabilities,
+  '调整能力',
+  'Categraf capability changes should use a clear action label'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.adjustCapabilities[\s\S]*openCapabilityAdjustment/,
+  'current and detail views should expose a Categraf capability adjustment action'
+)
+assert.match(
+  hostDeploymentSource,
+  /function openCapabilityAdjustment\(\)[\s\S]*path:\s*'\/management\/monitoring\/assets'[\s\S]*adjust:\s*'categraf'[\s\S]*host:\s*String\(hostId\.value\)[\s\S]*baseJob:[\s\S]*profiles:/,
+  'capability adjustment should reuse the host deployment wizard with the current host, baseline job, and profiles'
+)
+assert.match(
+  assetsSource,
+  /useRoute\(\)[\s\S]*route\.query\.adjust !== 'categraf'[\s\S]*selectedHostIds\.value = \[host\.id\][\s\S]*initialCategrafProfiles\.value = existingProfiles[\s\S]*categrafForm\.profiles = \[\.\.\.existingProfiles\][\s\S]*categrafStep\.value = 1[\s\S]*showCategrafForm\.value = true/,
+  'the deployment wizard should open on capability selection with the host and existing profiles prefilled'
+)
+assert.match(
+  assetsSource,
+  /:disabled="\s*capabilityAdjustmentMode &&\s*initialCategrafProfiles\.includes\(profile\.id\)\s*"/,
+  'existing capabilities should remain selected and locked during additive adjustment'
+)
+assert.match(
+  assetsSource,
+  /newCategrafProfiles[\s\S]*adminPages\.monitoring\.newCapability[\s\S]*adminPages\.monitoring\.dispatchCapabilityUpdate/,
+  'the adjustment wizard should distinguish additions and dispatch them as an update'
+)
+assert.match(
+  assetsSource,
+  /capabilityBaseJobId[\s\S]*base_job_id:[\s\S]*capabilityBaseJobId\.value/,
+  'capability updates should let the backend inherit protected parameters from the active job'
+)
+assert.match(
+  assetsSource,
+  /newCapabilityParamsValid[\s\S]*newCapabilityParamsRequired[\s\S]*safeCapabilityUpdateNotice[\s\S]*deploymentSettingsInherited/,
+  'capability updates should validate new parameters and explain inherited settings and rollback protection'
+)
+assert.match(
+  assetsSource,
+  /deploymentSettingsBaseline[\s\S]*deploymentSettingChanges[\s\S]*resetDeploymentSettings/,
+  'capability updates should track editable deployment settings and allow restoring the successful baseline'
+)
+assert.match(
+  assetsSource,
+  /deploymentSettingsTitle[\s\S]*deploymentSettingStatus[\s\S]*deploymentSettingsChangeSummary/,
+  'the adjustment wizard should show deployment setting inheritance and changes before dispatch'
+)
+assert.match(
+  hostDeploymentSource,
+  /runtime\?\.active_job_id \|\|[\s\S]*latest\?\.job_id/,
+  'current component capabilities should come from the last successful job before the latest attempt'
+)
+assert.match(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.viewDetails[\s\S]*selectAttempt\(attempt\)/,
+  'execution history should open the selected record as execution detail'
+)
+assert.doesNotMatch(
+  hostDeploymentSource,
+  /adminPages\.monitoring\.(executionRelationship|independentExecution)|#\{\{|`#\$\{/,
+  'execution history should omit internal retry relationships and hash-prefixed task IDs'
+)
+assert.match(
+  `${jobsSource}\n${hostDeploymentSource}`,
+  /adminPages\.monitoring\.taskReference/,
+  'deployment views should use a localized task reference label'
+)
+assert.match(
+  hostDeploymentSource,
+  /navigator\.clipboard\?\.writeText[\s\S]*document\.execCommand\('copy'\)/,
+  'host status workspace should copy logs on non-secure internal origins without crashing the page'
+)
+assert.match(
+  jobsSource,
+  /DeploymentResources/,
+  'deployment management should embed installation resources as a page tab'
+)
+assert.match(
+  jobsSource,
+  /route\.query\.view\s*===\s*'resources'/,
+  'deployment management should derive the selected tab from the URL'
+)
+assert.match(
+  jobsSource,
+  /view:\s*view\s*===\s*'resources'\s*\?\s*'resources'\s*:\s*undefined/,
+  'deployment management should keep resource tab navigation shareable'
+)
+assert.doesNotMatch(
+  jobsSource,
+  /<tr v-for="job in filteredJobs"/,
+  'jobs page should not render every execution as a top-level table row'
+)
+assert.deepEqual(
+  normalizeHostSummaries({
+    results: [{ host_id: 7, hostname: 'legacy-host' }]
+  }),
+  [
+    {
+      host_id: 7,
+      hostname: 'legacy-host',
+      address: '',
+      components: {
+        categraf: { latest: null, attempt_count: 0, history: [] },
+        blackbox: { latest: null, attempt_count: 0, history: [] }
+      }
+    }
+  ],
+  'jobs page should safely normalize legacy host summaries without component data'
+)
+assert.deepEqual(
+  normalizeHostSummaries({ detail: 'temporarily unavailable' }),
+  [],
+  'jobs page should reject malformed non-list host summary payloads'
+)
+
+{
+  const logElement = {
+    scrollHeight: 320,
+    scrollTop: 200,
+    clientHeight: 100
+  }
+  let mountedElement = logElement
+
+  await assert.doesNotReject(
+    keepLogPinnedAfterRender({
+      element: logElement,
+      getCurrentElement: () => mountedElement,
+      nextRender: async () => {
+        mountedElement = null
+      }
+    }),
+    'closing job details from the log tab must not access an unmounted log element'
+  )
+  assert.equal(
+    logElement.scrollTop,
+    200,
+    'an unmounted log element should not be mutated after the render boundary'
+  )
+
+  mountedElement = logElement
+  await keepLogPinnedAfterRender({
+    element: logElement,
+    getCurrentElement: () => mountedElement,
+    nextRender: async () => {}
+  })
+  assert.equal(
+    logElement.scrollTop,
+    logElement.scrollHeight,
+    'a mounted log element near the bottom should remain pinned after rendering'
+  )
+}
+
 assert.match(
   jobsSource,
   /jobFailureSummary\(job\)/,

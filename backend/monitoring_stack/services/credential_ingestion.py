@@ -223,3 +223,22 @@ def create_credential_version(
         public_key_text=parsed.public_key_text,
         created_by=actor,
     )
+
+
+@transaction.atomic
+def create_password_credential_version(*, credential, password, actor=None):
+    value = str(password or "")
+    if not value:
+        raise ValueError("PASSWORD_REQUIRED")
+    if len(value) > 4096:
+        raise ValueError("PASSWORD_TOO_LONG")
+    next_version = (
+        credential.versions.aggregate(value=Max("version"))["value"] or 0
+    ) + 1
+    return MonitoringSshCredentialVersion.objects.create(
+        credential=credential,
+        version=next_version,
+        secret_encrypted=encrypt_secret(value),
+        algorithm="password",
+        created_by=actor,
+    )

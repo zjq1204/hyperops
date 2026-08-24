@@ -137,7 +137,10 @@ def deliver_build_notifications(record, status_text: str) -> None:
             build_text_payload,
         )
     except ImportError:
-        logger.warning("agentcore_notifier not available, skipping notification")
+        logger.warning(
+            "Jenkins 通知已降级 | integration=agentcore_notifier "
+            "operation=send_notification reason_code=NOTIFIER_UNAVAILABLE"
+        )
         return
 
     username = record.user.username if record.user else "未知"

@@ -4,8 +4,11 @@ Django Cache Configuration
 This module provides cache configuration for the Django application.
 Supports multiple cache backends including Redis, Memcached, and local memory.
 """
+import logging
 import os
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # ============================
 # Cache Configuration
@@ -172,6 +175,9 @@ def check_cache_health():
 
         return retrieved_value == test_value
 
-    except Exception as e:
-        print(f"Cache health check failed: {e}")
+    except Exception as exc:
+        logger.warning(
+            "缓存健康检查失败 | error_type=%s",
+            type(exc).__name__,
+        )
         return False

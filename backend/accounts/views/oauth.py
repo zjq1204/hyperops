@@ -139,7 +139,8 @@ class CompleteGoogleSetupView(APIView):
                 # )
 
                 logger.info(
-                    f"OAuth user {user.username} completed setup"
+                    "OAuth 设置完成 | operation=complete_oauth_setup user_id=%s",
+                    user.id,
                 )
 
             refresh = RefreshToken.for_user(user)
@@ -161,24 +162,11 @@ class CompleteGoogleSetupView(APIView):
         except Exception as e:
             error_type = type(e).__name__
             error_message = str(e)
-            client_ip = request.META.get('REMOTE_ADDR', 'unknown')
-            logger.error(
-                f"Failed to complete OAuth setup - "
-                f"IP: {client_ip}, "
-                f"User: {user.username}, "
-                f"Email: {user.email}, "
-                f"Error: {error_type}: {error_message}",
-                exc_info=True,
-                extra={
-                    'client_ip': client_ip,
-                    'user_id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'exception_type': error_type,
-                    'exception_message': error_message,
-                    'endpoint': 'oauth_complete_setup',
-                    'error_type': 'oauth_setup_failed',
-                }
+            logger.exception(
+                "OAuth 设置失败 | operation=complete_oauth_setup "
+                "user_id=%s error_type=%s",
+                user.id,
+                error_type,
             )
 
             # Determine error code based on exception type
@@ -221,7 +209,6 @@ class OAuthCallbackRedirectView(View):
         """
         try:
             user = request.user
-            client_ip = request.META.get('REMOTE_ADDR', 'unknown')
 
             if user and user.is_authenticated:
                 try:
@@ -236,9 +223,8 @@ class OAuthCallbackRedirectView(View):
                     )
 
                     logger.info(
-                        f"OAuth redirect: {user.email} "
-                        f"(username: {user.username}) "
-                        f"→ frontend with JWT tokens (IP: {client_ip})"
+                        "OAuth 登录完成 | operation=oauth_callback user_id=%s",
+                        user.id,
                     )
 
                     return redirect(redirect_url)
@@ -246,24 +232,19 @@ class OAuthCallbackRedirectView(View):
                     error_type = type(e).__name__
                     error_message = str(e)
                     logger.error(
-                        f"Failed to generate JWT tokens for OAuth user - "
-                        f"IP: {client_ip}, "
-                        f"User: {user.email}, "
-                        f"Error: {error_type}: {error_message}",
-                        exc_info=True
+                        "OAuth 令牌生成失败 | operation=oauth_callback "
+                        "user_id=%s error_type=%s",
+                        user.id,
+                        error_type,
+                        exc_info=True,
                     )
                     # Redirect to frontend error page with error info
                     error_url = (
                         f"{settings.FRONTEND_URL}/auth/oauth/error"
                         f"?error=token_generation_failed"
-                        f"&message={error_message}"
                     )
                     return redirect(error_url)
 
-            logger.warning(
-                f"OAuth callback: user not authenticated "
-                f"(IP: {client_ip}), redirecting to error page"
-            )
             # Redirect to frontend error page
             error_url = (
                 f"{settings.FRONTEND_URL}/auth/oauth/error"
@@ -274,17 +255,13 @@ class OAuthCallbackRedirectView(View):
         except Exception as e:
             error_type = type(e).__name__
             error_message = str(e)
-            client_ip = request.META.get('REMOTE_ADDR', 'unknown')
-            logger.error(
-                f"Unexpected error in OAuth callback redirect - "
-                f"IP: {client_ip}, "
-                f"Error: {error_type}: {error_message}",
-                exc_info=True
+            logger.exception(
+                "OAuth 回调失败 | operation=oauth_callback error_type=%s",
+                error_type,
             )
             # Redirect to frontend error page
             error_url = (
                 f"{settings.FRONTEND_URL}/auth/oauth/error"
                 f"?error=unexpected_error"
-                f"&message={error_message}"
             )
             return redirect(error_url)

@@ -18,6 +18,11 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_TIMEZONE = 'Asia/Shanghai'
 CELERY_ENABLE_UTC = True
 
+# Django owns the logging configuration for API, worker, and scheduler
+# processes. Celery must not replace root handlers or redirect print output.
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+CELERY_WORKER_REDIRECT_STDOUTS = False
+
 
 # The CELERY_ACCEPT_CONTENT setting determines the message content types that
 # Celery can accept. Setting it to ['json'] means that Celery only accepts JSON
@@ -49,6 +54,7 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
     'fanout_prefix': True,
     'fanout_patterns': True,
 }
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Task execution time limits
 # CELERY_TASK_TIME_LIMIT: Hard limit (s); worker killed if exceeded.

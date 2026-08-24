@@ -1,7 +1,12 @@
+import logging
+import time
+
 from django.utils import timezone
 
 from monitoring_stack.models import AnsibleInstallJob
 from monitoring_stack.services.ansible_progress import build_progress
+
+logger = logging.getLogger(__name__)
 
 
 class JobDispatchError(Exception):
@@ -11,10 +16,11 @@ class JobDispatchError(Exception):
 
 
 def dispatch_install_job(job):
+    started_at = time.monotonic()
     try:
         from monitoring_stack.tasks import run_ansible_install_job
 
-        run_ansible_install_job.delay(job.id)
+        task = run_ansible_install_job.delay(job.id)
     except Exception as exc:
         job.status = AnsibleInstallJob.STATUS_FAILED
         job.returncode = 1
@@ -30,7 +36,30 @@ def dispatch_install_job(job):
                 "finished_at",
             ]
         )
+        logger.error(
+            "组件部署任务发布失败 | job_id=%s component=%s host_count=%s "
+            "retry_of=%s user_id=%s error_type=%s duration_ms=%s",
+            job.id,
+            job.component,
+            len(job.host_ids or []),
+            job.retry_of_id,
+            job.created_by_id,
+            type(exc).__name__,
+            int((time.monotonic() - started_at) * 1000),
+        )
         raise JobDispatchError(job.id) from exc
+    logger.info(
+        "已发布组件部署任务 | job_id=%s component=%s host_count=%s "
+        "retry_of=%s user_id=%s celery_task_id=%s duration_ms=%s",
+        job.id,
+        job.component,
+        len(job.host_ids or []),
+        job.retry_of_id,
+        job.created_by_id,
+        task.id,
+        int((time.monotonic() - started_at) * 1000),
+    )
+    return task
 
 
 def dispatch_error_response(error):

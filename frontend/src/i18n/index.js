@@ -43,23 +43,9 @@ const i18n = createI18n({
   messages: buildMessages()
 })
 
-// HMR: when any of the locale JSON files change, rebuild messages
-// and hot-replace them so the running app picks up the new strings
-// without a full page reload.
+// Reload locale bundles atomically. Vue and JSON HMR updates can arrive in
+// separate batches, which otherwise lets new keys fall back to another locale.
 if (import.meta.hot) {
-  const reloadMessages = (modules = []) => {
-    const [nextEn, nextZhCN, nextAdminEn, nextAdminZhCN] = modules.map(
-      (mod) => mod?.default || null
-    )
-    const messages = buildMessages({
-      en: deepMergeMessages(nextEn || en, nextAdminEn || adminEn),
-      'zh-CN': deepMergeMessages(nextZhCN || zhCN, nextAdminZhCN || adminZhCN)
-    })
-    Object.entries(messages).forEach(([locale, value]) => {
-      i18n.global.setLocaleMessage(locale, value)
-    })
-  }
-
   import.meta.hot.accept(
     [
       '../locales/en.json',
@@ -67,7 +53,7 @@ if (import.meta.hot) {
       '../admin/locales/en.json',
       '../admin/locales/zh-CN.json'
     ],
-    reloadMessages
+    () => window.location.reload()
   )
 }
 

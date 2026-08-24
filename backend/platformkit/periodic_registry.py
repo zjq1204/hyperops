@@ -1,9 +1,6 @@
 """Shared registry for product-defined periodic tasks."""
 
 import json
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def _is_crontab_schedule(schedule):
@@ -122,10 +119,6 @@ class TaskRegistry:
             name=name, defaults=create_defaults
         )
         if not created:
-            logger.debug(
-                "Periodic task already exists, skipping update: %s",
-                name,
-            )
             return False
 
         PeriodicTasks.update_changed()
@@ -133,18 +126,26 @@ class TaskRegistry:
 
     def apply(self):
         """Write all registered entries to django_celery_beat."""
+        created_count = 0
+        skipped_count = 0
+        failures = []
         for name, entry in self._entries.items():
             try:
                 created = self._apply_one(name, entry)
                 if created:
-                    logger.debug("Registered periodic task: %s", name)
+                    created_count += 1
                 else:
-                    logger.debug("Skipped existing periodic task: %s", name)
-            except Exception:
-                logger.exception(
-                    "Failed to register periodic task %s",
-                    name,
-                )
+                    skipped_count += 1
+            except Exception as exc:
+                failures.append((name, type(exc).__name__))
+        if failures:
+            raise RuntimeError(
+                f"failed to register {len(failures)} periodic task(s)"
+            )
+        return {
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+        }
 
 
 TASK_REGISTRY = TaskRegistry()
@@ -152,4 +153,4 @@ TASK_REGISTRY = TaskRegistry()
 
 def apply_registry():
     """Apply the global TASK_REGISTRY to django_celery_beat."""
-    TASK_REGISTRY.apply()
+    return TASK_REGISTRY.apply()

@@ -42,9 +42,11 @@ def create_user_resources(sender, instance, created, **kwargs):
             create_profile(instance)
     except Exception as e:
         logger.warning(
-            f"Failed to create resources for user "
-            f"{instance.username}: {e}",
-            exc_info=True
+            "用户关联资源创建失败 | operation=create_user_resources "
+            "user_id=%s error_type=%s",
+            instance.id,
+            type(e).__name__,
+            exc_info=True,
         )
 
 
@@ -58,8 +60,10 @@ def create_group_notification_config(sender, instance, created, **kwargs):
         GroupNotificationConfig.objects.get_or_create(group=instance)
     except Exception as exc:
         logger.warning(
-            f"Failed to create group notification config for "
-            f"{instance.name}: {exc}"
+            "用户组通知配置创建失败 | operation=create_group_notification_config "
+            "group_id=%s error_type=%s",
+            instance.id,
+            type(exc).__name__,
         )
 
 
@@ -77,25 +81,14 @@ def create_email_alias(user):
     create EmailAlias for them as it would block the desired username.
     """
     if EmailAlias is None:
-        logger.debug(
-            "EmailAlias model not found, skipping email alias creation"
-        )
         return None
 
     try:
         try:
             profile = user.profile
             if not profile.registration_completed:
-                logger.debug(
-                    f"Skipping EmailAlias creation for user {user.username} "
-                    f"(registration not completed yet)"
-                )
                 return None
         except Profile.DoesNotExist:
-            logger.debug(
-                f"Skipping EmailAlias creation for user {user.username} "
-                f"(profile not created yet)"
-            )
             return None
 
         existing_alias = EmailAlias.objects.filter(
@@ -107,11 +100,6 @@ def create_email_alias(user):
             return existing_alias
 
         if EmailAlias.objects.filter(alias=user.username).exists():
-            logger.warning(
-                f"Username {user.username} already used as alias by "
-                f"another user. Skipping EmailAlias creation for user "
-                f"{user.username}"
-            )
             return None
 
         alias = EmailAlias.objects.create(
@@ -119,14 +107,13 @@ def create_email_alias(user):
             alias=user.username,
             is_active=True
         )
-        logger.info(
-            f"Created email alias {alias.full_email_address()} "
-            f"for user {user.username}"
-        )
         return alias
     except Exception as e:
         logger.warning(
-            f"Failed to create email alias for user {user.username}: {e}"
+            "用户邮件别名创建失败 | operation=create_email_alias "
+            "user_id=%s error_type=%s",
+            user.id,
+            type(e).__name__,
         )
         return None
 
@@ -136,13 +123,10 @@ def create_profile(user):
     Create Profile for user if it doesn't exist
     """
     if Profile is None:
-        logger.warning(
-            "Profile model not found, skipping profile creation"
-        )
         return None
 
     try:
-        profile, created = Profile.objects.get_or_create(
+        profile, _ = Profile.objects.get_or_create(
             user=user,
             defaults={
                 'registration_completed': False,
@@ -150,11 +134,11 @@ def create_profile(user):
                 'timezone': 'Asia/Shanghai'
             }
         )
-        if created:
-            logger.info(f"Created profile for user {user.username}")
         return profile
     except Exception as e:
         logger.warning(
-            f"Failed to create profile for user {user.username}: {e}"
+            "用户资料创建失败 | operation=create_profile user_id=%s error_type=%s",
+            user.id,
+            type(e).__name__,
         )
         return None

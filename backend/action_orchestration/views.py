@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import action
@@ -20,6 +22,8 @@ from action_orchestration.services import (
     reject_action_run,
 )
 from action_orchestration.tasks import execute_action_run_task
+
+logger = logging.getLogger(__name__)
 
 
 class AdminActionTemplateViewSet(ModelViewSet):
@@ -93,7 +97,16 @@ class ActionRunViewSet(ReadOnlyModelViewSet):
             request.user,
             serializer.validated_data.get("input_params") or {},
         )
-        execute_action_run_task.delay(run.id)
+        task = execute_action_run_task.delay(run.id)
+        logger.info(
+            "已创建并提交动作编排 | run_id=%s template_id=%s user_id=%s "
+            "step_count=%s celery_task_id=%s",
+            run.id,
+            template.id,
+            request.user.id,
+            run.step_runs.count(),
+            task.id,
+        )
         return Response(ActionRunSerializer(run).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
@@ -106,7 +119,13 @@ class ActionRunViewSet(ReadOnlyModelViewSet):
                 request.user,
                 approval.validated_data.get("comment", ""),
             )
-            execute_action_run_task.delay(run.id)
+            task = execute_action_run_task.delay(run.id)
+            logger.info(
+                "已提交审批后的动作编排 | run_id=%s user_id=%s celery_task_id=%s",
+                run.id,
+                request.user.id,
+                task.id,
+            )
             run.refresh_from_db()
             return Response(ActionRunSerializer(run).data)
         except PermissionError as exc:

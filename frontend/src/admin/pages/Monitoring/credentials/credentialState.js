@@ -48,6 +48,13 @@ export function credentialLifecycleKey(credential) {
   return readField(credential, 'status', 'status', 'unknown') || 'unknown'
 }
 
+export function credentialTypeKey(credential) {
+  return (
+    readField(credential, 'credentialType', 'credential_type', 'private_key') ||
+    'private_key'
+  )
+}
+
 export function credentialValidationKey(credential) {
   return (
     readMetadataField(

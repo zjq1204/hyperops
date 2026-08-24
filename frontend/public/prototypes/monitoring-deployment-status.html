@@ -1,0 +1,1397 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>部署状态工作区原型</title>
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <style>
+      :root {
+        --bg: #f4f7fa;
+        --surface: #ffffff;
+        --surface-subtle: #f8fafc;
+        --surface-muted: #f1f5f9;
+        --ink: #0f172a;
+        --text: #334155;
+        --muted: #64748b;
+        --quiet: #94a3b8;
+        --line: #dbe3ec;
+        --line-strong: #cbd5e1;
+        --navy: #223248;
+        --blue: #2563eb;
+        --blue-soft: #eff6ff;
+        --red: #be123c;
+        --red-soft: #fff1f2;
+        --red-line: #fecdd3;
+        --green: #047857;
+        --green-soft: #ecfdf5;
+        --green-line: #a7f3d0;
+        --amber: #a16207;
+        --amber-soft: #fffbeb;
+        --shadow: 0 5px 14px rgba(15, 23, 42, 0.08);
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          "Noto Sans SC", "IBM Plex Sans", "PingFang SC", "Microsoft YaHei",
+          ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      button,
+      select {
+        font: inherit;
+      }
+
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .app-shell {
+        display: grid;
+        min-height: 100vh;
+        grid-template-columns: 238px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        border-right: 1px solid var(--line);
+        background: #fbfcfe;
+        padding: 22px 18px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 4px 9px 22px;
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 750;
+      }
+
+      .brand img {
+        width: 38px;
+        height: 38px;
+        object-fit: contain;
+      }
+
+      .nav-label {
+        margin: 8px 10px;
+        color: var(--quiet);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .nav-list {
+        display: grid;
+        gap: 4px;
+      }
+
+      .nav-item {
+        display: flex;
+        min-height: 42px;
+        align-items: center;
+        gap: 11px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        padding: 0 12px;
+        color: var(--muted);
+        font-size: 14px;
+        text-align: left;
+      }
+
+      .nav-item svg {
+        width: 17px;
+        height: 17px;
+      }
+
+      .nav-item.active {
+        background: #eaf1fb;
+        color: #1e4f8f;
+        font-weight: 700;
+      }
+
+      .main {
+        min-width: 0;
+      }
+
+      .topbar {
+        display: flex;
+        min-height: 58px;
+        align-items: center;
+        justify-content: flex-end;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.92);
+        padding: 0 28px;
+      }
+
+      .user-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .avatar {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 50%;
+        background: #64748b;
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .page {
+        width: min(1280px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: 24px 0 42px;
+      }
+
+      .breadcrumb {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        gap: 7px;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .breadcrumb:hover {
+        color: var(--ink);
+      }
+
+      .breadcrumb svg,
+      .button svg,
+      .icon-button svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .page-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 15px 0 20px;
+      }
+
+      .title-wrap {
+        min-width: 0;
+      }
+
+      .page-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 25px;
+        font-weight: 760;
+        line-height: 1.25;
+      }
+
+      .page-subtitle {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 7px;
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .separator {
+        color: var(--line-strong);
+      }
+
+      .component-switch {
+        display: inline-flex;
+        flex: none;
+        gap: 2px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-muted);
+        padding: 3px;
+      }
+
+      .component-switch button {
+        min-width: 96px;
+        min-height: 34px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .component-switch button.active {
+        background: var(--surface);
+        color: var(--ink);
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+      }
+
+      .status-band {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 24px;
+        border: 1px solid var(--red-line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        padding: 18px 20px;
+      }
+
+      .status-band.success {
+        border-color: var(--green-line);
+      }
+
+      .status-main {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .status-icon {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        flex: none;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .status-band.success .status-icon {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .status-icon svg {
+        width: 21px;
+        height: 21px;
+      }
+
+      .status-copy {
+        min-width: 0;
+      }
+
+      .status-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .status-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 18px;
+        font-weight: 760;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        min-height: 24px;
+        align-items: center;
+        border-radius: 999px;
+        background: var(--red-soft);
+        padding: 0 9px;
+        color: var(--red);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .status-band.success .status-pill {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .status-meta {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .status-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        background: var(--surface);
+        padding: 0 14px;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .button:hover {
+        border-color: #94a3b8;
+        background: var(--surface-subtle);
+      }
+
+      .button.primary {
+        border-color: var(--navy);
+        background: var(--navy);
+        color: #fff;
+      }
+
+      .button.primary:hover {
+        border-color: #172235;
+        background: #172235;
+      }
+
+      .workspace {
+        margin-top: 16px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .tabs {
+        display: flex;
+        min-height: 49px;
+        align-items: flex-end;
+        gap: 4px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 18px;
+      }
+
+      .tab {
+        position: relative;
+        min-height: 48px;
+        border: 0;
+        background: transparent;
+        padding: 0 14px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .tab:hover {
+        color: var(--ink);
+      }
+
+      .tab.active {
+        color: var(--ink);
+      }
+
+      .tab.active::after {
+        position: absolute;
+        right: 10px;
+        bottom: -1px;
+        left: 10px;
+        height: 2px;
+        background: var(--navy);
+        content: "";
+      }
+
+      .tab-count {
+        margin-left: 5px;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .panel {
+        display: none;
+      }
+
+      .panel.active {
+        display: block;
+      }
+
+      .overview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(310px, 0.7fr);
+      }
+
+      .primary-column {
+        min-width: 0;
+        border-right: 1px solid var(--line);
+        padding: 22px;
+      }
+
+      .secondary-column {
+        min-width: 0;
+        background: var(--surface-subtle);
+        padding: 22px;
+      }
+
+      .section + .section {
+        margin-top: 24px;
+        border-top: 1px solid var(--line);
+        padding-top: 22px;
+      }
+
+      .section-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .section-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 760;
+      }
+
+      .attempt-select {
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        padding: 0 30px 0 10px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .failure-summary {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 12px;
+        margin-top: 14px;
+        border: 1px solid var(--red-line);
+        border-radius: 7px;
+        background: var(--red-soft);
+        padding: 14px;
+      }
+
+      .failure-summary svg {
+        width: 20px;
+        height: 20px;
+        margin-top: 1px;
+        color: var(--red);
+      }
+
+      .failure-summary h3 {
+        margin: 0;
+        color: #881337;
+        font-size: 14px;
+        font-weight: 760;
+      }
+
+      .failure-summary p {
+        margin: 5px 0 0;
+        color: #9f1239;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .failure-summary.success {
+        border-color: var(--green-line);
+        background: var(--green-soft);
+      }
+
+      .failure-summary.success svg {
+        color: var(--green);
+      }
+
+      .failure-summary.success h3,
+      .failure-summary.success p {
+        color: var(--green);
+      }
+
+      .recovery-list {
+        display: grid;
+        margin-top: 14px;
+      }
+
+      .recovery-item {
+        display: grid;
+        grid-template-columns: 26px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 50px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .recovery-item:last-child {
+        border-bottom: 0;
+      }
+
+      .recovery-number {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .recovery-copy strong {
+        display: block;
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .recovery-copy span {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .text-action {
+        border: 0;
+        background: transparent;
+        padding: 7px;
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .progress-track {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        margin-top: 20px;
+      }
+
+      .progress-step {
+        position: relative;
+        text-align: center;
+      }
+
+      .progress-step::before {
+        position: absolute;
+        top: 11px;
+        right: 50%;
+        left: -50%;
+        height: 2px;
+        background: #b9c6d5;
+        content: "";
+      }
+
+      .progress-step:first-child::before {
+        display: none;
+      }
+
+      .step-dot {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        width: 24px;
+        height: 24px;
+        margin: 0 auto;
+        place-items: center;
+        border: 2px solid #b9c6d5;
+        border-radius: 50%;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .progress-step.done::before,
+      .progress-step.done .step-dot {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+      }
+
+      .progress-step.failed::before {
+        background: var(--blue);
+      }
+
+      .progress-step.failed .step-dot {
+        border-color: var(--red);
+        background: var(--red);
+        color: #fff;
+      }
+
+      .step-label {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .progress-step.done .step-label {
+        color: var(--text);
+      }
+
+      .progress-step.failed .step-label {
+        color: var(--red);
+        font-weight: 700;
+      }
+
+      .facts {
+        display: grid;
+        gap: 0;
+        margin: 13px 0 0;
+      }
+
+      .fact {
+        display: flex;
+        min-height: 44px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+      }
+
+      .fact:last-child {
+        border-bottom: 0;
+      }
+
+      .fact dt {
+        color: var(--muted);
+      }
+
+      .fact dd {
+        margin: 0;
+        color: var(--ink);
+        font-weight: 680;
+        text-align: right;
+      }
+
+      .fact dd.danger {
+        color: var(--red);
+      }
+
+      .technical-toggle {
+        display: flex;
+        width: 100%;
+        min-height: 42px;
+        align-items: center;
+        justify-content: space-between;
+        border: 0;
+        border-top: 1px solid var(--line);
+        background: transparent;
+        padding: 0;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .technical-toggle svg {
+        width: 15px;
+        height: 15px;
+        transition: transform 160ms ease;
+      }
+
+      .technical-toggle.open svg {
+        transform: rotate(180deg);
+      }
+
+      .technical-details {
+        display: none;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+      }
+
+      .technical-details.open {
+        display: block;
+      }
+
+      .technical-details code {
+        color: var(--text);
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+
+      .history-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        padding: 15px 20px;
+      }
+
+      .history-toolbar p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .filter-select {
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        padding: 0 28px 0 10px;
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .history-table-wrap {
+        overflow-x: auto;
+      }
+
+      .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .history-table th {
+        height: 39px;
+        background: var(--surface-subtle);
+        padding: 0 16px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      .history-table td {
+        height: 50px;
+        border-top: 1px solid var(--line);
+        padding: 0 16px;
+        color: var(--text);
+        white-space: nowrap;
+      }
+
+      .history-table tbody tr:hover {
+        background: #fbfdff;
+      }
+
+      .job-link {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: var(--ink);
+        font-weight: 760;
+      }
+
+      .job-link:hover {
+        color: var(--blue);
+      }
+
+      .table-status {
+        display: inline-flex;
+        min-height: 24px;
+        align-items: center;
+        gap: 5px;
+        border-radius: 999px;
+        padding: 0 8px;
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .table-status.success {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .table-status.failed {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .table-status svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      .retry-source {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .icon-button {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .icon-button:hover {
+        border-color: var(--line);
+        background: var(--surface-subtle);
+        color: var(--ink);
+      }
+
+      .log-panel {
+        padding: 20px;
+      }
+
+      .log-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .log-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .log-block {
+        min-height: 390px;
+        max-height: 56vh;
+        overflow: auto;
+        border-radius: 7px;
+        background: #07101f;
+        padding: 18px;
+        color: #dbeafe;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        line-height: 1.65;
+        white-space: pre-wrap;
+      }
+
+      .log-error {
+        color: #fda4af;
+      }
+
+      .toast {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16);
+        padding: 12px 15px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 680;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(8px);
+        transition: opacity 180ms ease, transform 180ms ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .toast svg {
+        width: 17px;
+        height: 17px;
+        color: var(--green);
+      }
+
+      @media (max-width: 980px) {
+        .app-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          display: none;
+        }
+
+        .overview-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .primary-column {
+          border-right: 0;
+        }
+
+        .secondary-column {
+          border-top: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 680px) {
+        .topbar {
+          min-height: 50px;
+          padding: 0 16px;
+        }
+
+        .page {
+          width: min(100% - 24px, 1280px);
+          padding-top: 14px;
+        }
+
+        .page-heading {
+          align-items: stretch;
+          flex-direction: column;
+          gap: 14px;
+          padding-top: 10px;
+        }
+
+        .page-title {
+          font-size: 21px;
+        }
+
+        .component-switch {
+          width: 100%;
+        }
+
+        .component-switch button {
+          flex: 1;
+        }
+
+        .status-band {
+          grid-template-columns: 1fr;
+          padding: 16px;
+        }
+
+        .status-actions {
+          justify-content: stretch;
+        }
+
+        .status-actions .button {
+          flex: 1;
+        }
+
+        .tabs {
+          overflow-x: auto;
+          padding: 0 8px;
+        }
+
+        .tab {
+          flex: none;
+          padding: 0 11px;
+        }
+
+        .primary-column,
+        .secondary-column,
+        .log-panel {
+          padding: 16px;
+        }
+
+        .progress-track {
+          grid-template-columns: repeat(3, 1fr);
+          gap: 20px 0;
+        }
+
+        .progress-step:nth-child(4)::before {
+          display: none;
+        }
+
+        .recovery-item {
+          grid-template-columns: 26px minmax(0, 1fr);
+          padding: 8px 0;
+        }
+
+        .recovery-item .text-action {
+          grid-column: 2;
+          justify-self: start;
+          padding-left: 0;
+        }
+
+        .history-toolbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .history-table th:nth-child(4),
+        .history-table td:nth-child(4),
+        .history-table th:nth-child(5),
+        .history-table td:nth-child(5) {
+          display: none;
+        }
+
+        .log-block {
+          min-height: 430px;
+          font-size: 11px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="/logo-app.png" alt="HyperOps" />
+          <span>HyperOps 管理后台</span>
+        </div>
+        <p class="nav-label">监控接入控制台</p>
+        <nav class="nav-list" aria-label="监控接入控制台">
+          <button class="nav-item"><i data-lucide="layout-dashboard"></i>接入概览</button>
+          <button class="nav-item"><i data-lucide="server"></i>采集主机</button>
+          <button class="nav-item"><i data-lucide="key-round"></i>SSH 凭据</button>
+          <button class="nav-item"><i data-lucide="activity"></i>探测管理</button>
+          <button class="nav-item"><i data-lucide="bell-ring"></i>告警规则</button>
+          <button class="nav-item active"><i data-lucide="history"></i>部署管理</button>
+          <button class="nav-item"><i data-lucide="settings-2"></i>集成配置</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="user-chip"><span class="avatar">A</span><span>admin</span><i data-lucide="chevron-down"></i></div>
+        </header>
+
+        <div class="page">
+          <button class="breadcrumb" type="button" onclick="showToast('返回部署管理')">
+            <i data-lucide="arrow-left"></i>
+            返回部署管理
+          </button>
+
+          <div class="page-heading">
+            <div class="title-wrap">
+              <h1 class="page-title">nexus 的部署状态</h1>
+              <p class="page-subtitle">
+                <span>192.168.10.252</span><span class="separator">/</span><span>Linux 主机</span><span class="separator">/</span><span>最近更新 2026/8/13 13:31</span>
+              </p>
+            </div>
+            <div class="component-switch" aria-label="组件选择">
+              <button type="button" class="active" data-component="categraf">Categraf</button>
+              <button type="button" data-component="blackbox">blackbox</button>
+            </div>
+          </div>
+
+          <section class="status-band" id="statusBand" aria-live="polite">
+            <div class="status-main">
+              <div class="status-icon"><i data-lucide="circle-x"></i></div>
+              <div class="status-copy">
+                <div class="status-title-row">
+                  <h2 class="status-title" id="statusTitle">Categraf 安装失败</h2>
+                  <span class="status-pill" id="statusPill">需要处理</span>
+                </div>
+                <p class="status-meta" id="statusMeta">任务 #9 · 第 4 次尝试 · 2026/8/3 17:41 完成</p>
+              </div>
+            </div>
+            <div class="status-actions" id="statusActions">
+              <button class="button" type="button" onclick="showToast('已打开 SSH 凭据')"><i data-lucide="key-round"></i>检查 SSH 凭据</button>
+              <button class="button primary" type="button" onclick="showToast('重试任务已下发')"><i data-lucide="rotate-cw"></i>重试部署</button>
+            </div>
+          </section>
+
+          <section class="workspace">
+            <div class="tabs" role="tablist" aria-label="部署状态视图">
+              <button class="tab active" type="button" role="tab" data-tab="current">当前状态</button>
+              <button class="tab" type="button" role="tab" data-tab="history">执行记录<span class="tab-count" id="historyCount">9</span></button>
+              <button class="tab" type="button" role="tab" data-tab="logs">安装日志</button>
+            </div>
+
+            <div class="panel active" id="panel-current" role="tabpanel">
+              <div class="overview-grid">
+                <div class="primary-column" id="diagnosticColumn">
+                  <section class="section">
+                    <div class="section-heading">
+                      <h2 class="section-title">失败定位</h2>
+                      <select class="attempt-select" aria-label="选择任务尝试">
+                        <option>第 4 次尝试 · #9</option>
+                        <option>第 3 次尝试 · #8</option>
+                        <option>第 2 次尝试 · #6</option>
+                        <option>第 1 次尝试 · #5</option>
+                      </select>
+                    </div>
+                    <div class="failure-summary">
+                      <i data-lucide="shield-alert"></i>
+                      <div>
+                        <h3>SSH 私钥无法被运行环境读取</h3>
+                        <p>当前凭据加载失败，安装程序尚未连接到主机。更新凭据并验证连接后即可重新部署。</p>
+                      </div>
+                    </div>
+                    <div class="recovery-list">
+                      <div class="recovery-item">
+                        <span class="recovery-number">1</span>
+                        <div class="recovery-copy"><strong>检查当前 SSH 凭据</strong><span>确认凭据版本有效且未归档</span></div>
+                        <button class="text-action" type="button" onclick="showToast('已打开凭据详情')">打开凭据</button>
+                      </div>
+                      <div class="recovery-item">
+                        <span class="recovery-number">2</span>
+                        <div class="recovery-copy"><strong>验证主机连接</strong><span>先验证认证与网络，再执行安装</span></div>
+                        <button class="text-action" type="button" onclick="showToast('连接验证已开始')">验证连接</button>
+                      </div>
+                      <div class="recovery-item">
+                        <span class="recovery-number">3</span>
+                        <div class="recovery-copy"><strong>重新部署 Categraf</strong><span>验证通过后重新下发当前配置</span></div>
+                        <button class="text-action" type="button" onclick="showToast('重试任务已下发')">重新部署</button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="section">
+                    <div class="section-heading"><h2 class="section-title">本次执行进度</h2></div>
+                    <div class="progress-track" aria-label="安装进度">
+                      <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">已下发</span></div>
+                      <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">准备环境</span></div>
+                      <div class="progress-step failed"><span class="step-dot"><i data-lucide="x"></i></span><span class="step-label">连接主机</span></div>
+                      <div class="progress-step"><span class="step-dot">4</span><span class="step-label">执行安装</span></div>
+                      <div class="progress-step"><span class="step-dot">5</span><span class="step-label">校验结果</span></div>
+                      <div class="progress-step"><span class="step-dot">6</span><span class="step-label">完成</span></div>
+                    </div>
+                  </section>
+                </div>
+
+                <aside class="secondary-column" id="taskInfoColumn">
+                  <section class="section">
+                    <div class="section-heading"><h2 class="section-title">任务信息</h2></div>
+                    <dl class="facts">
+                      <div class="fact"><dt>任务编号</dt><dd>#9</dd></div>
+                      <div class="fact"><dt>最终状态</dt><dd class="danger">安装失败</dd></div>
+                      <div class="fact"><dt>主机结果</dt><dd>0 / 1</dd></div>
+                      <div class="fact"><dt>开始时间</dt><dd>2026/8/3 17:41</dd></div>
+                      <div class="fact"><dt>耗时</dt><dd>2 秒</dd></div>
+                      <div class="fact"><dt>返回码</dt><dd>1</dd></div>
+                      <div class="fact"><dt>触发人</dt><dd>admin</dd></div>
+                    </dl>
+                  </section>
+                  <section class="section">
+                    <button class="technical-toggle" id="technicalToggle" type="button">
+                      技术信息
+                      <i data-lucide="chevron-down"></i>
+                    </button>
+                    <div class="technical-details" id="technicalDetails">
+                      <dl class="facts">
+                        <div class="fact"><dt>失败代码</dt><dd><code>ssh_key_invalid</code></dd></div>
+                        <div class="fact"><dt>凭据版本</dt><dd><code>v3</code></dd></div>
+                        <div class="fact"><dt>安装目录</dt><dd><code>/opt/categraf</code></dd></div>
+                      </dl>
+                    </div>
+                  </section>
+                </aside>
+              </div>
+            </div>
+
+            <div class="panel" id="panel-history" role="tabpanel">
+              <div class="history-toolbar">
+                <p id="historyDescription">保留该主机 Categraf 的全部执行记录，最新记录在最上方。</p>
+                <select class="filter-select" aria-label="状态筛选">
+                  <option>全部状态</option>
+                  <option>成功</option>
+                  <option>安装失败</option>
+                </select>
+              </div>
+              <div class="history-table-wrap">
+                <table class="history-table">
+                  <thead><tr><th>任务</th><th>状态</th><th>执行关系</th><th>开始时间</th><th>耗时</th><th>操作</th></tr></thead>
+                  <tbody id="historyBody">
+                    <tr><td><button class="job-link" data-open-job="#10">#10</button></td><td><span class="table-status success"><i data-lucide="circle-check"></i>成功</span></td><td><span class="retry-source">重试 #9</span></td><td>2026/8/13 13:31</td><td>44 秒</td><td><button class="icon-button" title="查看任务 #10" data-open-job="#10"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#9">#9</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">重试 #8</span></td><td>2026/8/3 17:41</td><td>2 秒</td><td><button class="icon-button" title="查看任务 #9" data-open-job="#9"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#8">#8</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">重试 #6</span></td><td>2026/8/3 17:40</td><td>3 秒</td><td><button class="icon-button" title="查看任务 #8" data-open-job="#8"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#7">#7</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">独立执行</span></td><td>2026/7/31 15:53</td><td>4 秒</td><td><button class="icon-button" title="查看任务 #7" data-open-job="#7"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#6">#6</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">重试 #5</span></td><td>2026/7/31 15:44</td><td>3 秒</td><td><button class="icon-button" title="查看任务 #6" data-open-job="#6"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#5">#5</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">独立执行</span></td><td>2026/7/31 15:37</td><td>3 秒</td><td><button class="icon-button" title="查看任务 #5" data-open-job="#5"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#4">#4</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">重试 #3</span></td><td>2026/7/31 14:11</td><td>9 秒</td><td><button class="icon-button" title="查看任务 #4" data-open-job="#4"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#3">#3</button></td><td><span class="table-status failed"><i data-lucide="circle-x"></i>安装失败</span></td><td><span class="retry-source">独立执行</span></td><td>2026/7/31 14:03</td><td>27 秒</td><td><button class="icon-button" title="查看任务 #3" data-open-job="#3"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                    <tr><td><button class="job-link" data-open-job="#2">#2</button></td><td><span class="table-status success"><i data-lucide="circle-check"></i>成功</span></td><td><span class="retry-source">独立执行</span></td><td>2026/7/30 11:17</td><td>3 秒</td><td><button class="icon-button" title="查看任务 #2" data-open-job="#2"><i data-lucide="arrow-up-right"></i></button></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel" id="panel-logs" role="tabpanel">
+              <div class="log-panel">
+                <div class="log-head">
+                  <p id="logContext">任务 #9 · 第 4 次尝试 · 完整 Ansible 输出</p>
+                  <button class="button" type="button" onclick="showToast('日志已复制')"><i data-lucide="copy"></i>复制日志</button>
+                </div>
+                <pre class="log-block" id="logBlock">PLAY [Install Categraf by unified installer] ******************************
+
+TASK [Run unified Categraf installer] *************************************
+<span class="log-error">[ERROR]: Task failed: Failed to connect to the host via ssh
+Load key "/opt/storage/monitoring_stack/ssh/credential-v3.pem": error in libcrypto
+root@192.168.10.252: Permission denied (publickey,password).</span>
+
+fatal: [nexus]: UNREACHABLE! =&gt; {
+  "changed": false,
+  "unreachable": true
+}
+
+PLAY RECAP ****************************************************************
+nexus : ok=0 changed=0 unreachable=1 failed=0 skipped=0</pre>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"><i data-lucide="circle-check"></i><span id="toastText"></span></div>
+
+    <script>
+      const tabs = document.querySelectorAll('.tab')
+      const panels = document.querySelectorAll('.panel')
+      const componentButtons = document.querySelectorAll('[data-component]')
+      const statusBand = document.getElementById('statusBand')
+      const statusTitle = document.getElementById('statusTitle')
+      const statusPill = document.getElementById('statusPill')
+      const statusMeta = document.getElementById('statusMeta')
+      const statusActions = document.getElementById('statusActions')
+      const technicalToggle = document.getElementById('technicalToggle')
+      const technicalDetails = document.getElementById('technicalDetails')
+      const diagnosticColumn = document.getElementById('diagnosticColumn')
+      const taskInfoColumn = document.getElementById('taskInfoColumn')
+      const historyCount = document.getElementById('historyCount')
+      const historyDescription = document.getElementById('historyDescription')
+      const historyBody = document.getElementById('historyBody')
+      const logContext = document.getElementById('logContext')
+      const logBlock = document.getElementById('logBlock')
+      const categrafDiagnosticMarkup = diagnosticColumn.innerHTML
+      const categrafTaskMarkup = taskInfoColumn.innerHTML
+      const categrafHistoryMarkup = historyBody.innerHTML
+      const categrafLogMarkup = logBlock.innerHTML
+      let toastTimer
+
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          tabs.forEach((item) => item.classList.remove('active'))
+          panels.forEach((panel) => panel.classList.remove('active'))
+          tab.classList.add('active')
+          document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active')
+        })
+      })
+
+      componentButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          componentButtons.forEach((item) => item.classList.remove('active'))
+          button.classList.add('active')
+          const isBlackbox = button.dataset.component === 'blackbox'
+          statusBand.classList.toggle('success', isBlackbox)
+          statusTitle.textContent = isBlackbox ? 'blackbox 运行正常' : 'Categraf 安装失败'
+          statusPill.textContent = isBlackbox ? '已安装' : '需要处理'
+          statusMeta.textContent = isBlackbox
+            ? '任务 #11 · 第 1 次尝试 · 2026/8/13 15:11 完成'
+            : '任务 #9 · 第 4 次尝试 · 2026/8/3 17:41 完成'
+          statusActions.innerHTML = isBlackbox
+            ? '<button class="button" type="button" onclick="showToast(\'已打开任务 #11\')"><i data-lucide="file-text"></i>查看详情</button><button class="button" type="button" onclick="showToast(\'重新部署任务已下发\')"><i data-lucide="rotate-cw"></i>重新部署</button>'
+            : '<button class="button" type="button" onclick="showToast(\'已打开 SSH 凭据\')"><i data-lucide="key-round"></i>检查 SSH 凭据</button><button class="button primary" type="button" onclick="showToast(\'重试任务已下发\')"><i data-lucide="rotate-cw"></i>重试部署</button>'
+          diagnosticColumn.innerHTML = isBlackbox
+            ? `<section class="section">
+                <div class="section-heading"><h2 class="section-title">当前运行状态</h2></div>
+                <div class="failure-summary success">
+                  <i data-lucide="shield-check"></i>
+                  <div><h3>blackbox 已安装并正常运行</h3><p>最近一次部署成功，探针节点已被 Prometheus 正常采集，无需处理。</p></div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-heading"><h2 class="section-title">最近执行进度</h2></div>
+                <div class="progress-track" aria-label="安装进度">
+                  <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">已下发</span></div>
+                  <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">准备环境</span></div>
+                  <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">连接主机</span></div>
+                  <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">执行安装</span></div>
+                  <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">校验结果</span></div>
+                  <div class="progress-step done"><span class="step-dot"><i data-lucide="check"></i></span><span class="step-label">完成</span></div>
+                </div>
+              </section>`
+            : categrafDiagnosticMarkup
+          taskInfoColumn.innerHTML = isBlackbox
+            ? `<section class="section">
+                <div class="section-heading"><h2 class="section-title">任务信息</h2></div>
+                <dl class="facts">
+                  <div class="fact"><dt>任务编号</dt><dd>#11</dd></div>
+                  <div class="fact"><dt>最终状态</dt><dd style="color:var(--green)">成功</dd></div>
+                  <div class="fact"><dt>主机结果</dt><dd>1 / 1</dd></div>
+                  <div class="fact"><dt>开始时间</dt><dd>2026/8/13 15:11</dd></div>
+                  <div class="fact"><dt>耗时</dt><dd>14 秒</dd></div>
+                  <div class="fact"><dt>返回码</dt><dd>0</dd></div>
+                  <div class="fact"><dt>触发人</dt><dd>admin</dd></div>
+                </dl>
+              </section>`
+            : categrafTaskMarkup
+          historyCount.textContent = isBlackbox ? '1' : '9'
+          historyDescription.textContent = isBlackbox
+            ? '该主机 blackbox 当前只有 1 次执行记录。'
+            : '保留该主机 Categraf 的全部执行记录，最新记录在最上方。'
+          historyBody.innerHTML = isBlackbox
+            ? '<tr><td><button class="job-link" data-open-job="#11">#11</button></td><td><span class="table-status success"><i data-lucide="circle-check"></i>成功</span></td><td><span class="retry-source">独立执行</span></td><td>2026/8/13 15:11</td><td>14 秒</td><td><button class="icon-button" title="查看任务 #11" data-open-job="#11"><i data-lucide="arrow-up-right"></i></button></td></tr>'
+            : categrafHistoryMarkup
+          logContext.textContent = isBlackbox
+            ? '任务 #11 · 第 1 次尝试 · 完整 Ansible 输出'
+            : '任务 #9 · 第 4 次尝试 · 完整 Ansible 输出'
+          logBlock.innerHTML = isBlackbox
+            ? 'PLAY [Install blackbox-exporter] ***************************************\n\nTASK [Start blackbox-exporter] ******************************************\nchanged: [nexus]\n\nTASK [Verify exporter health] ******************************************\nok: [nexus] =&gt; {"status": "healthy"}\n\nPLAY RECAP *************************************************************\nnexus : ok=4 changed=2 unreachable=0 failed=0 skipped=0'
+            : categrafLogMarkup
+          lucide.createIcons()
+          bindJobLinks()
+          showToast(isBlackbox ? '已切换到 blackbox' : '已切换到 Categraf')
+        })
+      })
+
+      document.querySelector('.workspace').addEventListener('click', (event) => {
+        const toggle = event.target.closest('#technicalToggle')
+        if (!toggle) return
+        toggle.classList.toggle('open')
+        document.getElementById('technicalDetails')?.classList.toggle('open')
+      })
+
+      function bindJobLinks() {
+        document.querySelectorAll('[data-open-job]').forEach((button) => {
+          button.onclick = () => {
+            tabs.forEach((item) => item.classList.toggle('active', item.dataset.tab === 'logs'))
+            panels.forEach((panel) => panel.classList.toggle('active', panel.id === 'panel-logs'))
+            showToast(`已打开任务 ${button.dataset.openJob} 的日志`)
+          }
+        })
+      }
+
+      function showToast(message) {
+        const toast = document.getElementById('toast')
+        document.getElementById('toastText').textContent = message
+        toast.classList.add('show')
+        window.clearTimeout(toastTimer)
+        toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2200)
+      }
+
+      window.showToast = showToast
+      bindJobLinks()
+      lucide.createIcons()
+    </script>
+  </body>
+</html>

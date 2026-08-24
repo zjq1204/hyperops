@@ -174,13 +174,10 @@ export const adminRoutes = [
   },
   {
     path: '/management/monitoring/installers',
-    name: 'AdminMonitoringInstallers',
-    component: () => import('@/admin/pages/Monitoring/Installers.vue'),
-    meta: {
-      requiresAuth: true,
-      requiredFeature: 'admin_monitoring',
-      requiresModuleFlag: 'enable_monitoring'
-    }
+    redirect: () => ({
+      path: '/management/monitoring/jobs',
+      query: { view: 'resources' }
+    })
   },
   {
     path: '/management/monitoring/probes',
@@ -267,6 +264,17 @@ export const adminRoutes = [
     path: '/management/monitoring/jobs',
     name: 'AdminMonitoringJobs',
     component: () => import('@/admin/pages/Monitoring/Jobs.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'admin_monitoring',
+      requiresModuleFlag: 'enable_monitoring'
+    }
+  },
+  {
+    path: '/management/monitoring/jobs/hosts/:hostId',
+    name: 'AdminMonitoringHostDeploymentStatus',
+    component: () =>
+      import('@/admin/pages/Monitoring/HostDeploymentStatus.vue'),
     meta: {
       requiresAuth: true,
       requiredFeature: 'admin_monitoring',

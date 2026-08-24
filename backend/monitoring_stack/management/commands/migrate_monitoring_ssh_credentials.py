@@ -32,6 +32,8 @@ class Command(BaseCommand):
 
     def _process(self, credential, **options):
         base = {"credential_id": credential.id, "name": credential.name}
+        if credential.credential_type == credential.TYPE_PASSWORD:
+            return {**base, "result": "not_applicable", "plaintext_action": "none"}
         path = credential.storage_path
         if credential.active_version_id:
             try:

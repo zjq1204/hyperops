@@ -3,6 +3,7 @@ Jenkins Trigger views.
 """
 
 import logging
+import time
 from copy import deepcopy
 from datetime import datetime, timezone as dt_timezone
 
@@ -186,9 +187,10 @@ def refresh_record_pipeline_progress(record: TriggerRecord, client: JenkinsClien
         progress = client.get_pipeline_progress(record.entry.job_name, record.build_number)
     except Exception as exc:
         logger.warning(
-            "Failed to refresh Pipeline progress for record %s: %s",
+            "Jenkins 流水线进度降级 | integration=jenkins operation=refresh_progress "
+            "record_id=%s error_type=%s",
             record.pk,
-            exc,
+            type(exc).__name__,
         )
         progress = None
 
@@ -401,9 +403,9 @@ def resolve_param_default_values(
         latest_build_params = client.get_last_successful_build_params(job_name)
     except Exception as exc:
         logger.warning(
-            "Failed to resolve last successful build params for %s: %s",
-            job_name,
-            exc,
+            "Jenkins 参数默认值降级 | integration=jenkins "
+            "operation=resolve_last_successful_params error_type=%s",
+            type(exc).__name__,
         )
         latest_build_params = {}
 
@@ -749,6 +751,7 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
             )
 
         client = get_jenkins_client(instance)
+        started_at = time.monotonic()
         try:
             jobs = client.list_jobs()
             payload = build_job_catalog_payload(instance, jobs)
@@ -767,8 +770,11 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
             )
             request_id = get_request_id(request)
             logger.exception(
-                "Failed to list Jenkins jobs instance_id=%s request_id=%s",
+                "Jenkins Job 列表获取失败 | integration=jenkins operation=list_jobs "
+                "instance_id=%s error_type=%s duration_ms=%s request_id=%s",
                 instance.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
                 request_id,
             )
             if cached_payload:
@@ -910,6 +916,7 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
             )
 
         client = get_jenkins_client(instance)
+        started_at = time.monotonic()
         try:
             params = client.get_job_params(job_name)
             resolved_params = resolve_param_default_values(client, job_name, params)
@@ -919,7 +926,14 @@ class JenkinsInstanceViewSet(viewsets.ModelViewSet):
                 exc,
                 default_detail="获取 Jenkins 参数失败，请稍后重试",
             )
-            logger.exception("Failed to fetch params request_id=%s", get_request_id(request))
+            logger.exception(
+                "Jenkins 参数获取失败 | integration=jenkins operation=get_job_params "
+                "instance_id=%s error_type=%s duration_ms=%s request_id=%s",
+                instance.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
+                get_request_id(request),
+            )
             return api_error_response(
                 request,
                 error_code=public_error.error_code,
@@ -970,6 +984,7 @@ class TriggerEntryViewSet(viewsets.ModelViewSet):
         entry = self.get_object()
 
         client = get_jenkins_client(entry.instance)
+        started_at = time.monotonic()
         try:
             jenkins_params = client.get_job_params(entry.job_name)
         except Exception as exc:
@@ -978,8 +993,12 @@ class TriggerEntryViewSet(viewsets.ModelViewSet):
                 default_detail="获取 Jenkins 参数失败，请稍后重试",
             )
             logger.exception(
-                "Failed to fetch entry params entry_id=%s request_id=%s",
+                "Jenkins 入口参数获取失败 | integration=jenkins operation=get_job_params "
+                "instance_id=%s entry_id=%s error_type=%s duration_ms=%s request_id=%s",
+                entry.instance_id,
                 entry.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
                 get_request_id(request),
             )
             return api_error_response(
@@ -1008,6 +1027,7 @@ class TriggerEntryViewSet(viewsets.ModelViewSet):
         entry = self.get_object()
 
         client = get_jenkins_client(entry.instance)
+        started_at = time.monotonic()
         try:
             jenkins_params = client.get_job_params(entry.job_name)
         except Exception as exc:
@@ -1016,8 +1036,12 @@ class TriggerEntryViewSet(viewsets.ModelViewSet):
                 default_detail="获取 Jenkins 参数失败，请稍后重试",
             )
             logger.exception(
-                "Failed to fetch admin entry params entry_id=%s request_id=%s",
+                "Jenkins 管理参数获取失败 | integration=jenkins operation=get_job_params "
+                "instance_id=%s entry_id=%s error_type=%s duration_ms=%s request_id=%s",
+                entry.instance_id,
                 entry.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
                 get_request_id(request),
             )
             return api_error_response(
@@ -1088,6 +1112,7 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
         user_params = serializer.validated_data.get("params", {})
         params_config = entry.params_config or {}
         client = get_jenkins_client(entry.instance)
+        started_at = time.monotonic()
         try:
             jenkins_params = client.get_job_params(entry.job_name)
             final_params = build_trigger_params(
@@ -1102,8 +1127,12 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
                 default_detail="触发 Jenkins 构建失败，请稍后重试",
             )
             logger.exception(
-                "Failed to trigger build entry_id=%s request_id=%s",
+                "Jenkins 构建触发失败 | integration=jenkins operation=trigger_build "
+                "instance_id=%s entry_id=%s error_type=%s duration_ms=%s request_id=%s",
+                entry.instance_id,
                 entry.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
                 get_request_id(request),
             )
             return api_error_response(
@@ -1133,6 +1162,17 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
                 "stage_summary",
                 "pipeline_supported",
             ]
+        )
+        logger.info(
+            "Jenkins 构建触发成功 | integration=jenkins operation=trigger_build "
+            "instance_id=%s entry_id=%s record_id=%s queue_id=%s "
+            "build_number=%s duration_ms=%s",
+            entry.instance_id,
+            entry.id,
+            record.id,
+            trigger_result.queue_id,
+            record.build_number,
+            int((time.monotonic() - started_at) * 1000),
         )
 
         return Response(
@@ -1177,8 +1217,24 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        old_status = record.status
+        started_at = time.monotonic()
         try:
             record = refresh_trigger_record_status(record)
+            if record.status != old_status:
+                logger.info(
+                    "Jenkins 构建状态已更新 | integration=jenkins "
+                    "operation=refresh_build_status instance_id=%s entry_id=%s "
+                    "record_id=%s build_number=%s old_status=%s new_status=%s "
+                    "duration_ms=%s",
+                    record.entry.instance_id,
+                    record.entry_id,
+                    record.id,
+                    record.build_number,
+                    old_status,
+                    record.status,
+                    int((time.monotonic() - started_at) * 1000),
+                )
             return Response(
                 TriggerRecordSerializer(
                     record, context={"request": request}
@@ -1190,8 +1246,12 @@ class TriggerRecordViewSet(viewsets.ReadOnlyModelViewSet):
                 default_detail="刷新 Jenkins 构建状态失败，请稍后重试",
             )
             logger.exception(
-                "Failed to refresh status record_id=%s request_id=%s",
+                "Jenkins 构建状态刷新失败 | integration=jenkins "
+                "operation=refresh_build_status record_id=%s error_type=%s "
+                "duration_ms=%s request_id=%s",
                 record.id,
+                type(exc).__name__,
+                int((time.monotonic() - started_at) * 1000),
                 get_request_id(request),
             )
             return api_error_response(

@@ -391,31 +391,7 @@
             </div>
           </div>
 
-          <div v-if="form.sshAuthType === 'password'" class="mt-4">
-            <label class="admin-filter-field">
-              <span class="admin-filter-label">
-                {{ t('adminPages.monitoring.sshPassword') }}
-                <span
-                  v-if="form.id && form.hasSshPassword"
-                  class="ml-2 text-xs font-normal text-emerald-600"
-                >
-                  {{ t('adminPages.monitoring.passwordConfigured') }}
-                </span>
-              </span>
-              <input
-                v-model="form.sshPassword"
-                type="password"
-                class="admin-filter-control"
-                :placeholder="
-                  form.id && form.hasSshPassword
-                    ? t('adminPages.monitoring.passwordKeepHint')
-                    : ''
-                "
-              />
-            </label>
-          </div>
-
-          <div v-else class="mt-4 grid gap-3">
+          <div class="mt-4 grid gap-3">
             <div class="flex items-end gap-2">
               <label class="admin-filter-field min-w-0 flex-1">
                 <span class="admin-filter-label">{{
@@ -426,7 +402,7 @@
                     {{ t('adminPages.monitoring.selectSshCredential') }}
                   </option>
                   <option
-                    v-for="credential in sshCredentials"
+                    v-for="credential in credentialsForAuthType"
                     :key="credential.id"
                     :value="credential.id"
                   >
@@ -465,28 +441,37 @@
               v-if="selectedSshCredential"
               class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-y border-slate-200 py-2 text-xs"
             >
-              <dt class="text-slate-500">
+              <dt v-if="form.sshAuthType === 'key'" class="text-slate-500">
                 {{ t('monitoringCredentials.algorithm') }}
               </dt>
-              <dd class="truncate font-medium text-slate-700">
+              <dd
+                v-if="form.sshAuthType === 'key'"
+                class="truncate font-medium text-slate-700"
+              >
                 {{ credentialAlgorithmLabel(selectedSshCredential) }}
               </dd>
-              <dt class="text-slate-500">
+              <dt v-if="form.sshAuthType === 'key'" class="text-slate-500">
                 {{ t('monitoringCredentials.fingerprint') }}
               </dt>
-              <dd class="truncate font-mono text-slate-700">
+              <dd
+                v-if="form.sshAuthType === 'key'"
+                class="truncate font-mono text-slate-700"
+              >
                 {{ credentialFingerprint(selectedSshCredential) }}
               </dd>
               <dt class="text-slate-500">
                 {{ t('monitoringCredentials.validation') }}
               </dt>
               <dd class="font-medium text-slate-700">
-                {{ selectedCredentialValidationText }} ·
-                {{
-                  credentialHasPassphrase(selectedSshCredential)
-                    ? t('adminPages.monitoring.passphraseProtected')
-                    : t('adminPages.monitoring.noPassphrase')
-                }}
+                {{ selectedCredentialValidationText }}
+                <template v-if="form.sshAuthType === 'key'">
+                  ·
+                  {{
+                    credentialHasPassphrase(selectedSshCredential)
+                      ? t('adminPages.monitoring.passphraseProtected')
+                      : t('adminPages.monitoring.noPassphrase')
+                  }}
+                </template>
               </dd>
             </dl>
           </div>
@@ -609,7 +594,7 @@
 
     <BaseModal
       :show="showCategrafForm"
-      :title="t('adminPages.monitoring.installCategraf')"
+      :title="categrafModalTitle"
       size="wide"
       @close="closeCategrafInstall"
     >
@@ -695,15 +680,17 @@
                         : 'bg-rose-50 text-rose-700'
                     "
                   >
-                    {{
-                      t('adminPages.monitoring.selectedProfileCount', {
-                        count: categrafForm.profiles.length
-                      })
-                    }}
+                    {{ profileSelectionSummary }}
                   </span>
                 </div>
                 <p
-                  v-if="!categrafForm.profiles.length"
+                  v-if="capabilityAdjustmentMode && !newCategrafProfiles.length"
+                  class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                >
+                  {{ t('adminPages.monitoring.selectNewCapabilityHint') }}
+                </p>
+                <p
+                  v-else-if="!categrafForm.profiles.length"
                   class="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700"
                 >
                   {{ t('adminPages.monitoring.profileRequiredHint') }}
@@ -719,11 +706,35 @@
                     v-model="categrafForm.profiles"
                     type="checkbox"
                     :value="profile.id"
+                    :disabled="
+                      capabilityAdjustmentMode &&
+                      initialCategrafProfiles.includes(profile.id)
+                    "
                   />
-                  <span class="min-w-0">
+                  <span
+                    class="flex min-w-0 flex-1 items-center justify-between gap-2"
+                  >
                     <span class="block text-sm font-semibold text-slate-900">{{
                       profile.name || profile.id
                     }}</span>
+                    <span
+                      v-if="
+                        capabilityAdjustmentMode &&
+                        initialCategrafProfiles.includes(profile.id)
+                      "
+                      class="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[0.6875rem] font-semibold text-emerald-700"
+                    >
+                      {{ t('adminPages.monitoring.existingCapability') }}
+                    </span>
+                    <span
+                      v-else-if="
+                        capabilityAdjustmentMode &&
+                        categrafForm.profiles.includes(profile.id)
+                      "
+                      class="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[0.6875rem] font-semibold text-blue-700"
+                    >
+                      {{ t('adminPages.monitoring.newCapability') }}
+                    </span>
                   </span>
                 </label>
               </div>
@@ -734,6 +745,18 @@
                 <h3 class="text-base font-semibold text-slate-900">
                   {{ t('adminPages.monitoring.stepParamsTitle') }}
                 </h3>
+                <p
+                  v-if="capabilityAdjustmentMode"
+                  class="mt-2 text-xs leading-5 text-slate-500"
+                >
+                  {{ t('adminPages.monitoring.inheritedParamsNotice') }}
+                </p>
+                <p
+                  v-if="capabilityAdjustmentMode && !newCapabilityParamsValid"
+                  class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                >
+                  {{ t('adminPages.monitoring.newCapabilityParamsRequired') }}
+                </p>
               </div>
               <section
                 class="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
@@ -900,47 +923,139 @@
               <section
                 class="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
               >
-                <h4 class="text-sm font-semibold text-slate-900">
-                  {{ t('adminPages.monitoring.deploySettings') }}
-                </h4>
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 class="text-sm font-semibold text-slate-900">
+                      {{ t('adminPages.monitoring.deploymentSettingsTitle') }}
+                    </h4>
+                    <p
+                      v-if="capabilityAdjustmentMode"
+                      class="mt-1 text-xs leading-5 text-slate-500"
+                    >
+                      {{ t('adminPages.monitoring.deploymentSettingsHint') }}
+                    </p>
+                  </div>
+                  <div
+                    v-if="capabilityAdjustmentMode"
+                    class="flex flex-wrap items-center gap-2"
+                  >
+                    <span
+                      class="inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold"
+                      :class="
+                        deploymentSettingChanges.length
+                          ? 'border-amber-200 bg-amber-50 text-amber-700'
+                          : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      "
+                    >
+                      {{ deploymentSettingStatus }}
+                    </span>
+                    <BaseButton
+                      v-if="deploymentSettingChanges.length"
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      @click="resetDeploymentSettings"
+                    >
+                      {{ t('adminPages.monitoring.restoreDeploymentSettings') }}
+                    </BaseButton>
+                  </div>
+                </div>
                 <div class="mt-3 grid gap-3 sm:grid-cols-2">
                   <label class="admin-filter-field sm:col-span-2">
-                    <span class="admin-filter-label">{{
-                      t('adminPages.monitoring.n9eUrl')
-                    }}</span>
+                    <span class="flex items-center justify-between gap-2">
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.n9eUrl')
+                      }}</span>
+                      <span
+                        v-if="
+                          capabilityAdjustmentMode &&
+                          deploymentSettingChanged('n9eUrl')
+                        "
+                        class="text-xs font-medium text-amber-700"
+                      >
+                        {{
+                          t('adminPages.monitoring.deploymentSettingModified')
+                        }}
+                      </span>
+                    </span>
                     <input
                       v-model="categrafForm.n9eUrl"
                       class="admin-filter-control"
                     />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{
-                      t('adminPages.monitoring.installDir')
-                    }}</span>
+                    <span class="flex items-center justify-between gap-2">
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.installDir')
+                      }}</span>
+                      <span
+                        v-if="
+                          capabilityAdjustmentMode &&
+                          deploymentSettingChanged('installDir')
+                        "
+                        class="text-xs font-medium text-amber-700"
+                      >
+                        {{
+                          t('adminPages.monitoring.deploymentSettingModified')
+                        }}
+                      </span>
+                    </span>
                     <input
                       v-model="categrafForm.installDir"
                       class="admin-filter-control"
                     />
                   </label>
                   <label class="admin-filter-field">
-                    <span class="admin-filter-label">{{
-                      t('adminPages.monitoring.image')
-                    }}</span>
+                    <span class="flex items-center justify-between gap-2">
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.image')
+                      }}</span>
+                      <span
+                        v-if="
+                          capabilityAdjustmentMode &&
+                          deploymentSettingChanged('image')
+                        "
+                        class="text-xs font-medium text-amber-700"
+                      >
+                        {{
+                          t('adminPages.monitoring.deploymentSettingModified')
+                        }}
+                      </span>
+                    </span>
                     <input
                       v-model="categrafForm.image"
                       class="admin-filter-control"
                     />
                   </label>
                   <label class="admin-filter-field sm:col-span-2">
-                    <span class="admin-filter-label">{{
-                      t('adminPages.monitoring.baseUrl')
-                    }}</span>
+                    <span class="flex items-center justify-between gap-2">
+                      <span class="admin-filter-label">{{
+                        t('adminPages.monitoring.baseUrl')
+                      }}</span>
+                      <span
+                        v-if="
+                          capabilityAdjustmentMode &&
+                          deploymentSettingChanged('baseUrl')
+                        "
+                        class="text-xs font-medium text-amber-700"
+                      >
+                        {{
+                          t('adminPages.monitoring.deploymentSettingModified')
+                        }}
+                      </span>
+                    </span>
                     <input
                       v-model="categrafForm.baseUrl"
                       class="admin-filter-control"
                     />
                   </label>
                 </div>
+                <p
+                  v-if="!deploymentSettingsValid"
+                  class="mt-3 text-xs font-medium text-amber-700"
+                >
+                  {{ t('adminPages.monitoring.deploymentSettingsRequired') }}
+                </p>
               </section>
             </div>
 
@@ -950,6 +1065,50 @@
                   {{ t('adminPages.monitoring.stepPreviewTitle') }}
                 </h3>
               </div>
+              <section
+                v-if="capabilityAdjustmentMode"
+                class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800"
+              >
+                {{ t('adminPages.monitoring.safeCapabilityUpdateNotice') }}
+              </section>
+              <section
+                v-if="capabilityAdjustmentMode"
+                class="rounded-xl border border-slate-200 bg-white p-4"
+              >
+                <h4 class="text-sm font-semibold text-slate-900">
+                  {{
+                    t('adminPages.monitoring.deploymentSettingsChangeSummary')
+                  }}
+                </h4>
+                <p
+                  v-if="!deploymentSettingChanges.length"
+                  class="mt-2 text-sm leading-6 text-slate-600"
+                >
+                  {{ t('adminPages.monitoring.deploymentSettingsInherited') }}
+                </p>
+                <dl v-else class="mt-3 grid gap-3">
+                  <div
+                    v-for="item in deploymentSettingChanges"
+                    :key="item.key"
+                    class="grid gap-1 rounded-lg bg-amber-50 px-3 py-2.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-3"
+                  >
+                    <dt class="text-xs font-semibold text-amber-800">
+                      {{ item.label }}
+                    </dt>
+                    <dd
+                      class="min-w-0 break-all text-xs leading-5 text-slate-700"
+                    >
+                      <span class="text-slate-500">{{ item.previous }}</span>
+                      <span class="px-2 text-amber-700" aria-hidden="true"
+                        >→</span
+                      >
+                      <span class="font-medium text-slate-900">{{
+                        item.current
+                      }}</span>
+                    </dd>
+                  </div>
+                </dl>
+              </section>
               <section
                 class="grid gap-3 rounded-xl border border-slate-200 bg-white p-4"
               >
@@ -1050,7 +1209,10 @@
             <BaseButton
               variant="outline"
               type="button"
-              :disabled="categrafStep === 0"
+              :disabled="
+                categrafStep === 0 ||
+                (capabilityAdjustmentMode && categrafStep === 1)
+              "
               @click="prevCategrafStep"
             >
               {{ t('adminPages.monitoring.previousStep') }}
@@ -1068,9 +1230,16 @@
               v-else
               variant="primary"
               type="submit"
+              :disabled="
+                capabilityAdjustmentMode && !newCategrafProfiles.length
+              "
               :loading="runningCategraf"
             >
-              {{ t('adminPages.monitoring.runInstall') }}
+              {{
+                capabilityAdjustmentMode
+                  ? t('adminPages.monitoring.dispatchCapabilityUpdate')
+                  : t('adminPages.monitoring.runInstall')
+              }}
             </BaseButton>
           </div>
         </div>
@@ -1082,7 +1251,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
 import AdminPageState from '@/admin/components/AdminPageState.vue'
@@ -1103,11 +1272,13 @@ import {
   credentialAlgorithmLabel,
   credentialFingerprint,
   credentialHasPassphrase,
+  credentialTypeKey,
   credentialValidationKey,
   shortFingerprint
 } from '@/admin/pages/Monitoring/credentials/credentialState'
 
 const { locale, t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const { showSuccess } = useToast()
 const loading = ref(false)
@@ -1141,6 +1312,15 @@ const manualCommandsCopied = ref(false)
 const showHostForm = ref(false)
 const showBulkInstallChooser = ref(false)
 const showCategrafForm = ref(false)
+const capabilityAdjustmentMode = ref(false)
+const initialCategrafProfiles = ref([])
+const capabilityBaseJobId = ref(null)
+const deploymentSettingsBaseline = reactive({
+  baseUrl: '',
+  n9eUrl: '',
+  installDir: '',
+  image: ''
+})
 const form = reactive(defaultHostForm())
 const hostConnectionSignature = computed(() =>
   JSON.stringify({
@@ -1149,12 +1329,7 @@ const hostConnectionSignature = computed(() =>
     sshUser: String(form.sshUser || '').trim(),
     sshPort: Number(form.sshPort || 22),
     sshAuthType: form.sshAuthType,
-    sshPassword: form.sshAuthType === 'password' ? form.sshPassword : '',
-    hasSavedPassword:
-      form.sshAuthType === 'password' && !form.sshPassword
-        ? Boolean(form.hasSshPassword)
-        : false,
-    sshKeyId: form.sshAuthType === 'key' ? String(form.sshKeyId || '') : ''
+    sshKeyId: String(form.sshKeyId || '')
   })
 )
 const isHostConnectionVerified = computed(
@@ -1169,19 +1344,36 @@ const canTestHostConnection = computed(() => {
     !Number(form.sshPort)
   )
     return false
-  if (form.sshAuthType === 'password')
-    return Boolean(form.sshPassword || (form.id && form.hasSshPassword))
   return Boolean(form.sshKeyId)
+})
+const credentialsForAuthType = computed(() => {
+  const expected = form.sshAuthType === 'password' ? 'password' : 'private_key'
+  return sshCredentials.value.filter(
+    (credential) => credentialTypeKey(credential) === expected
+  )
 })
 const selectedSshCredential = computed(() =>
   sshCredentials.value.find(
     (credential) => String(credential.id) === String(form.sshKeyId)
   )
 )
+watch(
+  () => form.sshAuthType,
+  () => {
+    if (
+      selectedSshCredential.value &&
+      !credentialsForAuthType.value.some(
+        (credential) =>
+          String(credential.id) === String(selectedSshCredential.value.id)
+      )
+    ) {
+      form.sshKeyId = ''
+    }
+    resetHostConnectionTest()
+  }
+)
 const credentialSelectionError = computed(() =>
-  form.sshAuthType === 'key' && !form.sshKeyId
-    ? t('adminPages.monitoring.credentialRequired')
-    : ''
+  !form.sshKeyId ? t('adminPages.monitoring.credentialRequired') : ''
 )
 const selectedCredentialValidationText = computed(() =>
   selectedSshCredential.value
@@ -1224,6 +1416,86 @@ const showCategrafProfileSettings = computed(
     needsCategrafMysqlConfig.value ||
     needsCategrafRedisConfig.value ||
     needsCategrafNginxConfig.value
+)
+const newCategrafProfiles = computed(() =>
+  categrafForm.profiles.filter(
+    (profile) => !initialCategrafProfiles.value.includes(profile)
+  )
+)
+const newCapabilityParamsValid = computed(() => {
+  if (
+    newCategrafProfiles.value.some((profile) =>
+      ['mysql-rds', 'mysql'].includes(profile)
+    ) &&
+    (!categrafForm.mysqlAddress.trim() || !categrafForm.mysqlUser.trim())
+  )
+    return false
+  if (
+    newCategrafProfiles.value.some((profile) =>
+      ['redis', 'redis-cloud'].includes(profile)
+    ) &&
+    !categrafForm.redisAddress.trim()
+  )
+    return false
+  if (
+    newCategrafProfiles.value.includes('nginx') &&
+    !categrafForm.nginxStatusUrl.trim()
+  )
+    return false
+  return true
+})
+const deploymentSettingChanges = computed(() =>
+  [
+    {
+      key: 'installDir',
+      label: t('adminPages.monitoring.installDir')
+    },
+    {
+      key: 'image',
+      label: t('adminPages.monitoring.image')
+    },
+    {
+      key: 'n9eUrl',
+      label: t('adminPages.monitoring.n9eUrl')
+    },
+    {
+      key: 'baseUrl',
+      label: t('adminPages.monitoring.baseUrl')
+    }
+  ]
+    .filter(({ key }) => deploymentSettingChanged(key))
+    .map(({ key, label }) => ({
+      key,
+      label,
+      previous: deploymentSettingsBaseline[key],
+      current: categrafForm[key]
+    }))
+)
+const deploymentSettingStatus = computed(() =>
+  t(
+    deploymentSettingChanges.value.length
+      ? 'adminPages.monitoring.deploymentSettingsModified'
+      : 'adminPages.monitoring.deploymentSettingsInheritedStatus'
+  )
+)
+const deploymentSettingsValid = computed(() =>
+  ['baseUrl', 'n9eUrl', 'installDir', 'image'].every((key) =>
+    String(categrafForm[key] || '').trim()
+  )
+)
+const categrafModalTitle = computed(() =>
+  capabilityAdjustmentMode.value
+    ? t('adminPages.monitoring.adjustCapabilitiesTitle')
+    : t('adminPages.monitoring.installCategraf')
+)
+const profileSelectionSummary = computed(() =>
+  capabilityAdjustmentMode.value
+    ? t('adminPages.monitoring.newCapabilityCount', {
+        count: newCategrafProfiles.value.length
+      })
+    : t('adminPages.monitoring.selectedProfileCount', {
+        count: categrafForm.profiles.length
+      })
 )
 const filteredHosts = computed(() => filterHosts(hosts.value, filters))
 const hostAttentionCount = computed(() => attentionCount(hosts.value))
@@ -1271,7 +1543,15 @@ const categrafSteps = computed(() => [
 ])
 const canGoNextCategraf = computed(() => {
   if (categrafStep.value === 0) return selectedHostIds.value.length > 0
-  if (categrafStep.value === 1) return categrafForm.profiles.length > 0
+  if (categrafStep.value === 1) {
+    if (capabilityAdjustmentMode.value)
+      return newCategrafProfiles.value.length > 0
+    return categrafForm.profiles.length > 0
+  }
+  if (categrafStep.value === 2) {
+    if (!deploymentSettingsValid.value) return false
+    if (capabilityAdjustmentMode.value) return newCapabilityParamsValid.value
+  }
   return true
 })
 const currentCategrafSignature = computed(() =>
@@ -1321,8 +1601,6 @@ function defaultHostForm() {
     sshUser: 'root',
     sshPort: 22,
     sshAuthType: 'password',
-    sshPassword: '',
-    hasSshPassword: false,
     sshKeyId: ''
   }
 }
@@ -1491,8 +1769,6 @@ function editHost(host, options = {}) {
     sshAuthType:
       host.ssh_auth_type ||
       (host.ssh_key_id || host.ssh_key ? 'key' : 'password'),
-    sshPassword: '',
-    hasSshPassword: Boolean(host.has_ssh_password),
     sshKeyId:
       host.ssh_key_id ||
       host.sshKeyId ||
@@ -1520,11 +1796,7 @@ function hostPayload() {
     ssh_auth_type: form.sshAuthType,
     enabled: true
   }
-  if (form.sshAuthType === 'password') {
-    if (form.sshPassword || !form.id) payload.ssh_password = form.sshPassword
-  } else {
-    payload.ssh_key_id = form.sshKeyId ? Number(form.sshKeyId) : null
-  }
+  payload.ssh_credential_id = form.sshKeyId ? Number(form.sshKeyId) : null
   if (hostVerificationReceipt.value) {
     payload.ssh_verification_receipt = hostVerificationReceipt.value
   }
@@ -1538,9 +1810,7 @@ function hostConnectionPayload() {
     ssh_user: String(form.sshUser || '').trim() || 'root',
     ssh_port: Number(form.sshPort || 22),
     ssh_auth_type: form.sshAuthType,
-    ssh_password: form.sshAuthType === 'password' ? form.sshPassword : '',
-    ssh_key_id:
-      form.sshAuthType === 'key' && form.sshKeyId ? Number(form.sshKeyId) : null
+    ssh_credential_id: form.sshKeyId ? Number(form.sshKeyId) : null
   }
 }
 
@@ -1614,6 +1884,25 @@ function resetCategrafForm() {
   manualCommandsCopied.value = false
 }
 
+function captureDeploymentSettingsBaseline() {
+  Object.keys(deploymentSettingsBaseline).forEach((key) => {
+    deploymentSettingsBaseline[key] = categrafForm[key]
+  })
+}
+
+function deploymentSettingChanged(key) {
+  return (
+    String(categrafForm[key] || '').trim() !==
+    String(deploymentSettingsBaseline[key] || '').trim()
+  )
+}
+
+function resetDeploymentSettings() {
+  Object.keys(deploymentSettingsBaseline).forEach((key) => {
+    categrafForm[key] = deploymentSettingsBaseline[key]
+  })
+}
+
 function openBulkInstallChooser() {
   showBulkInstallChooser.value = true
 }
@@ -1629,19 +1918,92 @@ function chooseBulkInstall() {
 }
 
 function openCategrafInstall() {
+  capabilityAdjustmentMode.value = false
+  initialCategrafProfiles.value = []
+  capabilityBaseJobId.value = null
   resetCategrafForm()
   showCategrafForm.value = true
 }
 
 function closeCategrafInstall() {
+  const clearAdjustmentRoute = capabilityAdjustmentMode.value
   resetCategrafForm()
   showCategrafForm.value = false
+  capabilityAdjustmentMode.value = false
+  initialCategrafProfiles.value = []
+  capabilityBaseJobId.value = null
+  if (clearAdjustmentRoute) {
+    router.replace({
+      query: Object.fromEntries(
+        Object.entries(route.query).filter(
+          ([key]) => !['adjust', 'host', 'baseJob', 'profiles'].includes(key)
+        )
+      )
+    })
+  }
 }
 
 function canEnterCategrafStep(index) {
+  if (capabilityAdjustmentMode.value && index === 0) return false
   if (index > 0 && !selectedHostIds.value.length) return false
-  if (index > 1 && !categrafForm.profiles.length) return false
+  if (index > 1) {
+    if (capabilityAdjustmentMode.value && !newCategrafProfiles.value.length)
+      return false
+    if (!capabilityAdjustmentMode.value && !categrafForm.profiles.length)
+      return false
+  }
+  if (
+    index > 2 &&
+    (!deploymentSettingsValid.value ||
+      (capabilityAdjustmentMode.value && !newCapabilityParamsValid.value))
+  )
+    return false
   return true
+}
+
+async function openCapabilityAdjustmentFromRoute() {
+  if (route.query.adjust !== 'categraf') return
+  const hostId = Number(route.query.host)
+  const baseJobId = Number(route.query.baseJob)
+  const host = hosts.value.find((item) => Number(item.id) === hostId)
+  if (!host) return
+
+  const availableProfiles = new Set(
+    profiles.value.map((profile) => String(profile.id))
+  )
+  const requestedProfiles = String(route.query.profiles || '')
+    .split(',')
+    .map((profile) => profile.trim())
+    .filter(Boolean)
+  const existingProfiles = (
+    requestedProfiles.length ? requestedProfiles : ['linux-basic']
+  ).filter((profile) => availableProfiles.has(profile))
+
+  resetCategrafForm()
+  selectedHostIds.value = [host.id]
+  capabilityAdjustmentMode.value = true
+  capabilityBaseJobId.value =
+    Number.isInteger(baseJobId) && baseJobId > 0 ? baseJobId : null
+  if (capabilityBaseJobId.value) {
+    try {
+      const baseJob = await monitoringStackApi.getJob(capabilityBaseJobId.value)
+      categrafForm.baseUrl = baseJob.base_url || categrafForm.baseUrl
+      categrafForm.n9eUrl = baseJob.n9e_url || categrafForm.n9eUrl
+      categrafForm.installDir = baseJob.install_dir || categrafForm.installDir
+      categrafForm.image = baseJob.image || categrafForm.image
+    } catch (err) {
+      error.value = getApiErrorMessage(
+        err,
+        t('adminPages.monitoring.deploymentSettingsLoadFailed')
+      )
+      return
+    }
+  }
+  captureDeploymentSettingsBaseline()
+  initialCategrafProfiles.value = existingProfiles
+  categrafForm.profiles = [...existingProfiles]
+  categrafStep.value = 1
+  showCategrafForm.value = true
 }
 
 function goCategrafStep(index) {
@@ -1683,14 +2045,13 @@ async function load() {
       hostData,
       credentialData,
       reconciliationData
-    ] =
-      await Promise.all([
-        monitoringStackApi.getConfig(),
-        monitoringStackApi.getProfiles(),
-        monitoringStackApi.getHosts(),
-        monitoringStackApi.getCredentials({ status: 'active', assignable: true }),
-        monitoringStackApi.getAssetsReconciliation()
-      ])
+    ] = await Promise.all([
+      monitoringStackApi.getConfig(),
+      monitoringStackApi.getProfiles(),
+      monitoringStackApi.getHosts(),
+      monitoringStackApi.getCredentials({ status: 'active', assignable: true }),
+      monitoringStackApi.getAssetsReconciliation()
+    ])
     profiles.value = normalizeList(profileData)
     hosts.value = normalizeList(hostData)
     sshCredentials.value = normalizeList(credentialData)
@@ -1803,7 +2164,10 @@ function categrafJobPayload() {
     base_url: categrafForm.baseUrl,
     n9e_url: categrafForm.n9eUrl,
     install_dir: categrafForm.installDir,
-    image: categrafForm.image
+    image: categrafForm.image,
+    base_job_id: capabilityAdjustmentMode.value
+      ? capabilityBaseJobId.value
+      : undefined
   }
 }
 
@@ -1893,6 +2257,8 @@ async function copyText(text) {
 }
 
 async function runCategrafInstall() {
+  if (capabilityAdjustmentMode.value && !newCategrafProfiles.value.length)
+    return
   runningCategraf.value = true
   try {
     const data = await monitoringStackApi.createJob(categrafJobPayload())
@@ -1918,7 +2284,10 @@ function notifyJobDispatched(job) {
   })
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  await openCapabilityAdjustmentFromRoute()
+})
 </script>
 
 <style scoped>

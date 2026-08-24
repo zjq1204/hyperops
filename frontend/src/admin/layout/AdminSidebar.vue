@@ -28,9 +28,11 @@
         @click="isMobile && $emit('close')"
       >
         <img
-          src="/logo-app.png"
-          alt="HyperOps Logo"
-          class="h-10 w-auto max-w-[3.25rem] shrink-0 object-contain"
+          src="/logo-mark.svg"
+          alt="HyperOps"
+          width="40"
+          height="40"
+          class="h-10 w-10 shrink-0 object-contain"
         />
         <div class="min-w-0">
           <p class="truncate text-[1.08rem] font-semibold text-slate-900">

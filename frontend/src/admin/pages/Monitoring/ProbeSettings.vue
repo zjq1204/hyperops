@@ -209,7 +209,7 @@
                         size="sm"
                         @click="openNodeForm(node)"
                       >
-                        {{ t('common.edit') }}
+                        {{ nodeActionText(node) }}
                       </BaseButton>
                       <BaseButton
                         variant="ghost"
@@ -276,7 +276,7 @@
                     variant="outline"
                     size="sm"
                     @click="openNodeForm(node)"
-                    >{{ t('common.edit') }}</BaseButton
+                    >{{ nodeActionText(node) }}</BaseButton
                   >
                   <BaseButton
                     variant="ghost"
@@ -385,13 +385,21 @@
       :show="showNodeForm"
       :title="
         nodeForm.id
-          ? t('adminPages.monitoring.editProbeNode')
+          ? nodeIdentityManaged
+            ? t('adminPages.monitoring.manageProbeNodeTitle')
+            : t('adminPages.monitoring.editProbeNode')
           : t('adminPages.monitoring.addProbeNode')
       "
       :close-on-backdrop="false"
       @close="closeNodeForm"
     >
       <form id="probe-node-form" class="grid gap-4" @submit.prevent="saveNode">
+        <div
+          v-if="nodeIdentityManaged"
+          class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800"
+        >
+          {{ managedProbeNodeNotice }}
+        </div>
         <label class="admin-filter-field">
           <span class="admin-filter-label ml-0">{{
             t('adminPages.monitoring.probeNodeName')
@@ -410,6 +418,7 @@
             <input
               v-model.trim="nodeForm.address"
               class="admin-filter-control"
+              :readonly="nodeIdentityManaged"
               required
             />
           </label>
@@ -420,6 +429,7 @@
             <input
               v-model.trim="nodeForm.port"
               class="admin-filter-control"
+              :readonly="nodeIdentityManaged"
               inputmode="numeric"
               required
             />
@@ -429,7 +439,11 @@
           <span class="admin-filter-label ml-0">{{
             t('adminPages.monitoring.associatedHost')
           }}</span>
-          <select v-model="nodeForm.host" class="admin-filter-control">
+          <select
+            v-model="nodeForm.host"
+            class="admin-filter-control"
+            :disabled="nodeIdentityManaged"
+          >
             <option value="">
               {{ t('adminPages.monitoring.independentProbe') }}
             </option>
@@ -437,7 +451,10 @@
               {{ host.hostname }} · {{ host.address }}
             </option>
           </select>
-          <span class="text-xs leading-5 text-slate-500">
+          <span
+            v-if="!nodeIdentityManaged"
+            class="text-xs leading-5 text-slate-500"
+          >
             {{ t('adminPages.monitoring.probeHostAssociationHint') }}
           </span>
         </label>
@@ -566,15 +583,31 @@
           <select
             v-model="blackboxForm.hostId"
             class="admin-filter-control"
+            :disabled="!blackboxDeployableHosts.length"
             required
           >
             <option value="" disabled>
-              {{ t('adminPages.monitoring.selectInstallHost') }}
+              {{
+                blackboxDeployableHosts.length
+                  ? t('adminPages.monitoring.selectInstallHost')
+                  : t('adminPages.monitoring.noBlackboxDeploymentCandidates')
+              }}
             </option>
-            <option v-for="host in hosts" :key="host.id" :value="host.id">
-              {{ host.hostname }} · {{ host.address }}
+            <option
+              v-for="host in hosts"
+              :key="host.id"
+              :value="host.id"
+              :disabled="blackboxHostDeploymentState(host).disabled"
+            >
+              {{ blackboxHostOptionText(host) }}
             </option>
           </select>
+          <span
+            v-if="!blackboxDeployableHosts.length"
+            class="mt-1 text-xs leading-5 text-slate-500"
+          >
+            {{ t('adminPages.monitoring.noBlackboxDeploymentCandidatesHint') }}
+          </span>
         </label>
         <div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
           <label class="admin-filter-field">
@@ -639,7 +672,7 @@
           <BaseButton
             variant="outline"
             :loading="previewingBlackbox"
-            :disabled="!blackboxForm.hostId"
+            :disabled="!canDeployBlackbox"
             @click="previewBlackbox"
           >
             {{ t('adminPages.monitoring.previewInstall') }}
@@ -649,7 +682,7 @@
             type="submit"
             variant="primary"
             :loading="runningBlackbox"
-            :disabled="!blackboxForm.hostId"
+            :disabled="!canDeployBlackbox"
           >
             {{ t('adminPages.monitoring.startDeployment') }}
           </BaseButton>
@@ -821,6 +854,25 @@ const blackboxPreviewText = ref('')
 const installerConfig = ref({})
 const blackboxForm = reactive(defaultBlackboxForm())
 const isNodesPage = computed(() => route.path.endsWith('/nodes'))
+const nodeIdentityManaged = computed(
+  () => Boolean(nodeForm.id) && nodeForm.source !== 'manual'
+)
+
+function nodeActionText(node) {
+  return t(
+    node.source === 'manual'
+      ? 'common.edit'
+      : 'adminPages.monitoring.manageProbeNode'
+  )
+}
+
+const managedProbeNodeNotice = computed(() =>
+  t(
+    nodeForm.source === 'install'
+      ? 'adminPages.monitoring.installedProbeNodeManagedNotice'
+      : 'adminPages.monitoring.discoveredProbeNodeManagedNotice'
+  )
+)
 
 const prometheusConnected = computed(() =>
   Boolean(prometheusSummary.value?.connected)
@@ -836,9 +888,63 @@ const managedNodeStates = computed(() => {
     : []
   return new Map(states.map((item) => [String(item.node_id), item]))
 })
+const blackboxDeployableHosts = computed(() =>
+  hosts.value.filter((host) => !blackboxHostDeploymentState(host).disabled)
+)
+const canDeployBlackbox = computed(() => {
+  const host = hosts.value.find(
+    (item) => String(item.id) === String(blackboxForm.hostId)
+  )
+  return Boolean(host && !blackboxHostDeploymentState(host).disabled)
+})
 
 function normalizeList(data) {
   return data?.results || data || []
+}
+
+function blackboxHostDeploymentState(host) {
+  const hasProbeNode = probeNodes.value.some(
+    (node) => String(node.host || '') === String(host.id)
+  )
+  const componentStatus = (host.component_statuses || []).find(
+    (item) => item.component === 'blackbox'
+  )?.status
+  if (hasProbeNode || ['success', 'external'].includes(componentStatus)) {
+    return { key: 'deployed', disabled: true }
+  }
+  if (componentStatus === 'installing') {
+    return { key: 'installing', disabled: true }
+  }
+  if (componentStatus === 'failed') {
+    return { key: 'failed', disabled: false }
+  }
+  return { key: 'available', disabled: false }
+}
+
+function blackboxHostOptionText(host) {
+  const identity = `${host.hostname} · ${host.address}`
+  const state = blackboxHostDeploymentState(host)
+  const keys = {
+    deployed: 'blackboxHostAlreadyDeployed',
+    installing: 'blackboxHostDeploying',
+    failed: 'blackboxHostFailedRetry'
+  }
+  return keys[state.key]
+    ? `${identity} · ${t(`adminPages.monitoring.${keys[state.key]}`)}`
+    : identity
+}
+
+function blackboxRequestErrorMessage(err) {
+  const response = err?.response?.data
+  const payload =
+    response?.data && typeof response.data === 'object'
+      ? response.data
+      : response
+  const errorCode = payload?.code || payload?.field_errors?.code
+  if (String(errorCode || '') === 'BLACKBOX_HOST_NOT_DEPLOYABLE') {
+    return t('adminPages.monitoring.blackboxHostNoLongerDeployable')
+  }
+  return payload?.detail || err.message
 }
 
 function defaultNodeForm() {
@@ -1035,13 +1141,16 @@ async function saveNode() {
   try {
     const payload = {
       name: nodeForm.name,
-      address: nodeForm.address,
-      port: nodeForm.port || '9115',
-      enabled: nodeForm.enabled,
-      source: nodeForm.source,
-      host: nodeForm.host || null,
-      labels: {}
+      enabled: nodeForm.enabled
     }
+    if (!nodeIdentityManaged.value) {
+      Object.assign(payload, {
+        address: nodeForm.address,
+        port: nodeForm.port || '9115',
+        host: nodeForm.host || null
+      })
+    }
+    if (!nodeForm.id) Object.assign(payload, { source: 'manual', labels: {} })
     if (nodeForm.id)
       await monitoringStackApi.updateProbeNode(nodeForm.id, payload)
     else await monitoringStackApi.createProbeNode(payload)
@@ -1093,6 +1202,7 @@ function blackboxJobPayload() {
 }
 
 async function previewBlackbox() {
+  if (!canDeployBlackbox.value) return
   previewingBlackbox.value = true
   try {
     const data = await monitoringStackApi.previewAnsible(blackboxJobPayload())
@@ -1103,13 +1213,14 @@ async function previewBlackbox() {
       JSON.stringify(data.vars, null, 2)
     ].join('\n')
   } catch (err) {
-    showError(err?.response?.data?.detail || err.message)
+    showError(blackboxRequestErrorMessage(err))
   } finally {
     previewingBlackbox.value = false
   }
 }
 
 async function runBlackboxInstall() {
+  if (!canDeployBlackbox.value) return
   runningBlackbox.value = true
   try {
     const job = await monitoringStackApi.createJob(blackboxJobPayload())
@@ -1131,7 +1242,7 @@ async function runBlackboxInstall() {
     )
     await load()
   } catch (err) {
-    showError(err?.response?.data?.detail || err.message)
+    showError(blackboxRequestErrorMessage(err))
   } finally {
     runningBlackbox.value = false
   }

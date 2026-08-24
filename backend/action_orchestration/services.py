@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 from types import SimpleNamespace
@@ -24,6 +25,8 @@ TERMINAL_JENKINS_STATUSES = {"success", "failure", "aborted"}
 DEFAULT_JENKINS_POLL_INTERVAL_SECONDS = 15
 DEFAULT_JENKINS_TIMEOUT_SECONDS = 120 * 60
 CONDITION_OPERATORS = {"equals", "not_equals", "contains", "is_empty", "is_not_empty"}
+
+logger = logging.getLogger(__name__)
 
 
 class ActionExecutionError(Exception):
@@ -168,6 +171,15 @@ def _execute_jenkins_step(run: ActionRun, step: ActionStep, step_run: ActionStep
         )
         step_run.jenkins_record = record
         step_run.save(update_fields=["jenkins_record", "updated_at"])
+        logger.info(
+            "Jenkins 构建已受理 | integration=jenkins operation=trigger_build "
+            "run_id=%s step_id=%s entry_id=%s record_id=%s build_number=%s",
+            run.id,
+            step.id,
+            entry.id,
+            record.id,
+            record.build_number,
+        )
 
     if not bool(config.get("wait_for_completion", False)):
         return {
@@ -236,6 +248,20 @@ def _build_gitlab_output(results: list[dict[str, Any]], errors: list[dict[str, A
     }
 
 
+def _log_gitlab_result(run, operation, results, errors):
+    if errors and not results:
+        return
+    log_method = logger.warning if errors else logger.info
+    log_method(
+        "GitLab 批量操作完成 | integration=gitlab operation=%s run_id=%s "
+        "success_count=%s error_count=%s",
+        operation,
+        run.id,
+        len(results),
+        len(errors),
+    )
+
+
 def _execute_gitlab_branch_operation_step(run: ActionRun, step_run: ActionStepRun):
     config = step_run.resolved_config
     operation = config.get("operation") or "create"
@@ -289,6 +315,7 @@ def _execute_gitlab_branch_operation_step(run: ActionRun, step_run: ActionStepRu
                 "error": str(exc),
             })
 
+    _log_gitlab_result(run, f"branch_{operation}", results, errors)
     return _build_gitlab_output(results, errors, f"branch {operation}")
 
 
@@ -341,6 +368,7 @@ def _execute_gitlab_tag_operation_step(run: ActionRun, step_run: ActionStepRun):
                 "error": str(exc),
             })
 
+    _log_gitlab_result(run, "tag_create", results, errors)
     return _build_gitlab_output(results, errors, "tag create")
 
 
@@ -394,6 +422,7 @@ def _execute_gitlab_webhook_operation_step(run: ActionRun, step_run: ActionStepR
                 "error": str(exc),
             })
 
+    _log_gitlab_result(run, "webhook_create", results, errors)
     return _build_gitlab_output(results, errors, "webhook create")
 
 
@@ -408,6 +437,12 @@ def _execute_manual_approval_step(run: ActionRun, step: ActionStep, step_run: Ac
     run.status = ActionRun.STATUS_WAITING_APPROVAL
     run.current_step = step
     run.save(update_fields=["status", "current_step", "updated_at"])
+    logger.info(
+        "动作步骤等待审批 | run_id=%s step_id=%s action_type=%s",
+        run.id,
+        step.id,
+        step.action_type,
+    )
 
 
 def _normalize_condition_value(value: Any) -> str:
@@ -509,6 +544,14 @@ def _run_jenkins_config(run: ActionRun, config: dict[str, Any]):
         build_number=trigger_result.build_number,
         queue_url=trigger_result.queue_url,
     )
+    logger.info(
+        "Jenkins 构建已受理 | integration=jenkins operation=trigger_build "
+        "run_id=%s entry_id=%s record_id=%s build_number=%s",
+        run.id,
+        entry.id,
+        record.id,
+        record.build_number,
+    )
 
     if not bool(config.get("wait_for_completion", False)):
         return {
@@ -561,6 +604,12 @@ def _execute_nested_action(run: ActionRun, parent_step: ActionStep, parent_run: 
         run.status = ActionRun.STATUS_WAITING_APPROVAL
         run.current_step = parent_step
         run.save(update_fields=["status", "current_step", "updated_at"])
+        logger.info(
+            "嵌套动作步骤等待审批 | run_id=%s step_id=%s action_type=%s",
+            run.id,
+            parent_step.id,
+            action_type,
+        )
         return "paused"
 
     if action_type == ActionStep.TYPE_JENKINS_TRIGGER:
@@ -630,7 +679,19 @@ def _execute_conditional_branch_step(run: ActionRun, step: ActionStep, step_run:
             nested_step["error_message"] = str(exc)
             step_run.output = output
             step_run.save(update_fields=["output", "updated_at"])
-            if nested_step.get("failure_policy") != ActionStep.FAILURE_CONTINUE:
+            failure_policy = nested_step.get("failure_policy")
+            if failure_policy == ActionStep.FAILURE_CONTINUE:
+                logger.warning(
+                    "嵌套动作步骤执行失败 | run_id=%s step_id=%s nested_index=%s "
+                    "action_type=%s failure_policy=%s error_type=%s",
+                    run.id,
+                    step.id,
+                    nested_step.get("index"),
+                    nested_step.get("action_type"),
+                    failure_policy,
+                    type(exc).__name__,
+                )
+            else:
                 raise
 
     return output
@@ -723,13 +784,56 @@ def execute_action_run(run_id: int):
         run.status = ActionRun.STATUS_RUNNING
         run.save(update_fields=["current_step", "status", "updated_at"])
 
+        step_started_at = time.monotonic()
+        logger.info(
+            "动作步骤开始执行 | run_id=%s step_id=%s action_type=%s step_order=%s",
+            run.id,
+            step.id,
+            step.action_type,
+            step.order,
+        )
         try:
             result = _execute_step(run, step)
             if result == "paused":
+                logger.info(
+                    "动作步骤执行完成 | run_id=%s step_id=%s action_type=%s "
+                    "status=%s duration_ms=%s",
+                    run.id,
+                    step.id,
+                    step.action_type,
+                    ActionStepRun.STATUS_WAITING_APPROVAL,
+                    int((time.monotonic() - step_started_at) * 1000),
+                )
                 return run
+            step_status = _create_step_run(run, step).status
+            logger.info(
+                "动作步骤执行完成 | run_id=%s step_id=%s action_type=%s "
+                "status=%s duration_ms=%s",
+                run.id,
+                step.id,
+                step.action_type,
+                step_status,
+                int((time.monotonic() - step_started_at) * 1000),
+            )
         except Exception as exc:
             step_run = _create_step_run(run, step)
             _mark_step_failed(step_run, exc)
+            failure_policy = step.failure_policy
+            log_method = (
+                logger.warning
+                if failure_policy == ActionStep.FAILURE_CONTINUE
+                else logger.error
+            )
+            log_method(
+                "动作步骤执行失败 | run_id=%s step_id=%s action_type=%s "
+                "failure_policy=%s error_type=%s duration_ms=%s",
+                run.id,
+                step.id,
+                step.action_type,
+                failure_policy,
+                type(exc).__name__,
+                int((time.monotonic() - step_started_at) * 1000),
+            )
             if step.failure_policy != ActionStep.FAILURE_CONTINUE:
                 _finish_run(run, ActionRun.STATUS_FAILED, str(exc))
                 return run
@@ -797,6 +901,12 @@ def approve_action_run(run: ActionRun, user, comment: str = ""):
         _approve_nested_action_step(step_run, user, comment)
         run.status = ActionRun.STATUS_QUEUED
         run.save(update_fields=["status", "updated_at"])
+        logger.info(
+            "动作步骤已审批 | run_id=%s step_id=%s user_id=%s nested=true",
+            run.id,
+            step_run.step_id,
+            user.id,
+        )
         return run
     _mark_step_success(step_run, {"approved": True, "comment": comment or ""})
     step_run.approved_by = user
@@ -804,6 +914,12 @@ def approve_action_run(run: ActionRun, user, comment: str = ""):
     step_run.save(update_fields=["approved_by", "approval_comment", "updated_at"])
     run.status = ActionRun.STATUS_QUEUED
     run.save(update_fields=["status", "updated_at"])
+    logger.info(
+        "动作步骤已审批 | run_id=%s step_id=%s user_id=%s nested=false",
+        run.id,
+        step_run.step_id,
+        user.id,
+    )
     return run
 
 
@@ -817,6 +933,12 @@ def reject_action_run(run: ActionRun, user, comment: str = ""):
     if run.current_step.action_type == ActionStep.TYPE_CONDITIONAL_BRANCH:
         _reject_nested_action_step(step_run, user, comment)
         _finish_run(run, ActionRun.STATUS_REJECTED, comment or "Rejected")
+        logger.info(
+            "动作步骤已拒绝 | run_id=%s step_id=%s user_id=%s nested=true",
+            run.id,
+            step_run.step_id,
+            user.id,
+        )
         return run
     step_run.status = ActionStepRun.STATUS_REJECTED
     step_run.approved_by = user
@@ -832,4 +954,10 @@ def reject_action_run(run: ActionRun, user, comment: str = ""):
         "updated_at",
     ])
     _finish_run(run, ActionRun.STATUS_REJECTED, step_run.error_message)
+    logger.info(
+        "动作步骤已拒绝 | run_id=%s step_id=%s user_id=%s nested=false",
+        run.id,
+        step_run.step_id,
+        user.id,
+    )
     return run

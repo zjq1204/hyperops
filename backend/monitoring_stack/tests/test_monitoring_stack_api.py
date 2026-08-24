@@ -1190,16 +1190,14 @@ def test_governance_overview_rebuilds_probe_and_component_findings(client, tmp_p
 
     assert response.status_code == 200
     payload = _payload(response)
-    assert payload["finding_counts"]["open"] == 5
+    assert payload["finding_counts"]["open"] == 3
     assert payload["finding_counts"]["critical"] == 1
-    assert payload["finding_counts"]["warning"] == 4
+    assert payload["finding_counts"]["warning"] == 2
     categories = {
         item.category
         for item in finding_model.objects.filter(status="open").order_by("category")
     }
     assert categories == {
-        "blackbox_not_installed",
-        "categraf_not_installed",
         "probe_abnormal",
         "probe_configured_not_discovered",
         "probe_discovered_not_configured",
@@ -1208,6 +1206,53 @@ def test_governance_overview_rebuilds_probe_and_component_findings(client, tmp_p
     assert abnormal.subject_type == "probe"
     assert abnormal.subject_key == "http:https://orphan.example.com"
     assert abnormal.recommended_action == "fix_probe_target"
+
+
+@pytest.mark.django_db
+def test_governance_ignores_stale_prometheus_target_snapshots(client, tmp_path):
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    run_model = apps.get_model("monitoring_stack", "MonitoringSnapshotRun")
+    prometheus_model = apps.get_model("monitoring_stack", "PrometheusTargetSnapshot")
+    finding_model = apps.get_model("monitoring_stack", "MonitoringGovernanceFinding")
+    stale_run = run_model.objects.create(
+        source="prometheus",
+        status="success",
+        started_at="2026-06-23T03:00:00Z",
+        finished_at="2026-06-23T03:00:01Z",
+        summary={"prometheus_targets": 1},
+    )
+    run_model.objects.create(
+        source="prometheus",
+        status="success",
+        started_at="2026-06-24T03:00:00Z",
+        finished_at="2026-06-24T03:00:01Z",
+        summary={"prometheus_targets": 0},
+    )
+    prometheus_model.objects.create(
+        identity="blackbox-http|http://stale.example.com",
+        job="blackbox-http",
+        instance="http://stale.example.com",
+        scrape_pool="blackbox-http",
+        health="up",
+        probe_type="http",
+        probe_target="http://stale.example.com",
+        last_error="",
+        raw={"health": "up"},
+        last_seen_run=stale_run,
+        last_seen_at="2026-06-23T03:00:01Z",
+    )
+
+    with override_settings(MONITORING_RULES_DIR=str(rules_dir)):
+        response = client.get("/api/v1/monitoring/governance/overview/")
+
+    assert response.status_code == 200
+    payload = _payload(response)
+    assert payload["real_counts"]["prometheus_targets"] == 0
+    assert not finding_model.objects.filter(
+        category="probe_discovered_not_configured",
+        subject_key="http:http://stale.example.com",
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -2620,12 +2665,12 @@ def test_failed_install_job_creates_retryable_finding(client, monkeypatch):
         address="10.0.0.11",
         enabled=True,
     )
-    job = AnsibleInstallJob.objects.create(
-        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
-        status=AnsibleInstallJob.STATUS_FAILED,
-        profiles=["linux-basic"],
-        host_ids=[host.id],
-        hosts_snapshot=[
+    job_defaults = {
+        "component": AnsibleInstallJob.COMPONENT_CATEGRAF,
+        "status": AnsibleInstallJob.STATUS_FAILED,
+        "profiles": ["linux-basic"],
+        "host_ids": [host.id],
+        "hosts_snapshot": [
             {
                 "id": host.id,
                 "hostname": host.hostname,
@@ -2634,20 +2679,36 @@ def test_failed_install_job_creates_retryable_finding(client, monkeypatch):
                 "ssh_port": 22,
             }
         ],
-        base_url="http://hyperops.local/api/v1/monitoring/installer",
-        n9e_url="http://n9e",
-        install_dir="/opt/categraf",
-        image="flashcatcloud/categraf:latest",
-        results=[{"hostname": "app-01", "status": "failed"}],
+        "base_url": "http://hyperops.local/api/v1/monitoring/installer",
+        "n9e_url": "http://n9e",
+        "install_dir": "/opt/categraf",
+        "image": "flashcatcloud/categraf:latest",
+        "results": [{"hostname": "app-01", "status": "failed"}],
+    }
+    older_job = AnsibleInstallJob.objects.create(**job_defaults)
+    job = AnsibleInstallJob.objects.create(
+        component=AnsibleInstallJob.COMPONENT_CATEGRAF,
+        status=AnsibleInstallJob.STATUS_FAILED,
+        **{
+            key: value
+            for key, value in job_defaults.items()
+            if key not in {"component", "status"}
+        },
     )
 
     response = client.get("/api/v1/monitoring/governance/overview/")
 
     assert response.status_code == 200
     finding_model = apps.get_model("monitoring_stack", "MonitoringGovernanceFinding")
-    finding = finding_model.objects.get(category="install_job_failed")
+    findings = finding_model.objects.filter(category="install_job_failed")
+    assert findings.count() == 1
+    finding = findings.get()
     assert finding.subject_type == "job"
-    assert finding.subject_key == str(job.id)
+    assert finding.subject_key == f"{host.id}:categraf"
+    assert finding.details["host_id"] == host.id
+    assert finding.details["hostname"] == host.hostname
+    assert finding.details["component"] == "categraf"
+    assert finding.details["job_id"] == job.id
     assert finding.recommended_action == "retry_job"
 
     class FakeTask:
@@ -2665,10 +2726,56 @@ def test_failed_install_job_creates_retryable_finding(client, monkeypatch):
     assert retry_response.status_code == 200
     finding.refresh_from_db()
     assert finding.status == "resolved"
-    retry_job = AnsibleInstallJob.objects.exclude(id=job.id).get()
+    retry_job = AnsibleInstallJob.objects.filter(retry_of=job).get()
     assert retry_job.retry_of_id == job.id
     assert retry_job.host_ids == [host.id]
     assert _payload(retry_response)["details"]["resolution"]["job_id"] == retry_job.id
+    assert older_job.id < job.id
+
+
+@pytest.mark.django_db
+def test_successful_install_clears_previous_failed_job_finding(client):
+    host = MonitoringHost.objects.create(
+        hostname="recovered-01",
+        address="10.0.0.12",
+        enabled=True,
+    )
+    job_defaults = {
+        "component": AnsibleInstallJob.COMPONENT_CATEGRAF,
+        "profiles": ["linux-basic"],
+        "host_ids": [host.id],
+        "hosts_snapshot": [
+            {
+                "id": host.id,
+                "hostname": host.hostname,
+                "address": host.address,
+                "ssh_user": "root",
+                "ssh_port": 22,
+            }
+        ],
+        "base_url": "http://hyperops.local/api/v1/monitoring/installer",
+        "n9e_url": "http://n9e",
+        "install_dir": "/opt/categraf",
+        "image": "flashcatcloud/categraf:latest",
+    }
+    AnsibleInstallJob.objects.create(
+        status=AnsibleInstallJob.STATUS_FAILED,
+        results=[{"hostname": host.hostname, "status": "failed"}],
+        **job_defaults,
+    )
+    AnsibleInstallJob.objects.create(
+        status=AnsibleInstallJob.STATUS_SUCCESS,
+        results=[{"hostname": host.hostname, "status": "success"}],
+        **job_defaults,
+    )
+
+    response = client.get("/api/v1/monitoring/governance/overview/")
+
+    assert response.status_code == 200
+    finding_model = apps.get_model("monitoring_stack", "MonitoringGovernanceFinding")
+    assert not finding_model.objects.filter(
+        category="install_job_failed",
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -2834,13 +2941,17 @@ def test_host_supports_password_or_saved_ssh_key_inventory(client, tmp_path):
     assert "key-host ansible_host=10.0.0.21" in inventory
     assert "ansible_ssh_private_key_file=" not in inventory
     assert "password-host ansible_host=10.0.0.22" in inventory
-    assert "ansible_password=secret123" in inventory
+    assert "ansible_password=<configured>" in inventory
+    assert "secret123" not in inventory
     preview_hosts = {item["hostname"]: item for item in preview["vars"]["hosts"]}
     assert preview_hosts["key-host"]["ssh_credential_id"] == credential.id
     assert preview_hosts["key-host"]["ssh_credential_version_id"] == version.id
     assert preview_hosts["key-host"]["ssh_public_key_fingerprint"].startswith(
         "SHA256:"
     )
+    stored_password_host = MonitoringHost.objects.get(id=password_host["id"])
+    assert stored_password_host.ssh_password == ""
+    assert stored_password_host.ssh_key_credential.credential_type == "password"
 
 
 @pytest.mark.django_db

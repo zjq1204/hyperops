@@ -1,3 +1,5 @@
+import logging
+import time
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -19,6 +21,8 @@ from monitoring_stack.services.core import (
     monitoring_config,
     n9e_target_connection_address,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _string(value):
@@ -338,6 +342,8 @@ def sync_monitoring_snapshots(source=MonitoringSnapshotRun.SOURCE_ALL):
         status=MonitoringSnapshotRun.STATUS_RUNNING,
         started_at=timezone.now(),
     )
+    started_at = time.monotonic()
+    logger.info("监控快照同步开始 | run_id=%s source=%s", run.id, source)
     summary = {}
     try:
         if source in {MonitoringSnapshotRun.SOURCE_ALL, MonitoringSnapshotRun.SOURCE_N9E}:
@@ -353,10 +359,23 @@ def sync_monitoring_snapshots(source=MonitoringSnapshotRun.SOURCE_ALL):
         run.summary = summary
         run.finished_at = timezone.now()
         run.save(update_fields=["status", "error", "summary", "finished_at"])
+        logger.error(
+            "监控快照同步失败 | run_id=%s source=%s error_type=%s duration_ms=%s",
+            run.id,
+            source,
+            type(exc).__name__,
+            int((time.monotonic() - started_at) * 1000),
+        )
         return run
 
     run.status = MonitoringSnapshotRun.STATUS_SUCCESS
     run.summary = summary
     run.finished_at = timezone.now()
     run.save(update_fields=["status", "summary", "finished_at"])
+    logger.info(
+        "监控快照同步完成 | run_id=%s source=%s duration_ms=%s",
+        run.id,
+        source,
+        int((time.monotonic() - started_at) * 1000),
+    )
     return run

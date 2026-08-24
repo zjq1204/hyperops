@@ -180,13 +180,27 @@ class GitLabWebhookSerializer(serializers.ModelSerializer):
             "project_path",
             "webhook_id",
             "url",
+            "token",
             "push_events",
+            "push_events_branch_filter",
             "tag_push_events",
             "merge_requests_events",
+            "issues_events",
+            "confidential_issues_events",
+            "note_events",
+            "confidential_note_events",
+            "pipeline_events",
+            "job_events",
+            "wiki_page_events",
+            "deployment_events",
+            "releases_events",
+            "feature_flag_events",
+            "repository_update_events",
+            "resource_access_token_events",
             "enable_ssl_verification",
             "collected_at",
         ]
-        read_only_fields = ["id", "collected_at"]
+        read_only_fields = ["id", "webhook_id", "collected_at", "token"]
 
 
 class GitLabCollectionRecordSerializer(serializers.ModelSerializer):
@@ -261,14 +275,30 @@ class GitLabOperationRecordSerializer(serializers.ModelSerializer):
 class GitLabWebhookCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating GitLabWebhook."""
 
+    token = serializers.CharField(write_only=True, required=False, allow_blank=True, default="")
+
     class Meta:
         model = GitLabWebhook
         fields = [
             "project",
             "url",
+            "token",
             "push_events",
+            "push_events_branch_filter",
             "tag_push_events",
             "merge_requests_events",
+            "issues_events",
+            "confidential_issues_events",
+            "note_events",
+            "confidential_note_events",
+            "pipeline_events",
+            "job_events",
+            "wiki_page_events",
+            "deployment_events",
+            "releases_events",
+            "feature_flag_events",
+            "repository_update_events",
+            "resource_access_token_events",
             "enable_ssl_verification",
         ]
 

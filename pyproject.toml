@@ -60,6 +60,8 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+DJANGO_SETTINGS_MODULE = "core.settings"
+pythonpath = ["backend"]
 markers = [
     "unit: App-level unit tests (domain logic, services, model methods).",
 ]

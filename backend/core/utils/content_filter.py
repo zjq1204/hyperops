@@ -5,12 +5,8 @@ This module provides shared content filtering functions used across
 different content collection systems (Google News, GitHub Trending, etc.).
 """
 
-import logging
 import re
 from typing import Dict, List, Optional, Tuple
-
-logger = logging.getLogger(__name__)
-
 
 def contains_filter_words(
     text: str,
@@ -99,12 +95,6 @@ def check_fields(
     if not filter_words:
         return True, ""
 
-    if item_name:
-        logger.debug(
-            f"[Content Filter] Checking '{item_name}' with "
-            f"{len(filter_words)} filter words"
-        )
-
     # Check each field separately to identify where keyword appears
     found_fields = []
     matched_word = None
@@ -127,14 +117,6 @@ def check_fields(
             f"Contains filtered word: '{matched_word}' "
             f"(found in: {location_str})"
         )
-        if item_name:
-            logger.info(
-                f"[Content Filter] '{item_name}' filtered: {reason}"
-            )
         return False, reason
 
-    if item_name:
-        logger.debug(
-            f"[Content Filter] '{item_name}' passed content filter"
-        )
     return True, ""

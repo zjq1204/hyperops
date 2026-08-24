@@ -31,9 +31,11 @@
         @click="isMobile && $emit('close')"
       >
         <img
-          src="/logo-app.png"
-          alt="HyperOps Logo"
-          class="h-8 w-auto max-w-[3rem] shrink-0 object-contain"
+          src="/logo-mark.svg"
+          alt="HyperOps"
+          width="32"
+          height="32"
+          class="h-8 w-8 shrink-0 object-contain"
         />
         <span class="truncate text-lg font-semibold text-slate-900">{{
           t('common.appName')

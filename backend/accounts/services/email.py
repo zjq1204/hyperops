@@ -5,7 +5,6 @@ This service handles sending HTML emails for user registration,
 supporting multiple languages with proper internationalization.
 """
 
-import logging
 from email.utils import formataddr
 
 from django.conf import settings
@@ -15,9 +14,6 @@ from django.template.loader import render_to_string
 from django.utils import translation
 from django.utils.translation import gettext_lazy as _
 from platformkit.i18n import get_translation_language_code
-
-
-logger = logging.getLogger(__name__)
 
 
 def get_email_delivery_options():
@@ -130,63 +126,9 @@ class RegistrationEmailService:
             email_message.attach_alternative(html_content, "text/html")
 
             email_message.send()
-
-            logger.info(
-                f"Sent registration email to {email} "
-                f"(language: {language})"
-            )
             return True
 
-        except Exception as e:
-            exception_type = type(e).__name__
-            exception_msg = str(e)
-            from_email_val = (
-                from_email if 'from_email' in locals() else None
-            )
-            frontend_url = getattr(settings, 'FRONTEND_URL', None)
-
-            error_category = 'UNKNOWN'
-            exception_msg_lower = exception_msg.lower()
-            if 'SMTP' in exception_type or 'smtp' in exception_msg_lower:
-                error_category = 'SMTP_ERROR'
-            elif (
-                'connection' in exception_msg_lower or
-                'timeout' in exception_msg_lower
-            ):
-                error_category = 'CONNECTION_ERROR'
-            elif (
-                'authentication' in exception_msg_lower or
-                'auth' in exception_msg_lower
-            ):
-                error_category = 'AUTH_ERROR'
-            elif 'template' in exception_msg_lower:
-                error_category = 'TEMPLATE_ERROR'
-            elif (
-                'email' in exception_msg_lower and
-                'invalid' in exception_msg_lower
-            ):
-                error_category = 'INVALID_EMAIL'
-
-            logger.error(
-                f"Failed to send registration email - "
-                f"Email: {email}, "
-                f"Language: {language}, "
-                f"Template: {template}, "
-                f"Error: {exception_type}: {exception_msg}, "
-                f"Category: {error_category}",
-                exc_info=True,
-                extra={
-                    'email': email,
-                    'language': language,
-                    'template': template,
-                    'exception_type': exception_type,
-                    'exception_message': exception_msg,
-                    'error_category': error_category,
-                    'from_email': from_email_val,
-                    'frontend_url': frontend_url,
-                    'service': 'RegistrationEmailService',
-                }
-            )
+        except Exception:
             return False
 
 
@@ -255,61 +197,7 @@ class PasswordResetEmailService:
             email_message.attach_alternative(html_content, "text/html")
 
             email_message.send()
-
-            logger.info(
-                f"Sent password reset email to {email} "
-                f"(language: {language})"
-            )
             return True
 
-        except Exception as e:
-            exception_type = type(e).__name__
-            exception_msg = str(e)
-            from_email_val = (
-                from_email if 'from_email' in locals() else None
-            )
-            frontend_url = getattr(settings, 'FRONTEND_URL', None)
-
-            error_category = 'UNKNOWN'
-            exception_msg_lower = exception_msg.lower()
-            if 'SMTP' in exception_type or 'smtp' in exception_msg_lower:
-                error_category = 'SMTP_ERROR'
-            elif (
-                'connection' in exception_msg_lower or
-                'timeout' in exception_msg_lower
-            ):
-                error_category = 'CONNECTION_ERROR'
-            elif (
-                'authentication' in exception_msg_lower or
-                'auth' in exception_msg_lower
-            ):
-                error_category = 'AUTH_ERROR'
-            elif 'template' in exception_msg_lower:
-                error_category = 'TEMPLATE_ERROR'
-            elif (
-                'email' in exception_msg_lower and
-                'invalid' in exception_msg_lower
-            ):
-                error_category = 'INVALID_EMAIL'
-
-            logger.error(
-                f"Failed to send password reset email - "
-                f"Email: {email}, "
-                f"Language: {language}, "
-                f"Template: {template}, "
-                f"Error: {exception_type}: {exception_msg}, "
-                f"Category: {error_category}",
-                exc_info=True,
-                extra={
-                    'email': email,
-                    'language': language,
-                    'template': template,
-                    'exception_type': exception_type,
-                    'exception_message': exception_msg,
-                    'error_category': error_category,
-                    'from_email': from_email_val,
-                    'frontend_url': frontend_url,
-                    'service': 'PasswordResetEmailService',
-                }
-            )
+        except Exception:
             return False

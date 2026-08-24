@@ -87,9 +87,12 @@ def assert_credential_assignable(credential):
     if version.validation_status != MonitoringSshCredentialVersion.VALIDATION_VALID:
         raise CredentialLifecycleError("CREDENTIAL_NOT_VALIDATED")
     try:
-        decrypt_secret(version.private_key_encrypted)
-        if version.has_passphrase:
-            decrypt_secret(version.passphrase_encrypted)
+        if credential.credential_type == credential.TYPE_PASSWORD:
+            decrypt_secret(version.secret_encrypted)
+        else:
+            decrypt_secret(version.private_key_encrypted)
+            if version.has_passphrase:
+                decrypt_secret(version.passphrase_encrypted)
     except Exception as exc:
         raise CredentialLifecycleError("CREDENTIAL_UNAVAILABLE") from exc
     return version
@@ -100,7 +103,12 @@ def _host_fingerprint(host, version):
         address=host.address,
         ssh_user=host.ssh_user,
         ssh_port=host.ssh_port,
-        ssh_auth_type=MonitoringHost.SSH_AUTH_KEY,
+        ssh_auth_type=(
+            MonitoringHost.SSH_AUTH_PASSWORD
+            if version.credential.credential_type
+            == MonitoringSshCredential.TYPE_PASSWORD
+            else MonitoringHost.SSH_AUTH_KEY
+        ),
         ssh_credential_id=version.credential_id,
         ssh_credential_version_id=version.id,
         ssh_public_key_fingerprint=version.public_key_fingerprint,
@@ -123,7 +131,8 @@ def validate_version_on_hosts(
                     address=host.address,
                     ssh_user=host.ssh_user or "root",
                     ssh_port=host.ssh_port or 22,
-                    key_path=bundle.key_paths[version.id],
+                    key_path=bundle.key_paths.get(version.id),
+                    password=bundle.passwords.get(version.id),
                     process_env=bundle.process_env,
                     key_prevalidated=True,
                 )
@@ -169,9 +178,12 @@ def activate_version(*, credential_id, version_id, actor=None, request_context=N
         if not latest or latest.status != MonitoringCredentialValidation.STATUS_SUCCESS:
             raise CredentialActivationError("CREDENTIAL_VALIDATION_INCOMPLETE")
     try:
-        decrypt_secret(version.private_key_encrypted)
-        if version.has_passphrase:
-            decrypt_secret(version.passphrase_encrypted)
+        if version.credential.credential_type == version.credential.TYPE_PASSWORD:
+            decrypt_secret(version.secret_encrypted)
+        else:
+            decrypt_secret(version.private_key_encrypted)
+            if version.has_passphrase:
+                decrypt_secret(version.passphrase_encrypted)
     except Exception as exc:
         raise CredentialActivationError("CREDENTIAL_UNAVAILABLE") from exc
 

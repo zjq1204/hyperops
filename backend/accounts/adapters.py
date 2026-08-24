@@ -18,7 +18,6 @@ OAuthCallbackRedirectView generates JWT tokens →
 Redirects to frontend with tokens in URL parameters
 """
 
-import logging
 import uuid
 
 from allauth.socialaccount.adapter import (
@@ -28,9 +27,6 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 
 from .models import Profile
-
-
-logger = logging.getLogger(__name__)
 
 
 class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -119,19 +115,11 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             user.first_name = first_name
             updated_fields.append('first_name')
             updated = True
-            logger.info(
-                f"Updated first_name for user "
-                f"{user.email or 'new'}: {first_name}"
-            )
 
         if last_name and user.last_name != last_name:
             user.last_name = last_name
             updated_fields.append('last_name')
             updated = True
-            logger.info(
-                f"Updated last_name for user "
-                f"{user.email or 'new'}: {last_name}"
-            )
 
         if updated and user.pk and updated_fields:
             user.save(update_fields=updated_fields)
@@ -160,14 +148,6 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             provider, data, user
         )
 
-        if provider == 'google':
-            logger.info(
-                f"Google OAuth user data: "
-                f"given_name={data.get('given_name', 'N/A')}, "
-                f"family_name={data.get('family_name', 'N/A')}, "
-                f"email={data.get('email', 'N/A')}"
-            )
-
         self._update_user_names(user, first_name, last_name)
 
         if not user.username or user.username == '':
@@ -186,7 +166,6 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
                 counter += 1
 
             user.username = username
-            logger.info(f"Generated username: {username}")
 
         return user
 
@@ -223,11 +202,6 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             user=user,
             registration_completed=False,
             auth_source=Profile.AUTH_SOURCE_OAUTH,
-        )
-
-        logger.info(
-            f"OAuth user created: {user.email} "
-            f"(provider: {sociallogin.account.provider})"
         )
 
         return user

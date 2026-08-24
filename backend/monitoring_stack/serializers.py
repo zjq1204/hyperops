@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 from monitoring_stack.models import (
     AnsibleInstallJob,
@@ -89,9 +90,23 @@ class MonitoringIntegrationConfigSerializer(serializers.ModelSerializer):
 
 class CredentialCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=120)
-    private_key = serializers.CharField(write_only=True, trim_whitespace=False)
+    credential_type = serializers.ChoiceField(
+        choices=MonitoringSshCredential.TYPE_CHOICES,
+        default=MonitoringSshCredential.TYPE_PRIVATE_KEY,
+    )
+    private_key = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=False
+    )
     passphrase = serializers.CharField(
         write_only=True, required=False, allow_blank=True, trim_whitespace=False
+    )
+    password = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=False,
+        max_length=4096,
+    )
+    password_confirm = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=False,
+        max_length=4096,
     )
 
     def validate_name(self, value):
@@ -104,19 +119,48 @@ class CredentialCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("credential name already exists")
         return value
 
+    def validate(self, attrs):
+        credential_type = attrs["credential_type"]
+        if credential_type == MonitoringSshCredential.TYPE_PASSWORD:
+            if not attrs.get("password"):
+                raise serializers.ValidationError({"password": "PASSWORD_REQUIRED"})
+            if attrs.get("password") != attrs.get("password_confirm"):
+                raise serializers.ValidationError(
+                    {"password_confirm": "PASSWORD_CONFIRMATION_MISMATCH"}
+                )
+            attrs["private_key"] = ""
+            attrs["passphrase"] = ""
+        elif not attrs.get("private_key"):
+            raise serializers.ValidationError({"private_key": "PRIVATE_KEY_REQUIRED"})
+        return attrs
+
 
 class CredentialRotateSerializer(serializers.Serializer):
-    private_key = serializers.CharField(write_only=True, trim_whitespace=False)
+    private_key = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=False
+    )
     passphrase = serializers.CharField(
         write_only=True, required=False, allow_blank=True, trim_whitespace=False
+    )
+    password = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=False,
+        max_length=4096,
+    )
+    password_confirm = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=False,
+        max_length=4096,
     )
 
 
 class CredentialVersionSerializer(serializers.ModelSerializer):
+    credential_type = serializers.CharField(
+        source="credential.credential_type", read_only=True
+    )
+
     class Meta:
         model = MonitoringSshCredentialVersion
         fields = [
-            "id", "version", "has_passphrase", "algorithm", "key_size", "curve",
+            "id", "version", "credential_type", "has_passphrase", "algorithm", "key_size", "curve",
             "public_key_fingerprint", "validation_status", "validation_error_code",
             "created_at", "activated_at", "retired_at",
         ]
@@ -151,7 +195,7 @@ class CredentialListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MonitoringSshCredential
-        fields = ["id", "name", "status", "active_version", "usage_count", "health", "last_validation_time", "created_at", "updated_at", "archived_at"]
+        fields = ["id", "name", "credential_type", "status", "active_version", "usage_count", "health", "last_validation_time", "created_at", "updated_at", "archived_at"]
         read_only_fields = fields
 
     def get_health(self, obj):
@@ -162,9 +206,12 @@ class CredentialListSerializer(serializers.ModelSerializer):
             return "unavailable"
         try:
             from monitoring_stack.services.credential_crypto import decrypt_secret
-            decrypt_secret(version.private_key_encrypted)
-            if version.has_passphrase:
-                decrypt_secret(version.passphrase_encrypted)
+            if obj.credential_type == obj.TYPE_PASSWORD:
+                decrypt_secret(version.secret_encrypted)
+            else:
+                decrypt_secret(version.private_key_encrypted)
+                if version.has_passphrase:
+                    decrypt_secret(version.passphrase_encrypted)
         except Exception:
             return "unavailable"
         return version.validation_status
@@ -235,6 +282,49 @@ class BlackboxProbeNodeSerializer(serializers.ModelSerializer):
     def validate_labels(self, value):
         return clean_labels(value)
 
+    def validate(self, attrs):
+        instance = self.instance
+        if not instance:
+            return attrs
+
+        errors = {}
+        requested_source = attrs.get("source", instance.source)
+        if requested_source != instance.source:
+            errors["source"] = "PROBE_NODE_SOURCE_READ_ONLY"
+
+        if instance.source != BlackboxProbeNode.SOURCE_MANUAL:
+            comparisons = {
+                "address": (
+                    str(instance.address or "").strip(),
+                    str(attrs.get("address", instance.address) or "").strip(),
+                ),
+                "port": (
+                    str(instance.port or "").strip(),
+                    str(attrs.get("port", instance.port) or "").strip(),
+                ),
+                "host": (
+                    instance.host_id,
+                    getattr(attrs.get("host", instance.host), "id", None),
+                ),
+                "install_dir": (
+                    str(instance.install_dir or "").strip(),
+                    str(
+                        attrs.get("install_dir", instance.install_dir) or ""
+                    ).strip(),
+                ),
+                "last_job": (
+                    instance.last_job_id,
+                    getattr(attrs.get("last_job", instance.last_job), "id", None),
+                ),
+            }
+            for field, (current, requested) in comparisons.items():
+                if field in attrs and requested != current:
+                    errors[field] = "MANAGED_PROBE_NODE_FIELD_READ_ONLY"
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
 
 class PrometheusProbeNodeOnboardSerializer(serializers.Serializer):
     address = serializers.CharField(max_length=255)
@@ -290,6 +380,7 @@ class ProbeTargetSerializer(serializers.ModelSerializer):
 
 class MonitoringComponentStatusSerializer(serializers.ModelSerializer):
     last_job_id = serializers.IntegerField(source="last_job.id", read_only=True)
+    active_job_id = serializers.IntegerField(source="active_job.id", read_only=True)
     runtime_status = serializers.SerializerMethodField()
     runtime_reason = serializers.SerializerMethodField()
     runtime_endpoint = serializers.SerializerMethodField()
@@ -304,6 +395,7 @@ class MonitoringComponentStatusSerializer(serializers.ModelSerializer):
             "version",
             "install_dir",
             "last_job_id",
+            "active_job_id",
             "last_error",
             "runtime_status",
             "runtime_reason",
@@ -356,6 +448,14 @@ class MonitoringHostConnectionTestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
     )
+    ssh_credential_id = serializers.PrimaryKeyRelatedField(
+        source="ssh_key_credential",
+        queryset=MonitoringSshCredential.objects.filter(
+            status=MonitoringSshCredential.STATUS_ACTIVE
+        ),
+        required=False,
+        allow_null=True,
+    )
 
     def validate_address(self, value):
         value = str(value or "").strip()
@@ -366,44 +466,45 @@ class MonitoringHostConnectionTestSerializer(serializers.Serializer):
     def validate(self, attrs):
         auth_type = attrs["ssh_auth_type"]
         saved_host = attrs.get("saved_host")
+        credential = attrs.get("ssh_key_credential")
+        if not credential and saved_host:
+            credential = saved_host.ssh_key_credential
+        if credential:
+            expected_type = (
+                MonitoringSshCredential.TYPE_PASSWORD
+                if auth_type == MonitoringHost.SSH_AUTH_PASSWORD
+                else MonitoringSshCredential.TYPE_PRIVATE_KEY
+            )
+            if credential.credential_type != expected_type:
+                raise serializers.ValidationError(
+                    {"ssh_credential_id": "CREDENTIAL_TYPE_MISMATCH"}
+                )
+            from monitoring_stack.services.credential_lifecycle import (
+                CredentialLifecycleError,
+                assert_credential_assignable,
+            )
+            try:
+                assert_credential_assignable(credential)
+            except CredentialLifecycleError as exc:
+                raise serializers.ValidationError(
+                    {"ssh_credential_id": exc.code}
+                ) from exc
+            attrs["ssh_key_credential"] = credential
+
         if auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
             password = str(attrs.get("ssh_password") or "")
-            if not password and saved_host:
+            if not password and saved_host and not credential:
                 password = str(saved_host.ssh_password or "")
-            if not password:
+            if not password and not credential:
                 raise serializers.ValidationError(
-                    {"ssh_password": "SSH password is required"}
+                    {"ssh_credential_id": "SSH password credential is required"}
                 )
             attrs["resolved_password"] = password
-            attrs["ssh_key_credential"] = None
         else:
-            credential = attrs.get("ssh_key_credential")
-            if not credential and saved_host:
-                credential = saved_host.ssh_key_credential
             if not credential:
                 raise serializers.ValidationError(
-                    {"ssh_key_id": "SSH key is required"}
+                    {"ssh_credential_id": "SSH private key credential is required"}
                 )
-            if credential.active_version_id:
-                from monitoring_stack.services.credential_lifecycle import (
-                    CredentialLifecycleError,
-                    assert_credential_assignable,
-                )
-                try:
-                    assert_credential_assignable(credential)
-                except CredentialLifecycleError as exc:
-                    raise serializers.ValidationError(
-                        {"ssh_key_id": exc.code}
-                    ) from exc
-            elif credential.status == credential.STATUS_NEEDS_REUPLOAD:
-                raise serializers.ValidationError(
-                    {"ssh_key_id": "CREDENTIAL_NEEDS_REUPLOAD"}
-                )
-            elif not saved_host or saved_host.ssh_key_credential_id != credential.id:
-                raise serializers.ValidationError(
-                    {"ssh_key_id": "CREDENTIAL_UNAVAILABLE"}
-                )
-            attrs["ssh_key_credential"] = credential
             attrs["resolved_password"] = None
         return attrs
 
@@ -420,6 +521,14 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
     ssh_key_id = serializers.PrimaryKeyRelatedField(
         source="ssh_key_credential",
         queryset=MonitoringSshCredential.objects.filter(status=MonitoringSshCredential.STATUS_ACTIVE),
+        required=False,
+        allow_null=True,
+    )
+    ssh_credential_id = serializers.PrimaryKeyRelatedField(
+        source="ssh_key_credential",
+        queryset=MonitoringSshCredential.objects.filter(
+            status=MonitoringSshCredential.STATUS_ACTIVE
+        ),
         required=False,
         allow_null=True,
     )
@@ -444,6 +553,7 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
             "ssh_password",
             "ssh_key",
             "ssh_key_id",
+            "ssh_credential_id",
             "ssh_key_name",
             "has_ssh_password",
             "ssh_verification",
@@ -470,11 +580,17 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
         auth_type = attrs.get(
             "ssh_auth_type", getattr(self.instance, "ssh_auth_type", MonitoringHost.SSH_AUTH_KEY)
         )
-        if auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
-            attrs["ssh_key_credential"] = None
-            attrs["ssh_key"] = ""
         credential = attrs.get("ssh_key_credential")
-        if auth_type == MonitoringHost.SSH_AUTH_KEY and credential:
+        if credential:
+            expected_type = (
+                MonitoringSshCredential.TYPE_PASSWORD
+                if auth_type == MonitoringHost.SSH_AUTH_PASSWORD
+                else MonitoringSshCredential.TYPE_PRIVATE_KEY
+            )
+            if credential.credential_type != expected_type:
+                raise serializers.ValidationError(
+                    {"ssh_credential_id": "CREDENTIAL_TYPE_MISMATCH"}
+                )
             from monitoring_stack.services.credential_lifecycle import (
                 CredentialLifecycleError,
                 assert_credential_assignable,
@@ -482,7 +598,13 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
             try:
                 assert_credential_assignable(credential)
             except CredentialLifecycleError as exc:
-                raise serializers.ValidationError({"ssh_key_id": exc.code}) from exc
+                raise serializers.ValidationError(
+                    {"ssh_credential_id": exc.code}
+                ) from exc
+            attrs["ssh_key_credential"] = credential
+            attrs["ssh_key"] = ""
+            attrs["ssh_password"] = ""
+        elif auth_type == MonitoringHost.SSH_AUTH_PASSWORD:
             attrs["ssh_key"] = ""
 
         instance = self.instance
@@ -527,13 +649,84 @@ class MonitoringHostSerializer(serializers.ModelSerializer):
             attrs.update(unverified_verification_defaults())
         return attrs
 
+    def _migrate_inline_password(self, validated_data, instance=None):
+        password = str(validated_data.pop("ssh_password", "") or "")
+        if not password:
+            return validated_data
+        auth_type = validated_data.get(
+            "ssh_auth_type",
+            getattr(instance, "ssh_auth_type", MonitoringHost.SSH_AUTH_KEY),
+        )
+        if auth_type != MonitoringHost.SSH_AUTH_PASSWORD:
+            return validated_data
+        if validated_data.get("ssh_key_credential"):
+            return validated_data
+
+        from monitoring_stack.services.credential_ingestion import (
+            create_password_credential_version,
+        )
+
+        request = self.context.get("request")
+        actor = getattr(request, "user", None)
+        hostname = str(
+            validated_data.get("hostname")
+            or getattr(instance, "hostname", "")
+            or "host"
+        )
+        base_name = f"{hostname}-password"[:120]
+        name = base_name
+        suffix = 2
+        while MonitoringSshCredential.objects.filter(name=name).exclude(
+            status=MonitoringSshCredential.STATUS_ARCHIVED
+        ).exists():
+            tail = f"-{suffix}"
+            name = f"{base_name[:120-len(tail)]}{tail}"
+            suffix += 1
+        credential = MonitoringSshCredential.objects.create(
+            name=name,
+            credential_type=MonitoringSshCredential.TYPE_PASSWORD,
+            created_by=actor if getattr(actor, "is_authenticated", False) else None,
+            updated_by=actor if getattr(actor, "is_authenticated", False) else None,
+        )
+        version = create_password_credential_version(
+            credential=credential,
+            password=password,
+            actor=actor,
+        )
+        version.validation_status = version.VALIDATION_VALID
+        version.activated_at = timezone.now()
+        version.save(update_fields=["validation_status", "activated_at"])
+        credential.active_version = version
+        credential.save(update_fields=["active_version", "updated_at"])
+        validated_data["ssh_key_credential"] = credential
+        validated_data["ssh_password"] = ""
+        return validated_data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        return super().create(self._migrate_inline_password(validated_data))
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        return super().update(
+            instance,
+            self._migrate_inline_password(validated_data, instance),
+        )
+
     def get_ssh_key_name(self, obj):
         if obj.ssh_key_credential_id:
             return obj.ssh_key_credential.name
         return ""
 
     def get_has_ssh_password(self, obj):
-        return bool(obj.ssh_password)
+        return bool(
+            obj.ssh_password
+            or (
+                obj.ssh_key_credential_id
+                and obj.ssh_key_credential.credential_type
+                == MonitoringSshCredential.TYPE_PASSWORD
+            )
+        )
 
     def get_ssh_verification(self, obj):
         matches_current_settings = bool(
@@ -683,6 +876,13 @@ class AnsiblePreviewSerializer(serializers.Serializer):
     image = serializers.CharField(required=False, allow_blank=True, default="")
     probe_name = serializers.CharField(required=False, allow_blank=True, default="")
     blackbox_port = serializers.CharField(required=False, allow_blank=True, default="")
+    base_job_id = serializers.PrimaryKeyRelatedField(
+        source="base_job",
+        queryset=AnsibleInstallJob.objects.all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
 
 
 class AnsibleInstallJobSerializer(serializers.ModelSerializer):
@@ -703,6 +903,13 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
     manual_command = serializers.SerializerMethodField()
     failed_hostnames = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
+    base_job_id = serializers.PrimaryKeyRelatedField(
+        source="base_job",
+        queryset=AnsibleInstallJob.objects.all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
 
     class Meta:
         model = AnsibleInstallJob
@@ -727,6 +934,7 @@ class AnsibleInstallJobSerializer(serializers.ModelSerializer):
             "results",
             "progress",
             "retry_of",
+            "base_job_id",
             "total_hosts",
             "success_hosts",
             "failed_hosts",

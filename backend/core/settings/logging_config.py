@@ -1,105 +1,102 @@
-"""
-Logging Configuration
-
-This module customizes the logging settings for the Django application.
-By disabling Django's default logging setup and defining
-a custom configuration,
-it ensures consistent and structured logging output.
-
-- `LOGGING_CONFIG`: Disabled to prevent Django from applying default settings.
-- `configure_logging`: Function to set up logging with the specified log level.
-  It defines formatters, handlers, and loggers for various
-  application components.
-
-Highlights:
-- Logs are formatted to include timestamps, logger names,
-  log levels, and messages.
-- A `console` handler is configured to output logs to stderr.
-- The `core` logger is customized to avoid propagating logs to the root logger.
-- Suppresses DEBUG logs for `django.utils.autoreload` by
-  setting its level to INFO.
-"""
+"""Single logging configuration source for HyperOps services."""
 
 import logging.config
-import os
+from pathlib import Path
 
-from django.utils.log import DEFAULT_LOGGING
 
-# Disable Django's logging setup
-LOGGING_CONFIG = None
+def build_logging_config(*, log_level="INFO", service="api", log_file=""):
+    """Build a logging configuration for one HyperOps service process."""
+    level = str(log_level or "INFO").upper()
+    handler = {
+        "level": level,
+        "formatter": "hyperops",
+        "filters": ["context"],
+    }
 
-def configure_logging(log_level="INFO"):
-    """
-    Configures the logging settings for the application.
+    if log_file:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(mode=0o640, exist_ok=True)
+        path.chmod(0o640)
+        handler.update(
+            {
+                "class": "logging.handlers.WatchedFileHandler",
+                "filename": str(path),
+                "encoding": "utf-8",
+                "delay": True,
+            }
+        )
+    else:
+        handler.update(
+            {
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stderr",
+            }
+        )
 
-    Args:
-        log_level (str): The logging level to set. Defaults to "INFO".
-    """
-    logging.config.dictConfig({
-        'version': 1,
-        'disable_existing_loggers': False,
-        'formatters': {
-            'default': {
-                'format': (
-                    '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
-                ),
-            },
-            'django.server': DEFAULT_LOGGING['formatters']['django.server'],
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "filters": {
+            "context": {
+                "()": "core.logging.LogContextFilter",
+                "service": service,
+            }
         },
-        'handlers': {
-            'console': {
-                'class': 'logging.StreamHandler',
-                'formatter': 'default',
-            },
-            'django.server': DEFAULT_LOGGING['handlers']['django.server'],
+        "formatters": {
+            "hyperops": {
+                "()": "core.logging.HyperOpsFormatter",
+            }
         },
-        'loggers': {
-            '': {
-                'level': log_level,
-                'handlers': ['console'],
+        "handlers": {
+            "application": handler,
+            "null": {"class": "logging.NullHandler"},
+        },
+        "root": {
+            "level": level,
+            "handlers": ["application"],
+        },
+        "loggers": {
+            "django.server": {
+                "level": level,
+                "handlers": ["null"],
+                "propagate": False,
             },
-            'core': {
-                'level': log_level,
-                'handlers': ['console'],
-                'propagate': False,
+            "django.request": {
+                "level": "ERROR",
+                "handlers": ["application"],
+                "propagate": False,
             },
-            'django.server': DEFAULT_LOGGING['loggers']['django.server'],
-            'django.utils.autoreload': {
-                'level': 'INFO',
-                'handlers': ['console'],
-                'propagate': False,
+            "django.utils.autoreload": {
+                "level": "WARNING",
+                "handlers": ["application"],
+                "propagate": False,
             },
-            # Suppress Celery system DEBUG logs
-            'celery': {
-                'level': 'WARNING',
-                'handlers': ['console'],
-                'propagate': False,
+            "celery": {
+                "level": "WARNING",
+                "handlers": ["application"],
+                "propagate": False,
             },
-            'celery.utils.functional': {
-                'level': 'WARNING',
-                'handlers': ['console'],
-                'propagate': False,
+            "flanker": {
+                "level": "ERROR",
+                "handlers": ["application"],
+                "propagate": False,
             },
-            'celery.worker': {
-                'level': 'WARNING',
-                'handlers': ['console'],
-                'propagate': False,
-            },
-            'celery.app': {
-                'level': 'WARNING',
-                'handlers': ['console'],
-                'propagate': False,
-            },
-            # Suppress flanker warnings
-            'flanker': {
-                'level': 'ERROR',
-                'handlers': ['console'],
-                'propagate': False,
-            },
-            'flanker.addresslib._parser.parser': {
-                'level': 'ERROR',
-                'handlers': ['console'],
-                'propagate': False,
+            "flanker.addresslib._parser.parser": {
+                "level": "ERROR",
+                "handlers": ["application"],
+                "propagate": False,
             },
         },
-    })
+    }
+
+
+def configure_logging(log_level="INFO", service="api", log_file=""):
+    """Configure logging once for the current Django or Celery process."""
+    logging.config.dictConfig(
+        build_logging_config(
+            log_level=log_level,
+            service=service,
+            log_file=log_file,
+        )
+    )

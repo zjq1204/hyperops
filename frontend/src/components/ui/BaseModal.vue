@@ -10,7 +10,8 @@
     >
       <div
         v-if="show"
-        class="fixed inset-0 z-[80] overflow-y-auto"
+        class="fixed inset-0 overflow-y-auto"
+        :style="{ zIndex }"
         @click="handleBackdropClick"
       >
         <div class="flex min-h-full items-center justify-center p-4">
@@ -136,6 +137,10 @@ const props = defineProps({
     type: String,
     default: 'md',
     validator: (value) => ['sm', 'md', 'lg', 'xl', 'wide'].includes(value)
+  },
+  zIndex: {
+    type: [Number, String],
+    default: 80
   }
 })
 

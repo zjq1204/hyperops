@@ -120,9 +120,9 @@ class GetAvailableScenesView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Exception as e:
-            logger.error(
-                f"Failed to get available scenes: {e}",
-                exc_info=True
+            logger.exception(
+                "场景列表获取失败 | operation=list_scenes error_type=%s",
+                type(e).__name__,
             )
             return Response(
                 {

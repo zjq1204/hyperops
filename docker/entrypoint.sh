@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+umask 027
 
 # -----------------------------------------------------------------------------
 # Project Entrypoint Script
@@ -16,10 +17,7 @@ export PYTHONPATH=/opt/backend
 export DJANGO_SETTINGS_MODULE=core.settings
 
 LOG_BASE_DIR="/var/log/gunicorn"
-ACCESS_LOG="${LOG_BASE_DIR}/gunicorn_access.log"
 ERROR_LOG="${LOG_BASE_DIR}/gunicorn_error.log"
-CELERY_LOG="/var/log/celery/celery.log"
-
 WORKERS=${WORKERS:-1}
 THREADS=${THREADS:-1}
 REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -117,7 +115,6 @@ start_gunicorn() {
         --threads $THREADS \
         --worker-class gthread \
         --log-level info \
-        --access-logfile $ACCESS_LOG \
         --error-logfile $ERROR_LOG
 }
 
@@ -141,19 +138,17 @@ start_celery_worker() {
     # - Docker stop_grace_period (600s) allows time for tasks to finish
     # - CELERY_TASK_ACKS_LATE=True ensures tasks are only acknowledged after completion
     exec celery -A core worker \
-        --loglevel=${CELERY_LOG_LEVEL:-INFO} \
+        --loglevel=${DJANGO_LOG_LEVEL:-INFO} \
         --concurrency=$DEFAULT_CONCURRENCY \
         --max-tasks-per-child=${CELERY_MAX_TASKS_PER_CHILD:-1000} \
-        --max-memory-per-child=${CELERY_MAX_MEMORY_PER_CHILD:-256000} \
-        --logfile=/var/log/celery/worker.log
+        --max-memory-per-child=${CELERY_MAX_MEMORY_PER_CHILD:-256000}
 }
 
 start_celery_beat() {
     log "Starting Celery beat with DatabaseScheduler..."
     exec celery -A core beat \
         --scheduler django_celery_beat.schedulers:DatabaseScheduler \
-        --loglevel=${CELERY_LOG_LEVEL:-INFO} \
-        --logfile=/var/log/celery/beat.log
+        --loglevel=${DJANGO_LOG_LEVEL:-INFO}
 }
 
 start_flower() {

@@ -10,6 +10,7 @@ import {
   credentialFingerprint,
   credentialHostCount,
   credentialLifecycleKey,
+  credentialTypeKey,
   credentialValidationKey,
   hasCredentialPermission,
   shortFingerprint
@@ -50,6 +51,7 @@ const camelCredential = {
   validationStatus: 'valid'
 }
 assert.equal(credentialLifecycleKey(camelCredential), 'active')
+assert.equal(credentialTypeKey(camelCredential), 'private_key')
 assert.equal(credentialValidationKey(camelCredential), 'valid')
 assert.equal(credentialAlgorithmLabel(camelCredential), 'ssh-ed25519 / Ed25519')
 assert.equal(
@@ -72,6 +74,10 @@ assert.equal(credentialLifecycleKey(snakeCredential), 'needs_reupload')
 assert.equal(credentialValidationKey(snakeCredential), 'invalid')
 assert.equal(credentialAlgorithmLabel(snakeCredential), 'ssh-rsa / 4096')
 assert.equal(credentialHostCount(snakeCredential), 0)
+assert.equal(
+  credentialTypeKey({ credential_type: 'password' }),
+  'password'
+)
 assert.equal(hasCredentialPermission(user, 'manage'), false)
 assert.equal(
   canActivateCredentialVersion({ activationEligible: true }, user),

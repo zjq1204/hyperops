@@ -262,28 +262,38 @@
                     <span v-else class="text-slate-300">—</span>
                   </td>
                   <td class="admin-table-cell" @click.stop>
-                    <details class="relative">
-                      <summary
-                        class="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-xl leading-none text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    <div class="relative" data-probe-action-menu>
+                      <button
+                        type="button"
+                        class="flex h-9 w-9 items-center justify-center rounded-md text-xl leading-none text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                         :title="t('adminPages.monitoring.moreActions')"
+                        :aria-expanded="openActionMenuId === row.target.id"
+                        @click="toggleActionMenu(row.target.id)"
                       >
                         <span aria-hidden="true">⋮</span>
                         <span class="sr-only">{{
                           t('adminPages.monitoring.moreActions')
                         }}</span>
-                      </summary>
+                      </button>
                       <div
-                        class="absolute right-0 z-20 mt-1 grid min-w-32 gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
+                        v-if="openActionMenuId === row.target.id"
+                        class="absolute right-0 z-20 mt-1 grid min-w-36 gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
                       >
                         <button
                           class="min-h-9 rounded-md px-3 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                          @click="editTarget(row.target)"
+                          @click="runMenuAction(() => editTarget(row.target))"
                         >
                           {{ t('common.edit') }}
                         </button>
                         <button
                           class="min-h-9 rounded-md px-3 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                          @click="toggleTarget(row.target)"
+                          @click="runMenuAction(() => duplicateTarget(row.target))"
+                        >
+                          {{ t('adminPages.monitoring.duplicateTarget') }}
+                        </button>
+                        <button
+                          class="min-h-9 rounded-md px-3 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                          @click="runMenuAction(() => toggleTarget(row.target))"
                         >
                           {{
                             row.target.enabled
@@ -293,12 +303,12 @@
                         </button>
                         <button
                           class="min-h-9 rounded-md px-3 text-left text-sm text-rose-600 hover:bg-rose-50"
-                          @click="requestDelete(row.target)"
+                          @click="runMenuAction(() => requestDelete(row.target))"
                         >
                           {{ t('common.delete') }}
                         </button>
                       </div>
-                    </details>
+                    </div>
                   </td>
                 </tr>
                 <tr v-if="!filteredRows.length" class="admin-table-row">
@@ -420,7 +430,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
@@ -463,6 +473,7 @@ const showForm = ref(false)
 const showDetails = ref(false)
 const editingTarget = ref(null)
 const selectedRow = ref(null)
+const openActionMenuId = ref(null)
 const filters = reactive({
   search: String(route.query.search || ''),
   type: String(route.query.type || ''),
@@ -531,14 +542,42 @@ function hiddenLabelCount(target) {
 }
 
 function openCreateForm() {
+  openActionMenuId.value = null
   editingTarget.value = null
   showForm.value = true
 }
 
 function editTarget(target) {
+  openActionMenuId.value = null
   showDetails.value = false
   editingTarget.value = target
   showForm.value = true
+}
+
+function duplicateTarget(target) {
+  showDetails.value = false
+  openActionMenuId.value = null
+  editingTarget.value = {
+    ...target,
+    id: null,
+    labels: { ...(target.labels || {}) }
+  }
+  showForm.value = true
+}
+
+function toggleActionMenu(id) {
+  openActionMenuId.value = openActionMenuId.value === id ? null : id
+}
+
+function runMenuAction(action) {
+  openActionMenuId.value = null
+  action()
+}
+
+function closeActionMenu(event) {
+  if (event?.key && event.key !== 'Escape') return
+  if (event?.target?.closest?.('[data-probe-action-menu]')) return
+  openActionMenuId.value = null
 }
 
 function closeForm() {
@@ -648,7 +687,17 @@ watch(
   { deep: true }
 )
 
-onMounted(load)
+onMounted(() => {
+  load()
+  document.addEventListener('click', closeActionMenu)
+  document.addEventListener('keydown', closeActionMenu)
+  window.addEventListener('scroll', closeActionMenu, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeActionMenu)
+  document.removeEventListener('keydown', closeActionMenu)
+  window.removeEventListener('scroll', closeActionMenu, true)
+})
 </script>
 
 <style scoped>

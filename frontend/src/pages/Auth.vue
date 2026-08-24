@@ -18,24 +18,12 @@
         <header class="auth-card__header">
           <div class="auth-brand">
             <div data-testid="auth-brand-mark" class="auth-brand__mark">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M7.5 17.5h9.25a4.25 4.25 0 0 0 .8-8.42A5.75 5.75 0 0 0 6.9 8.1 4 4 0 0 0 7.5 17.5Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.7"
-                />
-                <path
-                  d="m12.1 9.35-1.72 3.32h2.03l-1.07 1.98"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.7"
-                />
-              </svg>
+              <img
+                src="/logo-mark.svg"
+                alt="HyperOps"
+                width="36"
+                height="36"
+              />
             </div>
             <div class="auth-brand__copy">
               <h2 class="auth-brand__title">{{ t('auth.loginTitle') }}</h2>
@@ -439,15 +427,15 @@ onMounted(loadLdapProviders)
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border-radius: 1rem;
-  background: linear-gradient(135deg, #2563eb, #4f46e5);
-  color: #ffffff;
-  box-shadow: 0 16px 28px rgba(59, 130, 246, 0.24);
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.82);
 }
 
-.auth-brand__mark svg {
-  height: 1.45rem;
-  width: 1.45rem;
+.auth-brand__mark img {
+  height: 2.25rem;
+  width: 2.25rem;
+  object-fit: contain;
 }
 
 .auth-brand__copy {

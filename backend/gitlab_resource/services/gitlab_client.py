@@ -2,14 +2,15 @@
 GitLab API client.
 """
 
-import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
 import gitlab
 import requests
 
-logger = logging.getLogger(__name__)
+def _bool_or_default(value, default: bool = False) -> bool:
+    """Convert None to default, pass through actual bool values."""
+    return default if value is None else bool(value)
 
 
 @dataclass
@@ -63,6 +64,20 @@ class GitLabWebhookInfo:
     merge_requests_events: bool
     enable_ssl_verification: bool
     push_events_branch_filter: Optional[str] = None
+    issues_events: bool = False
+    confidential_issues_events: bool = False
+    note_events: bool = False
+    confidential_note_events: bool = False
+    pipeline_events: bool = False
+    job_events: bool = False
+    wiki_page_events: bool = False
+    deployment_events: bool = False
+    releases_events: bool = False
+    feature_flag_events: bool = False
+    repository_update_events: bool = False
+    resource_access_token_events: bool = False
+    token: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 class GitLabClient:
@@ -78,8 +93,7 @@ class GitLabClient:
         try:
             self.gl.auth()
             return True
-        except Exception as e:
-            logger.error(f"GitLab connection test failed: {e}")
+        except Exception:
             return False
 
     @staticmethod
@@ -108,8 +122,7 @@ class GitLabClient:
                 )
                 for g in groups
             ]
-        except Exception as e:
-            logger.error(f"Failed to list groups: {e}")
+        except Exception:
             raise
 
     def list_projects_in_group(self, group_id: int) -> list[GitLabProject]:
@@ -131,8 +144,7 @@ class GitLabClient:
                     )
                 )
             return result
-        except Exception as e:
-            logger.error(f"Failed to list projects in group {group_id}: {e}")
+        except Exception:
             raise
 
     def list_branches(self, project_id: int) -> list[GitLabBranchInfo]:
@@ -156,8 +168,7 @@ class GitLabClient:
                     )
                 )
             return result
-        except Exception as e:
-            logger.error(f"Failed to list branches for project {project_id}: {e}")
+        except Exception:
             raise
 
     def list_tags(self, project_id: int) -> list[GitLabTagInfo]:
@@ -177,8 +188,7 @@ class GitLabClient:
                     )
                 )
             return result
-        except Exception as e:
-            logger.error(f"Failed to list tags for project {project_id}: {e}")
+        except Exception:
             raise
 
     def list_webhooks(self, project_id: int) -> list[GitLabWebhookInfo]:
@@ -186,20 +196,36 @@ class GitLabClient:
         try:
             project = self.gl.projects.get(project_id)
             hooks = self._list_all(project.hooks)
-            return [
-                GitLabWebhookInfo(
-                    id=h.id,
-                    url=h.url,
-                    push_events=h.push_events,
-                    tag_push_events=h.tag_push_events,
-                    merge_requests_events=h.merge_requests_events,
-                    enable_ssl_verification=h.enable_ssl_verification,
-                    push_events_branch_filter=getattr(h, "push_events_branch_filter", None),
+            results = []
+            for h in hooks:
+                attrs = h.attributes
+                results.append(
+                    GitLabWebhookInfo(
+                        id=attrs.get("id"),
+                        url=attrs.get("url", ""),
+                        push_events=attrs.get("push_events") or False,
+                        tag_push_events=attrs.get("tag_push_events") or False,
+                        merge_requests_events=attrs.get("merge_requests_events") or False,
+                        enable_ssl_verification=_bool_or_default(attrs.get("enable_ssl_verification"), True),
+                        push_events_branch_filter=attrs.get("push_events_branch_filter") or None,
+                        issues_events=attrs.get("issues_events") or False,
+                        confidential_issues_events=attrs.get("confidential_issues_events") or False,
+                        note_events=attrs.get("note_events") or False,
+                        confidential_note_events=attrs.get("confidential_note_events") or False,
+                        pipeline_events=attrs.get("pipeline_events") or False,
+                        job_events=attrs.get("job_events") or False,
+                        wiki_page_events=attrs.get("wiki_page_events") or False,
+                        deployment_events=attrs.get("deployment_events") or False,
+                        releases_events=attrs.get("releases_events") or False,
+                        feature_flag_events=attrs.get("feature_flag_events") or False,
+                        repository_update_events=attrs.get("repository_update_events") or False,
+                        resource_access_token_events=attrs.get("resource_access_token_events") or False,
+                        token=attrs.get("token"),
+                        created_at=attrs.get("created_at"),
+                    )
                 )
-                for h in hooks
-            ]
-        except Exception as e:
-            logger.error(f"Failed to list webhooks for project {project_id}: {e}")
+            return results
+        except Exception:
             raise
 
     def create_branch(
@@ -221,8 +247,7 @@ class GitLabClient:
                 commit_sha=branch.commit["id"],
                 commit_date=branch.commit.get("committed_date"),
             )
-        except Exception as e:
-            logger.error(f"Failed to create branch {branch_name} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def delete_branch(self, project_id: int, branch_name: str) -> bool:
@@ -231,8 +256,7 @@ class GitLabClient:
             project = self.gl.projects.get(project_id)
             project.branches.delete(branch_name)
             return True
-        except Exception as e:
-            logger.error(f"Failed to delete branch {branch_name} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def create_tag(
@@ -257,8 +281,7 @@ class GitLabClient:
                 commit_sha=tag.commit["id"] if tag.commit else "",
                 released_at=tag.commit.get("committed_date") if tag.commit else None,
             )
-        except Exception as e:
-            logger.error(f"Failed to create tag {tag_name} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def delete_tag(self, project_id: int, tag_name: str) -> bool:
@@ -267,8 +290,7 @@ class GitLabClient:
             project = self.gl.projects.get(project_id)
             project.tags.delete(tag_name)
             return True
-        except Exception as e:
-            logger.error(f"Failed to delete tag {tag_name} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def protect_branch(self, project_id: int, branch_name: str) -> bool:
@@ -283,11 +305,9 @@ class GitLabClient:
             return True
         except gitlab.exceptions.GitlabCreateError as e:
             if "already been taken" in str(e):
-                logger.warning(f"Branch {branch_name} is already protected")
                 return True
             raise
-        except Exception as e:
-            logger.error(f"Failed to protect branch {branch_name} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def unprotect_branch(self, project_id: int, branch_name: str) -> bool:
@@ -296,8 +316,7 @@ class GitLabClient:
             project = self.gl.projects.get(project_id)
             project.protectedbranches.delete(branch_name)
             return True
-        except Exception as e:
-            logger.error(f"Failed to unprotect branch {branch_name} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def create_webhook(
@@ -309,6 +328,19 @@ class GitLabClient:
         merge_requests_events: bool = False,
         enable_ssl_verification: bool = True,
         push_events_branch_filter: Optional[str] = None,
+        issues_events: bool = False,
+        confidential_issues_events: bool = False,
+        note_events: bool = False,
+        confidential_note_events: bool = False,
+        pipeline_events: bool = False,
+        job_events: bool = False,
+        wiki_page_events: bool = False,
+        deployment_events: bool = False,
+        releases_events: bool = False,
+        feature_flag_events: bool = False,
+        repository_update_events: bool = False,
+        resource_access_token_events: bool = False,
+        token: Optional[str] = None,
     ) -> GitLabWebhookInfo:
         """Create a new webhook."""
         try:
@@ -319,22 +351,50 @@ class GitLabClient:
                 "tag_push_events": tag_push_events,
                 "merge_requests_events": merge_requests_events,
                 "enable_ssl_verification": enable_ssl_verification,
+                "issues_events": issues_events,
+                "confidential_issues_events": confidential_issues_events,
+                "note_events": note_events,
+                "confidential_note_events": confidential_note_events,
+                "pipeline_events": pipeline_events,
+                "job_events": job_events,
+                "wiki_page_events": wiki_page_events,
+                "deployment_events": deployment_events,
+                "releases_events": releases_events,
+                "feature_flag_events": feature_flag_events,
+                "repository_update_events": repository_update_events,
+                "resource_access_token_events": resource_access_token_events,
             }
             if push_events_branch_filter:
                 hook_data["push_events_branch_filter"] = push_events_branch_filter
+            if token:
+                hook_data["token"] = token
 
             hook = project.hooks.create(hook_data)
+            attrs = hook.attributes
             return GitLabWebhookInfo(
-                id=hook.id,
-                url=hook.url,
-                push_events=hook.push_events,
-                tag_push_events=hook.tag_push_events,
-                merge_requests_events=hook.merge_requests_events,
-                enable_ssl_verification=hook.enable_ssl_verification,
-                push_events_branch_filter=getattr(hook, "push_events_branch_filter", None),
+                id=attrs.get("id"),
+                url=attrs.get("url", ""),
+                push_events=attrs.get("push_events") or False,
+                tag_push_events=attrs.get("tag_push_events") or False,
+                merge_requests_events=attrs.get("merge_requests_events") or False,
+                enable_ssl_verification=_bool_or_default(attrs.get("enable_ssl_verification"), True),
+                push_events_branch_filter=attrs.get("push_events_branch_filter") or None,
+                issues_events=attrs.get("issues_events") or False,
+                confidential_issues_events=attrs.get("confidential_issues_events") or False,
+                note_events=attrs.get("note_events") or False,
+                confidential_note_events=attrs.get("confidential_note_events") or False,
+                pipeline_events=attrs.get("pipeline_events") or False,
+                job_events=attrs.get("job_events") or False,
+                wiki_page_events=attrs.get("wiki_page_events") or False,
+                deployment_events=attrs.get("deployment_events") or False,
+                releases_events=attrs.get("releases_events") or False,
+                feature_flag_events=attrs.get("feature_flag_events") or False,
+                repository_update_events=attrs.get("repository_update_events") or False,
+                resource_access_token_events=attrs.get("resource_access_token_events") or False,
+                token=attrs.get("token"),
+                created_at=attrs.get("created_at"),
             )
-        except Exception as e:
-            logger.error(f"Failed to create webhook in project {project_id}: {e}")
+        except Exception:
             raise
 
     def update_webhook(
@@ -347,6 +407,19 @@ class GitLabClient:
         merge_requests_events: Optional[bool] = None,
         enable_ssl_verification: Optional[bool] = None,
         push_events_branch_filter: Optional[str] = None,
+        issues_events: Optional[bool] = None,
+        confidential_issues_events: Optional[bool] = None,
+        note_events: Optional[bool] = None,
+        confidential_note_events: Optional[bool] = None,
+        pipeline_events: Optional[bool] = None,
+        job_events: Optional[bool] = None,
+        wiki_page_events: Optional[bool] = None,
+        deployment_events: Optional[bool] = None,
+        releases_events: Optional[bool] = None,
+        feature_flag_events: Optional[bool] = None,
+        repository_update_events: Optional[bool] = None,
+        resource_access_token_events: Optional[bool] = None,
+        token: Optional[str] = None,
     ) -> GitLabWebhookInfo:
         """Update a webhook."""
         try:
@@ -365,19 +438,59 @@ class GitLabClient:
                 hook.enable_ssl_verification = enable_ssl_verification
             if push_events_branch_filter is not None:
                 hook.push_events_branch_filter = push_events_branch_filter
+            if issues_events is not None:
+                hook.issues_events = issues_events
+            if confidential_issues_events is not None:
+                hook.confidential_issues_events = confidential_issues_events
+            if note_events is not None:
+                hook.note_events = note_events
+            if confidential_note_events is not None:
+                hook.confidential_note_events = confidential_note_events
+            if pipeline_events is not None:
+                hook.pipeline_events = pipeline_events
+            if job_events is not None:
+                hook.job_events = job_events
+            if wiki_page_events is not None:
+                hook.wiki_page_events = wiki_page_events
+            if deployment_events is not None:
+                hook.deployment_events = deployment_events
+            if releases_events is not None:
+                hook.releases_events = releases_events
+            if feature_flag_events is not None:
+                hook.feature_flag_events = feature_flag_events
+            if repository_update_events is not None:
+                hook.repository_update_events = repository_update_events
+            if resource_access_token_events is not None:
+                hook.resource_access_token_events = resource_access_token_events
+            if token is not None:
+                hook.token = token
 
             hook.save()
+            attrs = hook.attributes
             return GitLabWebhookInfo(
-                id=hook.id,
-                url=hook.url,
-                push_events=hook.push_events,
-                tag_push_events=hook.tag_push_events,
-                merge_requests_events=hook.merge_requests_events,
-                enable_ssl_verification=hook.enable_ssl_verification,
-                push_events_branch_filter=getattr(hook, "push_events_branch_filter", None),
+                id=attrs.get("id"),
+                url=attrs.get("url", ""),
+                push_events=attrs.get("push_events") or False,
+                tag_push_events=attrs.get("tag_push_events") or False,
+                merge_requests_events=attrs.get("merge_requests_events") or False,
+                enable_ssl_verification=_bool_or_default(attrs.get("enable_ssl_verification"), True),
+                push_events_branch_filter=attrs.get("push_events_branch_filter") or None,
+                issues_events=attrs.get("issues_events") or False,
+                confidential_issues_events=attrs.get("confidential_issues_events") or False,
+                note_events=attrs.get("note_events") or False,
+                confidential_note_events=attrs.get("confidential_note_events") or False,
+                pipeline_events=attrs.get("pipeline_events") or False,
+                job_events=attrs.get("job_events") or False,
+                wiki_page_events=attrs.get("wiki_page_events") or False,
+                deployment_events=attrs.get("deployment_events") or False,
+                releases_events=attrs.get("releases_events") or False,
+                feature_flag_events=attrs.get("feature_flag_events") or False,
+                repository_update_events=attrs.get("repository_update_events") or False,
+                resource_access_token_events=attrs.get("resource_access_token_events") or False,
+                token=attrs.get("token"),
+                created_at=attrs.get("created_at"),
             )
-        except Exception as e:
-            logger.error(f"Failed to update webhook {hook_id} in project {project_id}: {e}")
+        except Exception:
             raise
 
     def delete_webhook(self, project_id: int, hook_id: int) -> bool:
@@ -386,6 +499,5 @@ class GitLabClient:
             project = self.gl.projects.get(project_id)
             project.hooks.delete(hook_id)
             return True
-        except Exception as e:
-            logger.error(f"Failed to delete webhook {hook_id} in project {project_id}: {e}")
+        except Exception:
             raise

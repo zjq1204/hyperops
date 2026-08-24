@@ -12,6 +12,7 @@ from django.utils import timezone
 from monitoring_stack.models import (
     AnsibleInstallJob,
     BlackboxProbeNode,
+    MonitoringComponentStatus,
     MonitoringGovernanceFinding,
     MonitoringHost,
     MonitoringIntegrationConfig,
@@ -81,6 +82,7 @@ from monitoring_stack.permissions import (
 from monitoring_stack.services.credential_ingestion import (
     DuplicateCredentialFingerprint,
     PrivateKeyValidationError,
+    create_password_credential_version,
     create_credential_version,
 )
 from monitoring_stack.services.credential_lifecycle import (
@@ -99,6 +101,7 @@ from monitoring_stack.services.credential_runtime import (
     DatabaseSshCredentialProvider,
     materialize_legacy_credential,
 )
+from monitoring_stack.services.job_history import build_host_job_summaries
 from monitoring_stack.services.reconcile import governance_overview
 from monitoring_stack.services.ssh_verification import (
     connection_fingerprint,
@@ -109,6 +112,7 @@ from monitoring_stack.services.ssh_verification import (
 from monitoring_stack.services.sync import sync_monitoring_snapshots
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -619,6 +623,7 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
     serializer_class = MonitoringHostSerializer
     queryset = MonitoringHost.objects.select_related("ssh_key_credential").prefetch_related(
         "component_statuses__last_job",
+        "component_statuses__active_job",
         "blackbox_probe_nodes",
     )
 
@@ -630,11 +635,7 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
         return queryset
 
     def _require_credential_use(self, serializer):
-        explicit_assignment = (
-            "ssh_key_credential" in serializer.validated_data
-            or serializer.validated_data.get("ssh_auth_type")
-            == MonitoringHost.SSH_AUTH_KEY
-        )
+        explicit_assignment = "ssh_key_credential" in serializer.validated_data
         if not explicit_assignment:
             return
         credential = serializer.validated_data.get(
@@ -646,8 +647,7 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
             getattr(serializer.instance, "ssh_auth_type", None),
         )
         if (
-            auth_type == MonitoringHost.SSH_AUTH_KEY
-            and credential
+            credential
             and not has_credential_permission(
                 self.request.user, "monitoring_credentials_use"
             )
@@ -719,13 +719,16 @@ class MonitoringHostViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet):
                 )
                 with provider_context as bundle:
                     key_path = (
-                        bundle.key_paths[version.id]
-                        if version else bundle.key_paths[credential.id]
+                        bundle.key_paths.get(version.id)
+                        if version else bundle.key_paths.get(credential.id)
+                    )
+                    password = (
+                        bundle.passwords.get(version.id) if version else None
                     )
                     result = check_monitoring_ssh_connection(
                         address=data["address"], ssh_user=data.get("ssh_user") or "root",
                         ssh_port=data.get("ssh_port") or 22,
-                        password=None, key_path=key_path,
+                        password=password, key_path=key_path,
                         process_env=bundle.process_env, key_prevalidated=True,
                     )
             else:
@@ -811,12 +814,22 @@ class MonitoringCredentialViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 credential = MonitoringSshCredential.objects.create(
-                    name=data["name"], created_by=request.user, updated_by=request.user
+                    name=data["name"],
+                    credential_type=data["credential_type"],
+                    created_by=request.user,
+                    updated_by=request.user,
                 )
-                version = create_credential_version(
-                    credential=credential, private_key=data["private_key"],
-                    passphrase=data.get("passphrase", ""), actor=request.user,
-                )
+                if credential.credential_type == credential.TYPE_PASSWORD:
+                    version = create_password_credential_version(
+                        credential=credential,
+                        password=data["password"],
+                        actor=request.user,
+                    )
+                else:
+                    version = create_credential_version(
+                        credential=credential, private_key=data["private_key"],
+                        passphrase=data.get("passphrase", ""), actor=request.user,
+                    )
                 record_credential_audit(
                     action="create", status="success", credential=credential,
                     version=version, actor=request.user,
@@ -838,9 +851,30 @@ class MonitoringCredentialViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            version = create_credential_version(
-                credential=credential, actor=request.user, **serializer.validated_data
-            )
+            if credential.credential_type == credential.TYPE_PASSWORD:
+                password = serializer.validated_data.get("password")
+                if not password:
+                    return Response({"password": ["PASSWORD_REQUIRED"]}, status=400)
+                if password != serializer.validated_data.get("password_confirm"):
+                    return Response(
+                        {"password_confirm": ["PASSWORD_CONFIRMATION_MISMATCH"]},
+                        status=400,
+                    )
+                version = create_password_credential_version(
+                    credential=credential,
+                    password=password,
+                    actor=request.user,
+                )
+            else:
+                private_key = serializer.validated_data.get("private_key")
+                if not private_key:
+                    return Response({"private_key": ["PRIVATE_KEY_REQUIRED"]}, status=400)
+                version = create_credential_version(
+                    credential=credential,
+                    private_key=private_key,
+                    passphrase=serializer.validated_data.get("passphrase", ""),
+                    actor=request.user,
+                )
         except PrivateKeyValidationError as exc:
             return Response({exc.field: [exc.code]}, status=400)
         except DuplicateCredentialFingerprint as exc:
@@ -1167,6 +1201,8 @@ class MonitoringGovernanceFindingResolveView(MonitoringPermissionMixin, APIView)
 
         config = MonitoringIntegrationConfig.current()
         is_blackbox = component == AnsibleInstallJob.COMPONENT_BLACKBOX
+        if is_blackbox:
+            validate_blackbox_install_hosts(host_ids)
         base_url = (
             payload.get("base_url")
             or config.installer_base_url
@@ -1238,7 +1274,8 @@ class MonitoringGovernanceFindingResolveView(MonitoringPermissionMixin, APIView)
         return Response(MonitoringGovernanceFindingSerializer(finding).data)
 
     def _retry_install_job(self, request, finding, payload):
-        job_id = payload.get("job_id") or (finding.details or {}).get("job_id")
+        details = finding.details or {}
+        job_id = payload.get("job_id") or details.get("job_id")
         try:
             job = AnsibleInstallJob.objects.get(pk=job_id)
         except (AnsibleInstallJob.DoesNotExist, TypeError, ValueError):
@@ -1247,6 +1284,10 @@ class MonitoringGovernanceFindingResolveView(MonitoringPermissionMixin, APIView)
                 status=status.HTTP_404_NOT_FOUND,
             )
         host_ids = self._failed_host_ids(job)
+        scoped_host_ids = details.get("failed_host_ids") or []
+        if scoped_host_ids:
+            scoped_host_ids = {int(host_id) for host_id in scoped_host_ids}
+            host_ids = [host_id for host_id in host_ids if host_id in scoped_host_ids]
         if not host_ids:
             return Response(
                 {"detail": "no failed hosts to retry"},
@@ -1268,6 +1309,7 @@ class MonitoringGovernanceFindingResolveView(MonitoringPermissionMixin, APIView)
             probe_name=job.probe_name,
             blackbox_port=job.blackbox_port,
             retry_of=job,
+            base_job=job.base_job,
             created_by=request.user,
         )
         try:
@@ -1386,23 +1428,106 @@ class InstallerDownloadView(APIView):
         )
 
 
+def resolved_install_job_payload(data):
+    host_ids = data.get("host_ids") or []
+    component = data.get("component") or AnsibleInstallJob.COMPONENT_CATEGRAF
+    base_job = data.get("base_job")
+    profiles = clean_string_list(data.get("profiles") or [])
+    labels = clean_labels(data.get("labels") or {})
+    params = clean_labels(data.get("params") or {})
+
+    if base_job:
+        if (
+            component != AnsibleInstallJob.COMPONENT_CATEGRAF
+            or base_job.component != component
+            or base_job.status != AnsibleInstallJob.STATUS_SUCCESS
+        ):
+            raise ValidationError(
+                {"base_job_id": "A successful Categraf baseline job is required"}
+            )
+        if not set(host_ids).issubset(set(base_job.host_ids or [])):
+            raise ValidationError(
+                {"base_job_id": "Baseline job does not contain every selected host"}
+            )
+        profiles = clean_string_list([*(base_job.profiles or []), *profiles])
+        labels = {**clean_labels(base_job.labels), **labels}
+        params = {**clean_labels(base_job.params), **params}
+
+    is_blackbox = component == AnsibleInstallJob.COMPONENT_BLACKBOX
+    if is_blackbox:
+        validate_blackbox_install_hosts(host_ids)
+    base_url = data.get("base_url") or (base_job.base_url if base_job else "")
+    n9e_url = data.get("n9e_url") or (base_job.n9e_url if base_job else "")
+    install_dir = data.get("install_dir") or (
+        base_job.install_dir if base_job else ""
+    )
+    image = data.get("image") or (base_job.image if base_job else "")
+    return {
+        "component": component,
+        "profiles": profiles,
+        "labels": labels,
+        "params": params,
+        "base_url": base_url,
+        "n9e_url": "" if is_blackbox else n9e_url,
+        "install_dir": install_dir
+        or ("/opt/blackbox-exporter" if is_blackbox else "/opt/categraf"),
+        "image": image
+        or (
+            "prom/blackbox-exporter:latest"
+            if is_blackbox
+            else "flashcatcloud/categraf:latest"
+        ),
+        "probe_name": data.get("probe_name", ""),
+        "blackbox_port": data.get("blackbox_port", "") or "9115",
+        "base_job": base_job,
+    }
+
+
+def validate_blackbox_install_hosts(host_ids):
+    blocked_statuses = {
+        MonitoringComponentStatus.STATUS_INSTALLING,
+        MonitoringComponentStatus.STATUS_SUCCESS,
+    }
+    blocked_host_ids = set(
+        MonitoringComponentStatus.objects.filter(
+            host_id__in=host_ids,
+            component=AnsibleInstallJob.COMPONENT_BLACKBOX,
+            status__in=blocked_statuses,
+        ).values_list("host_id", flat=True)
+    )
+    blocked_host_ids.update(
+        BlackboxProbeNode.objects.filter(host_id__in=host_ids).values_list(
+            "host_id", flat=True
+        )
+    )
+    if blocked_host_ids:
+        raise ValidationError(
+            {
+                "code": "BLACKBOX_HOST_NOT_DEPLOYABLE",
+                "detail": "blackbox is already installed or installing on the selected host",
+                "host_ids": sorted(blocked_host_ids),
+            }
+        )
+
+
 class AnsiblePreviewView(MonitoringPermissionMixin, APIView):
     def post(self, request):
         serializer = AnsiblePreviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        job_payload = resolved_install_job_payload(data)
         preview = build_ansible_preview(
             data.get("host_ids", []),
-            data.get("profiles", []),
-            data.get("base_url", ""),
-            data.get("n9e_url", ""),
-            data.get("install_dir", ""),
-            data.get("image", ""),
-            data.get("component", "categraf"),
-            data.get("probe_name", ""),
-            data.get("blackbox_port", ""),
-            data.get("labels", {}),
-            data.get("params", {}),
+            job_payload["profiles"],
+            job_payload["base_url"],
+            job_payload["n9e_url"],
+            job_payload["install_dir"],
+            job_payload["image"],
+            job_payload["component"],
+            job_payload["probe_name"],
+            job_payload["blackbox_port"],
+            job_payload["labels"],
+            job_payload["params"],
         )
         return Response(preview)
 
@@ -1415,42 +1540,22 @@ class AnsibleInstallJobViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
     def perform_create(self, serializer):
         data = serializer.validated_data
         host_ids = data.get("host_ids") or []
-        component = data.get("component") or AnsibleInstallJob.COMPONENT_CATEGRAF
-        profiles = clean_string_list(data.get("profiles") or [])
-        labels = clean_labels(data.get("labels") or {})
-        params = clean_labels(data.get("params") or {})
         hosts = selected_hosts(host_ids)
-        is_blackbox = component == AnsibleInstallJob.COMPONENT_BLACKBOX
-        job_payload = {
-            "component": component,
-            "profiles": profiles,
-            "labels": labels,
-            "params": params,
-            "base_url": data["base_url"],
-            "n9e_url": "" if is_blackbox else data.get("n9e_url", ""),
-            "install_dir": data.get("install_dir")
-            or ("/opt/blackbox-exporter" if is_blackbox else "/opt/categraf"),
-            "image": data.get("image")
-            or (
-                "prom/blackbox-exporter:latest"
-                if is_blackbox
-                else "flashcatcloud/categraf:latest"
-            ),
-            "probe_name": data.get("probe_name", ""),
-            "blackbox_port": data.get("blackbox_port", "") or "9115",
-        }
+        job_payload = resolved_install_job_payload(data)
         job = serializer.save(
             created_by=self.request.user,
-            component=component,
-            profiles=profiles,
-            labels=labels,
-            params=params,
+            component=job_payload["component"],
+            profiles=job_payload["profiles"],
+            labels=job_payload["labels"],
+            params=job_payload["params"],
             hosts_snapshot=snapshot_hosts(hosts, job_payload),
+            base_url=job_payload["base_url"],
             n9e_url=job_payload["n9e_url"],
             install_dir=job_payload["install_dir"],
             image=job_payload["image"],
             probe_name=job_payload["probe_name"],
             blackbox_port=job_payload["blackbox_port"],
+            base_job=job_payload["base_job"],
         )
         mark_component_installing(job, hosts)
 
@@ -1471,6 +1576,18 @@ class AnsibleInstallJobViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
     def retry(self, request, pk=None):
         job = self.get_object()
         host_ids = self._failed_host_ids(job)
+        requested_host_id = request.data.get("host_id")
+        if requested_host_id not in (None, ""):
+            try:
+                requested_host_id = int(requested_host_id)
+            except (TypeError, ValueError):
+                requested_host_id = None
+            if requested_host_id not in host_ids:
+                return Response(
+                    {"detail": "host is not eligible for retry"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            host_ids = [requested_host_id]
         if not host_ids:
             return Response(
                 {"detail": "no failed hosts to retry"},
@@ -1492,6 +1609,7 @@ class AnsibleInstallJobViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
             probe_name=job.probe_name,
             blackbox_port=job.blackbox_port,
             retry_of=job,
+            base_job=job.base_job,
             created_by=request.user,
         )
         try:
@@ -1505,6 +1623,24 @@ class AnsibleInstallJobViewSet(MonitoringPermissionMixin, viewsets.ModelViewSet)
             self.get_serializer(retry_job).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=False, methods=["get"], url_path="host-summaries")
+    def host_summaries(self, request):
+        jobs = self.get_queryset().select_related(None).only(
+            "id",
+            "status",
+            "component",
+            "hosts_snapshot",
+            "results",
+            "progress",
+            "retry_of_id",
+            "returncode",
+            "created_at",
+            "started_at",
+            "finished_at",
+        )
+        summaries = build_host_job_summaries(jobs)
+        return Response(summaries)
 
     def _failed_host_ids(self, job):
         failed_names = {

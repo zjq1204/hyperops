@@ -313,6 +313,20 @@ def test_bulk_collect_projects_writes_collection_records(
                     tag_push_events=False,
                     merge_requests_events=False,
                     enable_ssl_verification=True,
+                    token=None,
+                    push_events_branch_filter=None,
+                    issues_events=False,
+                    confidential_issues_events=False,
+                    note_events=False,
+                    confidential_note_events=False,
+                    pipeline_events=False,
+                    job_events=False,
+                    wiki_page_events=False,
+                    deployment_events=False,
+                    releases_events=False,
+                    feature_flag_events=False,
+                    repository_update_events=False,
+                    resource_access_token_events=False,
                 )
             ]
 
