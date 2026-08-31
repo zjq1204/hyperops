@@ -2,6 +2,7 @@
 
 Date: 2026-08-31
 Status: Awaiting final written review
+Chinese version: `docs/superpowers/specs/2026-08-31-object-storage-credentials-phase-one-design.zh-CN.md`
 Source context: `/home/zjq/apps/2026-08-31-existing-system-object-storage-credentials-module-design.md`
 
 ## 1. Purpose
