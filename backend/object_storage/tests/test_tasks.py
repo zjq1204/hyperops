@@ -16,7 +16,7 @@ def test_transient_provider_failure_retries_until_three_attempts(monkeypatch):
     monkeypatch.setattr(
         tasks,
         "execute_application",
-        lambda application_id: (_ for _ in ()).throw(
+        lambda application_id, **kwargs: (_ for _ in ()).throw(
             ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
         ),
     )
@@ -40,7 +40,7 @@ def test_transient_provider_failure_is_not_retried_after_three_attempts(monkeypa
     monkeypatch.setattr(
         tasks,
         "execute_application",
-        lambda application_id: (_ for _ in ()).throw(
+        lambda application_id, **kwargs: (_ for _ in ()).throw(
             ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
         ),
     )
@@ -73,7 +73,7 @@ def test_business_error_enters_manual_required_without_retry(monkeypatch):
     monkeypatch.setattr(
         tasks,
         "execute_application",
-        lambda application_id: (_ for _ in ()).throw(
+        lambda application_id, **kwargs: (_ for _ in ()).throw(
             ObjectStorageProviderError("BUCKET_NAME_CONFLICT", retryable=False)
         ),
     )
@@ -100,7 +100,9 @@ def test_task_returns_json_safe_application_result(monkeypatch):
     monkeypatch.setattr(
         tasks,
         "execute_application",
-        lambda application_id: SimpleNamespace(pk=application_id, status="succeeded"),
+        lambda application_id, **kwargs: SimpleNamespace(
+            pk=application_id, status="succeeded"
+        ),
     )
 
     result = tasks._run_storage_application(runner, 42)

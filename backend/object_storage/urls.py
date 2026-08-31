@@ -15,6 +15,18 @@ from object_storage.views_admin import (
     StorageTenantDetailView,
     StorageTenantListCreateView,
 )
+from object_storage.views_employee import (
+    EmployeeApplicationCreateView,
+    EmployeeBucketListView,
+    EmployeeBucketReleaseView,
+    EmployeeCredentialDeliveryView,
+    EmployeeCredentialDetailView,
+    EmployeeDeliveryTokenView,
+    EmployeeRotationPreviewView,
+    ManagementAccessKeyRevealView,
+    ManagementMembershipReactivateView,
+    ManagementMembershipSuspendView,
+)
 
 app_name = "object_storage"
 
@@ -69,5 +81,55 @@ urlpatterns = [
         "management/resource-pools/<int:pool_id>/validate/",
         StorageResourcePoolValidationView.as_view(),
         name="management_resource_pool_validate",
+    ),
+    path(
+        "management/access-keys/<int:key_id>/reveal/",
+        ManagementAccessKeyRevealView.as_view(),
+        name="management_access_key_reveal",
+    ),
+    path(
+        "management/members/<int:membership_id>/suspend/",
+        ManagementMembershipSuspendView.as_view(),
+        name="management_member_suspend",
+    ),
+    path(
+        "management/members/<int:membership_id>/reactivate/",
+        ManagementMembershipReactivateView.as_view(),
+        name="management_member_reactivate",
+    ),
+    path(
+        "workspace/buckets/",
+        EmployeeBucketListView.as_view(),
+        name="workspace_buckets",
+    ),
+    path(
+        "workspace/buckets/<int:bucket_id>/release/",
+        EmployeeBucketReleaseView.as_view(),
+        name="workspace_bucket_release",
+    ),
+    path(
+        "workspace/applications/",
+        EmployeeApplicationCreateView.as_view(),
+        name="workspace_applications",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/delivery-token/",
+        EmployeeDeliveryTokenView.as_view(),
+        name="workspace_application_delivery_token",
+    ),
+    path(
+        "workspace/credentials/deliver/",
+        EmployeeCredentialDeliveryView.as_view(),
+        name="workspace_credential_delivery",
+    ),
+    path(
+        "workspace/credentials/rotation-preview/",
+        EmployeeRotationPreviewView.as_view(),
+        name="workspace_credential_rotation_preview",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/",
+        EmployeeCredentialDetailView.as_view(),
+        name="workspace_credential_detail",
     ),
 ]

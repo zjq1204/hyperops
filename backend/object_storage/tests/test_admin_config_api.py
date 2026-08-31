@@ -76,6 +76,21 @@ def test_superuser_updates_tenant_product_limits(
     assert _payload(response)["delivery_lifetime_seconds"] == 7200
 
 
+@pytest.mark.parametrize("seconds", [599, 604801])
+def test_delivery_lifetime_rejects_values_outside_enterprise_range(
+    superuser_client, storage_tenant_factory, seconds
+):
+    tenant = storage_tenant_factory()
+
+    response = superuser_client.patch(
+        f"/api/v1/object-storage/management/tenants/{tenant.id}/",
+        {"delivery_lifetime_seconds": seconds},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+
+
 def test_feishu_config_encrypts_secret_and_never_returns_it(
     stable_secret_key, superuser_client, storage_tenant_factory
 ):

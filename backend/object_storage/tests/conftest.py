@@ -3,6 +3,16 @@ import itertools
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def object_storage_test_cache(settings):
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "object-storage-tests",
+        }
+    }
+
+
 @pytest.fixture
 def storage_tenant_factory(db):
     from object_storage.models import StorageTenant

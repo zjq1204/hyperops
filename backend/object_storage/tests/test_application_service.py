@@ -83,6 +83,10 @@ class FakeProvider:
         self.calls.append(("delete_key", key.access_key_id))
         return {"request_id": "request-delete-key"}
 
+    def delete_owned_bucket(self, bucket):
+        self.calls.append(("delete_bucket", bucket.name))
+        return {"request_id": "request-delete-bucket"}
+
     def inspect_bucket_emptiness(self, bucket):
         return SimpleNamespace(is_empty=True, request_id="request-empty")
 
@@ -445,11 +449,12 @@ def test_unsupported_application_action_never_uses_add_bucket_workflow(
     application = applications.create_application(
         membership=membership,
         resource_pool=pool,
-        action_type=StorageApplication.ActionType.ROTATE_CREDENTIAL,
+        action_type=StorageApplication.ActionType.ADD_BUCKET,
         idempotency_key="unsupported-rotation",
         request_fields={},
         enqueue=False,
     )
+    StorageApplication.objects.filter(pk=application.pk).update(action_type="unknown")
 
     result = applications.execute_application(application.pk)
 
@@ -508,6 +513,394 @@ def test_audit_cleanup_deletes_only_expired_audit_rows(
     assert cutoff == now - timedelta(days=30)
     assert StorageAuditEvent.objects.filter(pk=recent_event.pk).exists()
     assert StorageApplication.objects.filter(pk=application.pk).exists()
+
+
+def test_rotation_with_one_key_issues_second_key_without_deleting(
+    application_context, monkeypatch, storage_cloud_identity_factory
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    identity = storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state="active",
+    )
+    provider = FakeProvider()
+    first = SimpleNamespace(
+        access_key_id="LTAI-key-existing-1",
+        secret_access_key="existing-secret",
+    )
+    provider.keys.append(first)
+    _persist_fake_key(identity, first, local_state="active")
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.ROTATE_CREDENTIAL,
+        idempotency_key="rotate-one-key",
+        request_fields={},
+        enqueue=False,
+    )
+
+    result = applications.execute_application(application.pk)
+
+    assert result.status == StorageApplication.Status.DELIVERY_READY
+    assert identity.access_keys.count() == 2
+    assert not any(call[0] == "delete_key" for call in provider.calls)
+
+
+def test_key_delete_success_create_failure_preserves_remaining_key(
+    application_context, monkeypatch, storage_cloud_identity_factory
+):
+    from object_storage.models import StorageAccessKey, StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    identity = storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state="active",
+    )
+    provider = FakeProvider()
+    first = SimpleNamespace(
+        access_key_id="LTAI-key-existing-1",
+        secret_access_key="existing-secret-1",
+    )
+    second = SimpleNamespace(
+        access_key_id="LTAI-key-existing-2",
+        secret_access_key="existing-secret-2",
+    )
+    provider.keys.extend((first, second))
+    first_local = _persist_fake_key(identity, first, local_state="active")
+    second_local = _persist_fake_key(identity, second, local_state="active")
+    provider.fail_create_key = True
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.ROTATE_CREDENTIAL,
+        idempotency_key="rotate-two-key-failure",
+        request_fields={
+            "candidate_access_key_id": first_local.pk,
+            "confirmed": True,
+        },
+        enqueue=False,
+    )
+
+    result = applications.execute_application(application.pk)
+
+    first_local.refresh_from_db()
+    second_local.refresh_from_db()
+    assert result.status == StorageApplication.Status.MANUAL_REQUIRED
+    assert first_local.cloud_state == StorageAccessKey.CloudState.DELETED
+    assert second_local.cloud_state == StorageAccessKey.CloudState.ACTIVE
+    assert [call for call in provider.calls if call[0] == "delete_key"] == [
+        ("delete_key", first.access_key_id)
+    ]
+
+
+def test_release_empty_bucket_deletes_it_and_reconciles_policy(
+    application_context,
+    monkeypatch,
+    storage_cloud_identity_factory,
+    storage_bucket_factory,
+):
+    from object_storage.models import StorageApplication, StorageBucket
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    identity = storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state="active",
+    )
+    bucket = storage_bucket_factory(
+        cloud_identity=identity,
+        state=StorageBucket.State.ACTIVE,
+    )
+    provider = FakeProvider()
+    provider.bucket_exists.add(bucket.name)
+    provider.reconciled_buckets.add(bucket.name)
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.RELEASE_BUCKET,
+        idempotency_key="release-empty-bucket",
+        request_fields={"target_bucket_id": bucket.pk},
+        enqueue=False,
+    )
+
+    result = applications.execute_application(application.pk)
+
+    bucket.refresh_from_db()
+    assert result.status == StorageApplication.Status.SUCCEEDED
+    assert bucket.state == StorageBucket.State.RELEASED
+    assert [call[0] for call in provider.calls] == [
+        "reconcile_bucket",
+        "delete_bucket",
+        "policy",
+    ]
+
+
+def test_suspend_and_reactivate_never_reenable_old_key(
+    application_context, monkeypatch, storage_cloud_identity_factory
+):
+    from object_storage.models import (
+        StorageAccessKey,
+        StorageApplication,
+        StorageCloudIdentity,
+    )
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    identity = storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state=StorageCloudIdentity.State.ACTIVE,
+    )
+    provider = FakeProvider()
+    issued = SimpleNamespace(
+        access_key_id="LTAI-key-existing-1",
+        secret_access_key="existing-secret",
+    )
+    provider.keys.append(issued)
+    key = _persist_fake_key(identity, issued, local_state="active")
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    suspend = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.SUSPEND_MEMBERSHIP,
+        idempotency_key="suspend-worker",
+        request_fields={},
+        enqueue=False,
+    )
+
+    applications.execute_application(suspend.pk)
+    key.refresh_from_db()
+    identity.refresh_from_db()
+    assert key.cloud_state == StorageAccessKey.CloudState.INACTIVE
+    assert identity.state == StorageCloudIdentity.State.SUSPENDED
+
+    reactivate = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.REACTIVATE_MEMBERSHIP,
+        idempotency_key="reactivate-worker",
+        request_fields={},
+        enqueue=False,
+    )
+    applications.execute_application(reactivate.pk)
+    key.refresh_from_db()
+    identity.refresh_from_db()
+
+    assert identity.state == StorageCloudIdentity.State.ACTIVE
+    assert key.cloud_state == StorageAccessKey.CloudState.INACTIVE
+
+
+def test_duplicate_worker_delivery_key_returns_existing_attempt(
+    application_context, monkeypatch
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    provider = FakeProvider()
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.ADD_BUCKET,
+        idempotency_key="duplicate-delivery",
+        request_fields={"project": "one", "environment": "test", "purpose": "data"},
+        enqueue=False,
+    )
+
+    first = applications.execute_application(
+        application.pk,
+        execution_key="celery-task-1:0",
+    )
+    provider.calls.clear()
+    duplicate = applications.execute_application(
+        application.pk,
+        execution_key="celery-task-1:0",
+    )
+
+    assert first.pk == duplicate.pk
+    assert application.attempts.count() == 1
+    assert provider.calls == []
+
+
+def test_suspend_deactivates_cloud_active_key_despite_stale_local_state(
+    application_context, monkeypatch, storage_cloud_identity_factory
+):
+    from object_storage.models import StorageAccessKey, StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    identity = storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state="active",
+    )
+    provider = FakeProvider()
+    issued = SimpleNamespace(
+        access_key_id="LTAI-key-drifted-1",
+        secret_access_key="existing-secret",
+    )
+    provider.keys.append(issued)
+    key = _persist_fake_key(identity, issued, local_state="retired")
+    key.cloud_state = StorageAccessKey.CloudState.INACTIVE
+    key.save(update_fields=("cloud_state", "updated_at"))
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.SUSPEND_MEMBERSHIP,
+        idempotency_key="suspend-drifted-key",
+        request_fields={
+            "reason": "employee departure",
+            "actor_user_id": membership.user_id,
+        },
+        enqueue=False,
+    )
+
+    result = applications.execute_application(application.pk)
+
+    assert result.status == StorageApplication.Status.SUCCEEDED
+    assert ("deactivate_key", issued.access_key_id) in provider.calls
+
+
+def test_membership_state_audit_keeps_admin_actor_and_reason(
+    application_context, monkeypatch, storage_cloud_identity_factory, django_user_model
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state="active",
+    )
+    admin = django_user_model.objects.create_superuser(
+        username="audit-admin", password="secret"
+    )
+    provider = FakeProvider()
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.SUSPEND_MEMBERSHIP,
+        idempotency_key="audit-suspension",
+        request_fields={"reason": "employee departure"},
+        actor=admin,
+        enqueue=False,
+    )
+
+    applications.execute_application(application.pk)
+
+    event = application.audit_events.get(action="storage.membership.suspended")
+    assert event.actor == admin
+    assert event.reason == "employee departure"
+
+
+def test_membership_failure_audit_keeps_admin_actor_and_reason(
+    application_context, monkeypatch, storage_cloud_identity_factory, django_user_model
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    membership, pool = application_context
+    storage_cloud_identity_factory(
+        membership=membership,
+        resource_pool=pool,
+        state="active",
+    )
+    admin = django_user_model.objects.create_superuser(
+        username="failure-audit-admin", password="secret"
+    )
+    provider = FakeProvider()
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    monkeypatch.setattr(
+        provider,
+        "list_access_keys",
+        lambda identity: (_ for _ in ()).throw(
+            ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
+        ),
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.SUSPEND_MEMBERSHIP,
+        idempotency_key="failed-audit-suspension",
+        request_fields={"reason": "employee departure"},
+        actor=admin,
+        enqueue=False,
+    )
+
+    applications.execute_application(application.pk)
+
+    event = application.audit_events.get(action="storage.application.manual_required")
+    assert event.actor == admin
+    assert event.reason == "employee departure"
+
+
+def test_suspend_without_cloud_identity_does_not_require_provider(
+    application_context, monkeypatch
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    monkeypatch.setattr(
+        applications,
+        "get_provider_for_pool",
+        lambda selected: (_ for _ in ()).throw(AssertionError("provider not needed")),
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.SUSPEND_MEMBERSHIP,
+        idempotency_key="suspend-without-provider",
+        request_fields={"reason": "employee departure"},
+        enqueue=False,
+    )
+
+    result = applications.execute_application(application.pk)
+
+    assert result.status == StorageApplication.Status.SUCCEEDED
+
+
+def _persist_fake_key(identity, issued, *, local_state):
+    from object_storage.models import StorageAccessKey
+    from object_storage.services.credentials import encrypt_issued_access_key
+
+    return StorageAccessKey.objects.create(
+        tenant=identity.tenant,
+        cloud_identity=identity,
+        local_state=local_state,
+        **encrypt_issued_access_key(issued),
+    )
 
 
 def applications_fingerprint(access_key_id):

@@ -11,6 +11,11 @@ from object_storage.models import (
 
 
 class StorageTenantAdminSerializer(serializers.ModelSerializer):
+    delivery_lifetime_seconds = serializers.IntegerField(
+        min_value=600,
+        max_value=604800,
+    )
+
     class Meta:
         model = StorageTenant
         fields = (

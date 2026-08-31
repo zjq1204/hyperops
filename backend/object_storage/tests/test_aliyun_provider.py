@@ -69,6 +69,9 @@ class FakeOssGateway:
         self.created = kwargs
         return {"created": True, "request_id": "oss-request-create"}
 
+    def find_bucket(self, *, bucket_name, marker):
+        return self.created is not None and self.created.get("marker") == marker
+
     def inspect_bucket(self, bucket_name):
         return dict(self.inspection)
 
@@ -117,6 +120,50 @@ def test_create_bucket_uses_fixed_region_and_platform_defaults():
         "server_side_encryption": "AES256",
         "marker": "hyperops:bucket:42",
     }
+
+
+def test_oss_gateway_persists_and_reconciles_exact_owner_marker(monkeypatch):
+    from object_storage.providers.aliyun import AliyunOssGateway
+
+    stored = {}
+
+    class Bucket:
+        def create_bucket(self, **kwargs):
+            return SimpleNamespace(request_id="create-request")
+
+        def put_bucket_encryption(self, rule):
+            return None
+
+        def put_bucket_tagging(self, tagging):
+            stored.update(tagging.tag_set.tagging_rule)
+
+        def get_bucket_tagging(self):
+            return SimpleNamespace(tag_set=SimpleNamespace(tagging_rule=dict(stored)))
+
+    gateway = AliyunOssGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-secret",
+        region="cn-hangzhou",
+    )
+    monkeypatch.setattr(gateway, "_bucket", lambda bucket_name: Bucket())
+
+    gateway.create_bucket(
+        bucket_name="managed-bucket",
+        region="cn-hangzhou",
+        acl="private",
+        storage_class="Standard",
+        server_side_encryption="AES256",
+        marker="hyperops:bucket:42",
+    )
+
+    assert stored == {"hyperops-owner": "hyperops:bucket:42"}
+    assert gateway.find_bucket(
+        bucket_name="managed-bucket", marker="hyperops:bucket:42"
+    )
+    with pytest.raises(Exception, match="BUCKET_OWNERSHIP_MISMATCH"):
+        gateway.find_bucket(
+            bucket_name="managed-bucket", marker="hyperops:bucket:other"
+        )
 
 
 @pytest.mark.parametrize(

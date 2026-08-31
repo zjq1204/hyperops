@@ -43,8 +43,36 @@ services:
     environment:
       HYPEROPS_LOG_SERVICE: worker
       HYPEROPS_LOG_FILE: /var/log/celery/worker.log
+      CELERY_QUEUES: ${CELERY_TASK_DEFAULT_QUEUE:-backend}
     volumes:
       - ./data/logs/worker:/var/log/celery
+      - ./data/storage:/opt/storage
+      - ./cache:/opt/cache
+    networks:
+      - backend_network
+    depends_on:
+      backend-api:
+        condition: service_started
+      postgresql:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: celery
+
+  object-storage-worker:
+    image: registry.cn-beijing.aliyuncs.com/hypermotion_dockers/hyperops-backend:${APP_VERSION:?APP_VERSION is required}
+    container_name: object-storage-worker
+    restart: unless-stopped
+    stop_grace_period: 120s
+    env_file:
+      - ./.env
+    environment:
+      HYPEROPS_LOG_SERVICE: object-storage-worker
+      HYPEROPS_LOG_FILE: /var/log/celery/object-storage-worker.log
+      CELERY_QUEUES: object_storage
+      CELERY_CONCURRENCY: ${OBJECT_STORAGE_CELERY_CONCURRENCY:-2}
+    volumes:
+      - ./data/logs/object-storage-worker:/var/log/celery
       - ./data/storage:/opt/storage
       - ./cache:/opt/cache
     networks:

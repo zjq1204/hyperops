@@ -11,7 +11,10 @@ from object_storage.providers.base import (
     PersonalPrincipal,
 )
 from object_storage.services.policy import build_object_policy
-from object_storage.services.provider_errors import map_provider_error
+from object_storage.services.provider_errors import (
+    ObjectStorageProviderError,
+    map_provider_error,
+)
 
 
 def _fingerprint(access_key_id):
@@ -361,7 +364,9 @@ class AliyunOssGateway:
             oss2.models.ServerSideEncryptionRule(server_side_encryption)
         )
         if marker:
-            bucket.put_bucket_tagging({"hyperops-owner": marker})
+            rules = oss2.models.TaggingRule()
+            rules.add("hyperops-owner", marker)
+            bucket.put_bucket_tagging(oss2.models.Tagging(rules))
         return {
             "created": True,
             "request_id": str(getattr(result, "request_id", "") or ""),
@@ -385,18 +390,16 @@ class AliyunOssGateway:
     def find_bucket(self, *, bucket_name, marker):
         bucket = self._bucket(bucket_name)
         try:
-            tags = bucket.get_bucket_tagging().tag_set
+            tags = bucket.get_bucket_tagging().tag_set.tagging_rule
         except Exception as exc:
             # A missing bucket is a negative reconciliation result; all other
             # provider failures retain their mapped error semantics.
             if str(getattr(exc, "code", "")) == "NoSuchBucket":
                 return False
             raise
-        return any(
-            str(getattr(tag, "key", "")) == "hyperops-owner"
-            and str(getattr(tag, "value", "")) == marker
-            for tag in tags
-        )
+        if str(tags.get("hyperops-owner") or "") != marker:
+            raise ObjectStorageProviderError("BUCKET_OWNERSHIP_MISMATCH")
+        return True
 
     def delete_bucket(self, bucket_name):
         result = self._bucket(bucket_name).delete_bucket()

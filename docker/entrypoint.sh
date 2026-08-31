@@ -128,6 +128,10 @@ start_celery_worker() {
     # Default concurrency: use CPU count for I/O-bound tasks
     # Can be overridden by CELERY_CONCURRENCY environment variable
     DEFAULT_CONCURRENCY=${CELERY_CONCURRENCY:-$CPU_COUNT}
+    CELERY_QUEUE_ARGS=()
+    if [ -n "${CELERY_QUEUES:-}" ]; then
+        CELERY_QUEUE_ARGS=(--queues="$CELERY_QUEUES")
+    fi
 
     log "Celery worker concurrency: $DEFAULT_CONCURRENCY (CPUs: $CPU_COUNT)"
     log "Graceful shutdown enabled: worker will wait for running tasks to complete (up to stop_grace_period)"
@@ -140,6 +144,7 @@ start_celery_worker() {
     exec celery -A core worker \
         --loglevel=${DJANGO_LOG_LEVEL:-INFO} \
         --concurrency=$DEFAULT_CONCURRENCY \
+        "${CELERY_QUEUE_ARGS[@]}" \
         --max-tasks-per-child=${CELERY_MAX_TASKS_PER_CHILD:-1000} \
         --max-memory-per-child=${CELERY_MAX_MEMORY_PER_CHILD:-256000}
 }
