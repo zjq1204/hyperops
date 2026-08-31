@@ -472,6 +472,26 @@ const allNavSections = computed(() => [
         path: '/management/object-storage/overview',
         label: t('adminNav.objectStorageOverview'),
         iconPaths: ['M4 13a8 8 0 0116 0', 'M12 13l3-3', 'M5 19h14']
+      },
+      {
+        path: '/management/object-storage/enterprise-access',
+        label: t('adminNav.objectStorageEnterpriseAccess'),
+        iconPaths: ['M4 5h16v14H4z', 'M8 9h8', 'M8 13h5']
+      },
+      {
+        path: '/management/object-storage/resources',
+        label: t('adminNav.objectStorageResources'),
+        iconPaths: ['M4 6h16v12H4z', 'M8 10h8', 'M8 14h5']
+      },
+      {
+        path: '/management/object-storage/tasks',
+        label: t('adminNav.objectStorageTasks'),
+        iconPaths: ['M6 4h12v16H6z', 'M9 8h6', 'M9 12h6', 'M9 16h4']
+      },
+      {
+        path: '/management/object-storage/audit',
+        label: t('adminNav.objectStorageAudit'),
+        iconPaths: ['M5 4h14v16H5z', 'M8 8h8', 'M8 12h8', 'M8 16h5']
       }
     ]
   }

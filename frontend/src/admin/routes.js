@@ -317,5 +317,49 @@ export const adminRoutes = [
       requiredFeature: 'admin_object_storage',
       requiresModuleFlag: 'enable_object_storage'
     }
+  },
+  {
+    path: '/management/object-storage/enterprise-access',
+    name: 'AdminObjectStorageEnterpriseAccess',
+    component: () => import('@/admin/pages/ObjectStorage/EnterpriseAccess.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
+  {
+    path: '/management/object-storage/resources',
+    name: 'AdminObjectStorageResources',
+    component: () => import('@/admin/pages/ObjectStorage/Resources.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
+  {
+    path: '/management/object-storage/tasks',
+    name: 'AdminObjectStorageTasks',
+    component: () => import('@/admin/pages/ObjectStorage/Tasks.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
+  {
+    path: '/management/object-storage/audit',
+    name: 'AdminObjectStorageAudit',
+    component: () => import('@/admin/pages/ObjectStorage/Audit.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
   }
 ]
