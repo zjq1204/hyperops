@@ -153,7 +153,7 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
-const props = defineProps({
+defineProps({
   status: {
     type: String,
     default: 'unknown'
@@ -176,15 +176,15 @@ const getStatusClass = (status) => {
 
 const getStatusText = (status) => {
   const statusTexts = {
-    success: t('common.status.success'),
-    failed: t('common.status.failed'),
-    processing: t('common.status.processing'),
-    fetched: t('common.status.fetched'),
-    pending: t('common.status.pending'),
-    completed: t('common.status.completed'),
-    enabled: t('common.status.enabled'),
-    disabled: t('common.status.disabled')
+    success: t('common.statusLabels.success'),
+    failed: t('common.statusLabels.failed'),
+    processing: t('common.statusLabels.processing'),
+    fetched: t('common.statusLabels.fetched'),
+    pending: t('common.statusLabels.pending'),
+    completed: t('common.statusLabels.completed'),
+    enabled: t('common.statusLabels.enabled'),
+    disabled: t('common.statusLabels.disabled')
   }
-  return statusTexts[status] || status || t('common.status.unknown')
+  return statusTexts[status] || status || t('common.statusLabels.unknown')
 }
 </script>

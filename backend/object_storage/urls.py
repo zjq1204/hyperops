@@ -26,11 +26,14 @@ from object_storage.views_admin import (
 )
 from object_storage.views_employee import (
     EmployeeApplicationCreateView,
+    EmployeeApplicationDetailView,
+    EmployeeApplicationRetryView,
     EmployeeBucketListView,
     EmployeeBucketReleaseView,
     EmployeeCredentialDeliveryView,
     EmployeeCredentialDetailView,
     EmployeeDeliveryTokenView,
+    EmployeeOverviewView,
     EmployeeRotationPreviewView,
     ManagementAccessKeyRevealView,
     ManagementMembershipReactivateView,
@@ -157,6 +160,11 @@ urlpatterns = [
         name="workspace_buckets",
     ),
     path(
+        "workspace/overview/",
+        EmployeeOverviewView.as_view(),
+        name="workspace_overview",
+    ),
+    path(
         "workspace/buckets/<int:bucket_id>/release/",
         EmployeeBucketReleaseView.as_view(),
         name="workspace_bucket_release",
@@ -165,6 +173,16 @@ urlpatterns = [
         "workspace/applications/",
         EmployeeApplicationCreateView.as_view(),
         name="workspace_applications",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/",
+        EmployeeApplicationDetailView.as_view(),
+        name="workspace_application_detail",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/retry/",
+        EmployeeApplicationRetryView.as_view(),
+        name="workspace_application_retry",
     ),
     path(
         "workspace/applications/<int:application_id>/delivery-token/",

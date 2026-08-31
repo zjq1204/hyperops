@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from object_storage.models import StorageAccessKey, StorageApplication, StorageBucket
+from object_storage.models import (
+    StorageAccessKey,
+    StorageApplication,
+    StorageApplicationAttempt,
+    StorageApplicationEvent,
+    StorageBucket,
+    StorageCloudIdentity,
+)
 
 
 class StorageBucketEmployeeSerializer(serializers.ModelSerializer):
@@ -35,6 +42,17 @@ class StorageAccessKeySummarySerializer(serializers.ModelSerializer):
         )
 
 
+class StorageCloudIdentityEmployeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageCloudIdentity
+        fields = (
+            "id",
+            "ram_user_name",
+            "state",
+            "last_synced_at",
+        )
+
+
 class StorageApplicationEmployeeSerializer(serializers.ModelSerializer):
     class Meta:
         model = StorageApplication
@@ -49,6 +67,43 @@ class StorageApplicationEmployeeSerializer(serializers.ModelSerializer):
             "target_access_key_id",
             "created_at",
             "updated_at",
+        )
+
+
+class StorageApplicationAttemptEmployeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageApplicationAttempt
+        fields = (
+            "id",
+            "attempt_number",
+            "status",
+            "error_code",
+            "started_at",
+            "finished_at",
+        )
+
+
+class StorageApplicationEventEmployeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageApplicationEvent
+        fields = (
+            "id",
+            "stage",
+            "result",
+            "error_code",
+            "safe_metadata",
+            "created_at",
+        )
+
+
+class StorageApplicationDetailEmployeeSerializer(StorageApplicationEmployeeSerializer):
+    attempts = StorageApplicationAttemptEmployeeSerializer(many=True, read_only=True)
+    events = StorageApplicationEventEmployeeSerializer(many=True, read_only=True)
+
+    class Meta(StorageApplicationEmployeeSerializer.Meta):
+        fields = StorageApplicationEmployeeSerializer.Meta.fields + (
+            "attempts",
+            "events",
         )
 
 

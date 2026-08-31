@@ -147,6 +147,42 @@
             >
               <span>{{ t('navigation.objectStorageOverview') }}</span>
             </router-link>
+            <router-link
+              to="/object-storage/buckets"
+              class="workspace-sidebar-item workspace-sidebar-item-child"
+              :class="
+                isActive('/object-storage/buckets')
+                  ? 'workspace-sidebar-item-active'
+                  : ''
+              "
+              @click="isMobile && $emit('close')"
+            >
+              <span>{{ t('navigation.objectStorageBuckets') }}</span>
+            </router-link>
+            <router-link
+              to="/object-storage/credentials"
+              class="workspace-sidebar-item workspace-sidebar-item-child"
+              :class="
+                isActive('/object-storage/credentials')
+                  ? 'workspace-sidebar-item-active'
+                  : ''
+              "
+              @click="isMobile && $emit('close')"
+            >
+              <span>{{ t('navigation.objectStorageCredentials') }}</span>
+            </router-link>
+            <router-link
+              to="/object-storage/applications"
+              class="workspace-sidebar-item workspace-sidebar-item-child"
+              :class="
+                isActive('/object-storage/applications')
+                  ? 'workspace-sidebar-item-active'
+                  : ''
+              "
+              @click="isMobile && $emit('close')"
+            >
+              <span>{{ t('navigation.objectStorageApplications') }}</span>
+            </router-link>
           </div>
         </Transition>
       </div>

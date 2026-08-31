@@ -76,6 +76,36 @@ const routes = [
       requiresModuleFlag: 'enable_object_storage'
     }
   },
+  {
+    path: '/object-storage/buckets',
+    name: 'ObjectStorageBuckets',
+    component: () => import('@/pages/ObjectStorage/Buckets.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
+  {
+    path: '/object-storage/credentials',
+    name: 'ObjectStorageCredentials',
+    component: () => import('@/pages/ObjectStorage/Credentials.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
+  {
+    path: '/object-storage/applications',
+    name: 'ObjectStorageApplications',
+    component: () => import('@/pages/ObjectStorage/Applications.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
   // Settings
   {
     path: '/settings',

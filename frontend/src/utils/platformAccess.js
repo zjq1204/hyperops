@@ -21,6 +21,13 @@ export const FEATURE_DEFINITIONS = [
     parentKey: 'workspace'
   },
   {
+    key: 'object_storage',
+    label: 'Object Storage',
+    defaultPath: '/object-storage/overview',
+    platform: 'workspace',
+    parentKey: 'workspace'
+  },
+  {
     key: 'admin_users',
     label: '用户管理',
     defaultPath: '/management/users',
@@ -61,6 +68,13 @@ export const FEATURE_DEFINITIONS = [
     defaultPath: '/management/monitoring/overview',
     platform: 'admin_console',
     parentKey: 'admin_console'
+  },
+  {
+    key: 'admin_object_storage',
+    label: 'Object Storage Administration',
+    defaultPath: '/management/object-storage/overview',
+    platform: 'admin_console',
+    parentKey: 'admin_console'
   }
 ]
 
@@ -69,7 +83,7 @@ export const PLATFORM_DEFINITIONS = [
     key: 'workspace',
     labelKey: 'platforms.workspace',
     defaultPath: '/dashboard',
-    matchers: ['/dashboard', '/jenkins', '/actions']
+    matchers: ['/dashboard', '/jenkins', '/actions', '/object-storage']
   },
   {
     key: 'admin_console',
@@ -87,7 +101,9 @@ export const PLATFORM_KEY_SET = new Set(
 )
 
 const FEATURE_MAP = new Map(FEATURE_DEFINITIONS.map((item) => [item.key, item]))
-const PLATFORM_MAP = new Map(PLATFORM_DEFINITIONS.map((item) => [item.key, item]))
+const PLATFORM_MAP = new Map(
+  PLATFORM_DEFINITIONS.map((item) => [item.key, item])
+)
 
 const FEATURE_ALIASES = {
   workspace: ['workspace_dashboard', 'workspace_jenkins', 'workspace_actions'],
