@@ -35,14 +35,7 @@ class FeishuClient:
         )
 
     def authenticate(self, *, code, app_config):
-        app_secret = decrypt_secret(app_config.app_secret_encrypted)
-        tenant_token = self._request_json(
-            "POST",
-            f"{self.base_url}/auth/v3/tenant_access_token/internal",
-            json={"app_id": app_config.app_id, "app_secret": app_secret},
-        ).get("tenant_access_token")
-        if not tenant_token:
-            raise FeishuProviderError("FEISHU_TOKEN_EXCHANGE_FAILED")
+        tenant_token = self._tenant_token(app_config)
         user_token_payload = self._request_json(
             "POST",
             f"{self.base_url}/authen/v1/access_token",
@@ -71,6 +64,21 @@ class FeishuClient:
             department_ids=tuple(payload.get("department_ids") or ()),
             is_active=bool(payload.get("is_active", True)),
         )
+
+    def validate_config(self, app_config):
+        self._tenant_token(app_config)
+        return {"app_id": app_config.app_id, "authenticated": True}
+
+    def _tenant_token(self, app_config):
+        app_secret = decrypt_secret(app_config.app_secret_encrypted)
+        tenant_token = self._request_json(
+            "POST",
+            f"{self.base_url}/auth/v3/tenant_access_token/internal",
+            json={"app_id": app_config.app_id, "app_secret": app_secret},
+        ).get("tenant_access_token")
+        if not tenant_token:
+            raise FeishuProviderError("FEISHU_TOKEN_EXCHANGE_FAILED")
+        return tenant_token
 
     def _request_json(self, method, url, **kwargs):
         try:
