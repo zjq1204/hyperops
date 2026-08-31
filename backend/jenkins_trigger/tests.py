@@ -214,12 +214,12 @@ def test_refresh_status_writes_notification_result_when_build_finishes():
 
 
 class FakeResponse:
-    def __init__(self, payload, status_code=200, reason="OK", headers=None):
+    def __init__(self, payload, status_code=200, reason="OK", headers=None, text=""):
         self._payload = payload
         self.status_code = status_code
         self.reason = reason
         self.ok = 200 <= status_code < 400
-        self.text = ""
+        self.text = text
         self.headers = headers or {}
 
     def json(self):
@@ -246,6 +246,63 @@ def test_build_job_paths_support_nested_folders():
     assert (
         client._build_job_path("folder-a/build-app", "buildWithParameters")
         == "http://jenkins.example.com/job/folder-a/job/build-app/buildWithParameters"
+    )
+
+
+def test_get_job_params_reads_extended_choice_options_from_job_config():
+    client = JenkinsClient("http://jenkins.example.com", "user", "token")
+    api_payload = {
+        "property": [
+            {
+                "parameterDefinitions": [
+                    {
+                        "name": "OS_VERSIONS",
+                        "type": "PT_CHECKBOX",
+                        "defaultParameterValue": {
+                            "value": "UBUNTU22_BUILD,UBUNTU24_BUILD"
+                        },
+                        "description": "Select OS versions",
+                    }
+                ]
+            }
+        ]
+    }
+    config_xml = """
+    <project>
+      <properties>
+        <hudson.model.ParametersDefinitionProperty>
+          <parameterDefinitions>
+            <com.cwctravel.hudson.plugins.extended__choice__parameter.ExtendedChoiceParameterDefinition>
+              <name>OS_VERSIONS</name>
+              <type>PT_CHECKBOX</type>
+              <value>SUSE15SP7_BUILD,SUSE16_BUILD,OPENSUSE16_BUILD</value>
+              <defaultValue>UBUNTU22_BUILD,UBUNTU24_BUILD</defaultValue>
+              <multiSelectDelimiter>,</multiSelectDelimiter>
+            </com.cwctravel.hudson.plugins.extended__choice__parameter.ExtendedChoiceParameterDefinition>
+          </parameterDefinitions>
+        </hudson.model.ParametersDefinitionProperty>
+      </properties>
+    </project>
+    """
+    client.session.get = Mock(
+        side_effect=[
+            FakeResponse(api_payload),
+            FakeResponse({}, text=config_xml),
+        ]
+    )
+
+    params = client.get_job_params("Build_Datto_Utils")
+
+    assert len(params) == 1
+    assert params[0].type == "PT_CHECKBOX"
+    assert params[0].choices == [
+        "SUSE15SP7_BUILD",
+        "SUSE16_BUILD",
+        "OPENSUSE16_BUILD",
+    ]
+    assert params[0].default_value == "UBUNTU22_BUILD,UBUNTU24_BUILD"
+    assert client.session.get.call_args_list[1].args[0].endswith(
+        "/job/Build_Datto_Utils/config.xml"
     )
 
 

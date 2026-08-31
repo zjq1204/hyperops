@@ -2,11 +2,15 @@
 Jenkins API client.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import quote
+from xml.etree import ElementTree
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class JenkinsParamDefinition:
@@ -114,6 +118,42 @@ class JenkinsClient:
         if url.startswith("/"):
             return f"{self.url}{url}"
         return url
+
+    @staticmethod
+    def _is_extended_choice_type(param_type: str) -> bool:
+        return str(param_type or "").upper().startswith("PT_")
+
+    def _get_extended_choice_configs(self, job_name: str) -> dict[str, dict]:
+        response = self.session.get(
+            self._build_job_path(job_name, "config.xml"),
+            timeout=30,
+        )
+        response.raise_for_status()
+        root = ElementTree.fromstring(response.text)
+        configs = {}
+
+        for node in root.iter():
+            values = {
+                child.tag.rsplit("}", 1)[-1]: str(child.text or "").strip()
+                for child in node
+            }
+            name = values.get("name", "")
+            param_type = values.get("type", "")
+            if not name or not self._is_extended_choice_type(param_type):
+                continue
+
+            delimiter = values.get("multiSelectDelimiter") or ","
+            choices = [
+                value.strip()
+                for value in values.get("value", "").split(delimiter)
+                if value.strip()
+            ]
+            configs[name] = {
+                "choices": choices,
+                "default_value": values.get("defaultValue", ""),
+            }
+
+        return configs
 
     @staticmethod
     def _parse_queue_id(location: str) -> Optional[int]:
@@ -297,6 +337,31 @@ class JenkinsClient:
                             description=param.get("description"),
                         )
                     )
+            missing_extended_choices = any(
+                self._is_extended_choice_type(param.type) and not param.choices
+                for param in params
+            )
+            if missing_extended_choices:
+                try:
+                    extended_configs = self._get_extended_choice_configs(job_name)
+                except Exception as exc:
+                    logger.warning(
+                        "Jenkins 扩展选项参数降级 | integration=jenkins "
+                        "operation=get_extended_choice_config job=%s error_type=%s",
+                        job_name,
+                        type(exc).__name__,
+                    )
+                    extended_configs = {}
+
+                for param in params:
+                    extended_config = extended_configs.get(param.name)
+                    if not extended_config:
+                        continue
+                    if not param.choices:
+                        param.choices = extended_config["choices"]
+                    if param.default_value in (None, ""):
+                        param.default_value = extended_config["default_value"]
+
             return params
         except Exception:
             raise

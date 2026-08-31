@@ -683,6 +683,26 @@ assert.match(
   'probe settings should warn when Prometheus still uses legacy HTTP SD'
 )
 assert.match(
+  probeSettingsSource,
+  /probePolicy|probe_policy/,
+  'probe settings should expose the effective probe policy'
+)
+assert.match(
+  probeSettingsSource,
+  /probeScrapeInterval|probe_scrape_interval|probePolicy\.scrape_interval/,
+  'probe settings should show the effective scrape interval'
+)
+const guidanceStart = probeSettingsSource.indexOf(
+  'data-testid="probe-config-guidance"'
+)
+assert.ok(guidanceStart >= 0, 'probe settings should group configuration guidance')
+const guidanceSource = probeSettingsSource.slice(guidanceStart, guidanceStart + 1800)
+assert.match(
+  guidanceSource,
+  /prometheusAccessHintShort|probePolicyHint/,
+  'probe settings guidance should contain the shared configuration explanation'
+)
+assert.match(
   probesSource,
   /ProbeTargetForm/,
   'probe targets page should bind targets to selected probe nodes'

@@ -1185,7 +1185,7 @@ async function applyBulkAddLabel() {
 function useForEntry(job) {
   if (!selectedInstanceId.value) return
   router.push({
-    path: '/management/jenkins/entries',
+    path: '/management/jenkins/entries/new',
     query: {
       instance: selectedInstanceId.value,
       job_name: job.full_name,

@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert'
+import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -6,6 +7,36 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '..', '..')
 const paramsModule = await import(
   pathToFileURL(resolve(repoRoot, 'src/utils/jenkinsParams.js')).href
+)
+const entriesSource = await readFile(
+  resolve(repoRoot, 'src/admin/pages/Jenkins/Entries.vue'),
+  'utf8'
+)
+const entryEditorSource = await readFile(
+  resolve(
+    repoRoot,
+    'src/admin/pages/Jenkins/EntryEditor.vue'
+  ),
+  'utf8'
+)
+const parameterTableSource = await readFile(
+  resolve(
+    repoRoot,
+    'src/admin/pages/Jenkins/components/JenkinsParameterTable.vue'
+  ),
+  'utf8'
+)
+const multiSelectSource = await readFile(
+  resolve(
+    repoRoot,
+    'src/admin/pages/Jenkins/components/JenkinsMultiSelectDialog.vue'
+  ),
+  'utf8'
+)
+const parameterUiSource = `${entryEditorSource}\n${parameterTableSource}\n${multiSelectSource}`
+const routesSource = await readFile(
+  resolve(repoRoot, 'src/admin/routes.js'),
+  'utf8'
 )
 
 assert.equal(
@@ -166,4 +197,66 @@ assert.deepEqual(
     }
   ],
   'PT_CHECKBOX configs should restore as extended choice rows even when saved type is custom'
+)
+
+assert.match(
+  parameterUiSource,
+  /v-model="draft"[\s\S]*?type="checkbox"[\s\S]*?:value="choice"/,
+  'extended choice defaults should use visible checkbox options'
+)
+assert.match(
+  parameterUiSource,
+  /openMultiSelect\(row\)/,
+  'extended choice defaults should support filtering a long option list'
+)
+assert.match(
+  parameterUiSource,
+  /JenkinsMultiSelectDialog/,
+  'extended choice options should open in a focused selection dialog'
+)
+assert.doesNotMatch(
+  parameterUiSource,
+  /row\.choices\.join\(' \/ '\)/,
+  'extended choice options should not be rendered as one long slash-separated paragraph'
+)
+assert.match(
+  parameterUiSource,
+  /adminPages\.jenkinsEntries\.basicInfoTitle/,
+  'entry editor should group instance and job fields as basic information'
+)
+assert.match(
+  parameterUiSource,
+  /adminPages\.jenkinsEntries\.parameterPresetTitle/,
+  'entry modal should present parameters as a dedicated preset section'
+)
+assert.match(
+  entryEditorSource,
+  /adminPages\.jenkinsEntries\.advancedOptions/,
+  'entry modal should progressively disclose JSON and activation settings'
+)
+assert.doesNotMatch(
+  entriesSource,
+  /<BaseModal/,
+  'the entry list should not contain the large configuration modal'
+)
+assert.doesNotMatch(
+  entryEditorSource,
+  /<BaseModal/,
+  'the main entry configuration workflow should use a page, not a modal'
+)
+assert.doesNotMatch(
+  entryEditorSource,
+  /class="[^"]*sticky bottom-0[^"]*"/,
+  'the entry editor footer should not cover parameter rows while scrolling'
+)
+
+assert.match(
+  routesSource,
+  /path:\s*'\/management\/jenkins\/entries\/new'/,
+  'creating a Jenkins entry should use a dedicated route instead of a large modal'
+)
+assert.match(
+  routesSource,
+  /path:\s*'\/management\/jenkins\/entries\/:id\/edit'/,
+  'editing a Jenkins entry should use a dedicated route'
 )

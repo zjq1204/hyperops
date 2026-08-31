@@ -63,6 +63,9 @@ INSTALLER_DOWNLOAD_FILES = {
 
 N9E_VERSION_NOT_EXPOSED = "当前 n9e 版本未暴露"
 EXTERNAL_COMPONENT_STATUS = "external"
+PROBE_SCRAPE_INTERVAL = "30s"
+PROBE_SCRAPE_TIMEOUT = "10s"
+PROBE_HTTP_SD_REFRESH_INTERVAL = "30s"
 N9E_ONLINE_VALUES = {
     "up",
     "online",
@@ -802,13 +805,14 @@ def prometheus_http_sd_urls(base_url):
 def prometheus_http_sd_config(base_url):
     urls = prometheus_http_sd_urls(base_url)
     token, _source = active_prometheus_http_sd_token()
+    policy = prometheus_probe_policy()
     token_literal = json.dumps(token)
     yaml_content = textwrap.dedent(
         f"""
         global:
-          scrape_interval: 30s
-          scrape_timeout: 10s
-          evaluation_interval: 30s
+          scrape_interval: {policy['scrape_interval']}
+          scrape_timeout: {policy['scrape_timeout']}
+          evaluation_interval: {policy['scrape_interval']}
 
         scrape_configs:
           - job_name: blackbox-http
@@ -817,7 +821,7 @@ def prometheus_http_sd_config(base_url):
               module: [http_2xx]
             http_sd_configs:
               - url: {urls[ProbeTarget.TYPE_HTTP]}
-                refresh_interval: 30s
+                refresh_interval: {policy['http_sd_refresh_interval']}
                 authorization:
                   type: Bearer
                   credentials: {token_literal}
@@ -837,7 +841,7 @@ def prometheus_http_sd_config(base_url):
               module: [tcp_connect]
             http_sd_configs:
               - url: {urls[ProbeTarget.TYPE_TCP]}
-                refresh_interval: 30s
+                refresh_interval: {policy['http_sd_refresh_interval']}
                 authorization:
                   type: Bearer
                   credentials: {token_literal}
@@ -857,7 +861,7 @@ def prometheus_http_sd_config(base_url):
               module: [icmp]
             http_sd_configs:
               - url: {urls[ProbeTarget.TYPE_ICMP]}
-                refresh_interval: 30s
+                refresh_interval: {policy['http_sd_refresh_interval']}
                 authorization:
                   type: Bearer
                   credentials: {token_literal}
@@ -874,8 +878,17 @@ def prometheus_http_sd_config(base_url):
     ).strip()
     return {
         **prometheus_http_sd_state(),
+        "probe_policy": policy,
         "urls": urls,
         "yaml": yaml_content,
+    }
+
+
+def prometheus_probe_policy():
+    return {
+        "scrape_interval": PROBE_SCRAPE_INTERVAL,
+        "scrape_timeout": PROBE_SCRAPE_TIMEOUT,
+        "http_sd_refresh_interval": PROBE_HTTP_SD_REFRESH_INTERVAL,
     }
 
 
@@ -943,6 +956,7 @@ def monitoring_config():
             "has_password": bool(n9e_password),
         },
         "http_sd": prometheus_http_sd_state(),
+        "probe_policy": prometheus_probe_policy(),
         "installer": {
             "base_url": installer_base_url,
             "install_dir": categraf_install_dir,

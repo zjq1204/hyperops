@@ -241,6 +241,11 @@ def test_prometheus_http_sd_config_preview_returns_copyable_yaml(client):
     payload = _payload(response)
     assert payload["token_configured"] is True
     assert payload["token_file_path"] == "/etc/prometheus/hyperops-http-sd.token"
+    assert payload["probe_policy"] == {
+        "scrape_interval": "30s",
+        "scrape_timeout": "10s",
+        "http_sd_refresh_interval": "30s",
+    }
     assert payload["urls"]["http"].endswith(
         "/api/v1/monitoring/prometheus/http-sd/blackbox/http/"
     )
@@ -251,6 +256,9 @@ def test_prometheus_http_sd_config_preview_returns_copyable_yaml(client):
     assert "job_name: blackbox-http" in payload["yaml"]
     assert "job_name: blackbox-tcp" in payload["yaml"]
     assert "job_name: blackbox-icmp" in payload["yaml"]
+    assert "scrape_interval: 30s" in payload["yaml"]
+    assert "scrape_timeout: 10s" in payload["yaml"]
+    assert "refresh_interval: 30s" in payload["yaml"]
     assert 'credentials: "database-token"' in payload["yaml"]
     assert "credentials_file:" not in payload["yaml"]
 

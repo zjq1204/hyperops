@@ -41,6 +41,16 @@ assert.match(credentialsPageSource, /credential-mobile-list/)
 assert.match(credentialsPageSource, /CredentialUploadModal/)
 assert.match(credentialsPageSource, /CredentialDetailDrawer/)
 assert.match(credentialsPageSource, /filters\.type/)
+const refreshActionSource = credentialsPageSource.match(
+  /<BaseButton[^>]*@click="loadCredentials"[^>]*>[\s\S]*?<\/BaseButton>/
+)?.[0]
+assert.ok(refreshActionSource, 'credential refresh action is required')
+assert.match(refreshActionSource, /t\('common\.refresh'\)/)
+assert.doesNotMatch(
+  refreshActionSource,
+  /<svg|aria-label|:title/,
+  'credential refresh action must use the standard text-button pattern'
+)
 assert.match(uploadSource, /credentialType/)
 assert.match(uploadSource, /passwordConfirm/)
 assert.match(uploadSource, /private_key/)

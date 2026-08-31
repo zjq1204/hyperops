@@ -303,10 +303,25 @@
               <h2 class="text-base font-semibold text-slate-900">
                 {{ t('adminPages.monitoring.prometheusAccess') }}
               </h2>
-              <p class="mt-1 text-xs leading-5 text-slate-500">
-                {{ t('adminPages.monitoring.prometheusAccessHintShort') }}
-              </p>
             </header>
+            <div
+              data-testid="probe-config-guidance"
+              class="border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:px-5"
+            >
+              <h3 class="text-sm font-semibold text-slate-900">
+                {{ t('adminPages.monitoring.probeGuidanceTitle') }}
+              </h3>
+              <div class="mt-2 grid gap-2 text-xs leading-5 text-slate-600 sm:grid-cols-2">
+                <p class="flex items-start gap-2">
+                  <span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
+                  {{ t('adminPages.monitoring.prometheusAccessHintShort') }}
+                </p>
+                <p class="flex items-start gap-2">
+                  <span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
+                  {{ t('adminPages.monitoring.probePolicyHint') }}
+                </p>
+              </div>
+            </div>
             <div
               class="grid gap-5 px-4 py-5 sm:grid-cols-2 sm:px-5 lg:grid-cols-[1fr_1fr_auto] lg:items-center"
             >
@@ -354,6 +369,41 @@
                   {{ t('adminPages.monitoring.viewConfiguration') }}
                 </BaseButton>
               </div>
+            </div>
+            <div class="border-t border-slate-100 px-4 py-4 sm:px-5">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <div>
+                  <h3 class="text-sm font-semibold text-slate-900">
+                    {{ t('adminPages.monitoring.probePolicyTitle') }}
+                  </h3>
+                </div>
+              </div>
+              <dl class="mt-4 grid gap-4 sm:grid-cols-3">
+                <div>
+                  <dt class="text-xs font-medium text-slate-400">
+                    {{ t('adminPages.monitoring.probeScrapeInterval') }}
+                  </dt>
+                  <dd class="mt-1 font-semibold text-slate-800">
+                    {{ formatDuration(probePolicy.scrape_interval) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs font-medium text-slate-400">
+                    {{ t('adminPages.monitoring.probeScrapeTimeout') }}
+                  </dt>
+                  <dd class="mt-1 font-semibold text-slate-800">
+                    {{ formatDuration(probePolicy.scrape_timeout) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs font-medium text-slate-400">
+                    {{ t('adminPages.monitoring.probeConfigRefresh') }}
+                  </dt>
+                  <dd class="mt-1 font-semibold text-slate-800">
+                    {{ formatDuration(probePolicy.http_sd_refresh_interval) }}
+                  </dd>
+                </div>
+              </dl>
             </div>
             <div
               v-if="probeDiscovery.legacy_http_sd?.detected"
@@ -877,6 +927,7 @@ const managedProbeNodeNotice = computed(() =>
 const prometheusConnected = computed(() =>
   Boolean(prometheusSummary.value?.connected)
 )
+const probePolicy = computed(() => httpSdConfig.value?.probe_policy || {})
 const probeNodeDiscoveries = computed(() =>
   Array.isArray(probeDiscovery.value?.discoveries)
     ? probeDiscovery.value.discoveries
@@ -900,6 +951,13 @@ const canDeployBlackbox = computed(() => {
 
 function normalizeList(data) {
   return data?.results || data || []
+}
+
+function formatDuration(value) {
+  const match = String(value || '').match(/^(\d+)(s|m|h)$/)
+  if (!match) return t('common.emptyValue')
+  const units = { s: 'adminPages.monitoring.seconds', m: 'adminPages.monitoring.minutes', h: 'adminPages.monitoring.hours' }
+  return `${match[1]} ${t(units[match[2]])}`
 }
 
 function blackboxHostDeploymentState(host) {

@@ -54,6 +54,18 @@ export const adminRoutes = [
     component: () => import('@/admin/pages/Jenkins/Entries.vue'),
     meta: { requiresAuth: true, requiredFeature: 'admin_jenkins' }
   },
+  {
+    path: '/management/jenkins/entries/new',
+    name: 'AdminJenkinsEntryCreate',
+    component: () => import('@/admin/pages/Jenkins/EntryEditor.vue'),
+    meta: { requiresAuth: true, requiredFeature: 'admin_jenkins' }
+  },
+  {
+    path: '/management/jenkins/entries/:id/edit',
+    name: 'AdminJenkinsEntryEdit',
+    component: () => import('@/admin/pages/Jenkins/EntryEditor.vue'),
+    meta: { requiresAuth: true, requiredFeature: 'admin_jenkins' }
+  },
   // GitLab Admin
   {
     path: '/management/gitlab',

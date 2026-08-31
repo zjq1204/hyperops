@@ -28,8 +28,8 @@
               </label>
             </div>
             <div class="flex items-center justify-end gap-2">
-              <BaseButton variant="outline" size="sm" :loading="loading" :aria-label="t('common.refresh')" :title="t('common.refresh')" @click="loadCredentials">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5.1 15A8 8 0 0019 9M18.9 9A8 8 0 005 15" /></svg>
+              <BaseButton variant="outline" size="sm" :loading="loading" @click="loadCredentials">
+                {{ t('common.refresh') }}
               </BaseButton>
               <BaseButton v-if="canManage" variant="primary" size="sm" @click="openCreate">{{ t('monitoringCredentials.addCredential') }}</BaseButton>
             </div>
