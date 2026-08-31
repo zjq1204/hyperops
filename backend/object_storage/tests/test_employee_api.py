@@ -31,6 +31,7 @@ def superuser_client(client, django_user_model):
         username="object-storage-root", password="secret123"
     )
     client.force_login(user)
+    client.defaults["HTTP_IDEMPOTENCY_KEY"] = "employee-admin-test"
     return client
 
 
@@ -370,6 +371,7 @@ def test_state_change_without_idempotency_key_does_not_change_member(
 ):
     identity = storage_cloud_identity_factory()
     membership = identity.membership
+    superuser_client.defaults.pop("HTTP_IDEMPOTENCY_KEY", None)
 
     response = superuser_client.post(
         f"/api/v1/object-storage/management/members/{membership.id}/suspend/",

@@ -5,6 +5,14 @@ from rest_framework import serializers
 from object_storage.crypto import encrypt_secret
 from object_storage.models import (
     FeishuAppConfig,
+    StorageAccessKey,
+    StorageApplication,
+    StorageApplicationAttempt,
+    StorageApplicationEvent,
+    StorageAuditEvent,
+    StorageBucket,
+    StorageCloudIdentity,
+    StorageMembership,
     StorageResourcePool,
     StorageTenant,
 )
@@ -220,3 +228,168 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
             setattr(instance, name, value)
         instance.save()
         return instance
+
+
+class StorageMembershipAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageMembership
+        fields = (
+            "id",
+            "tenant_id",
+            "user_id",
+            "feishu_open_id",
+            "feishu_union_id",
+            "display_name",
+            "department_snapshot",
+            "is_active",
+            "deactivated_at",
+            "created_at",
+            "updated_at",
+        )
+
+
+class StorageCloudIdentityAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageCloudIdentity
+        fields = (
+            "id",
+            "tenant_id",
+            "membership_id",
+            "resource_pool_id",
+            "ram_user_id",
+            "ram_user_name",
+            "state",
+            "last_synced_at",
+            "created_at",
+            "updated_at",
+        )
+
+
+class StorageBucketAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageBucket
+        fields = (
+            "id",
+            "tenant_id",
+            "resource_pool_id",
+            "owner_id",
+            "cloud_identity_id",
+            "name",
+            "project",
+            "environment",
+            "purpose",
+            "notes",
+            "region",
+            "template_version",
+            "cloud_resource_id",
+            "state",
+            "last_synced_at",
+            "created_at",
+            "updated_at",
+        )
+
+
+class StorageAccessKeyAdminSerializer(serializers.ModelSerializer):
+    last_four = serializers.CharField(source="access_key_last_four")
+    fingerprint = serializers.CharField(source="access_key_fingerprint")
+
+    class Meta:
+        model = StorageAccessKey
+        fields = (
+            "id",
+            "tenant_id",
+            "cloud_identity_id",
+            "fingerprint",
+            "last_four",
+            "cloud_state",
+            "local_state",
+            "last_synced_at",
+            "deactivated_at",
+            "deleted_at",
+            "created_at",
+            "updated_at",
+        )
+
+
+class StorageApplicationAttemptAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageApplicationAttempt
+        fields = (
+            "id",
+            "attempt_number",
+            "status",
+            "provider_request_id",
+            "error_code",
+            "started_at",
+            "finished_at",
+        )
+
+
+class StorageApplicationEventAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageApplicationEvent
+        fields = (
+            "id",
+            "attempt_id",
+            "stage",
+            "result",
+            "error_code",
+            "safe_metadata",
+            "created_at",
+        )
+
+
+class StorageApplicationAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageApplication
+        fields = (
+            "id",
+            "tenant_id",
+            "applicant_id",
+            "action_type",
+            "target_bucket_id",
+            "target_access_key_id",
+            "status",
+            "current_stage",
+            "error_code",
+            "error_summary",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        )
+
+
+class StorageApplicationDetailAdminSerializer(StorageApplicationAdminSerializer):
+    attempts = StorageApplicationAttemptAdminSerializer(many=True, read_only=True)
+    events = StorageApplicationEventAdminSerializer(many=True, read_only=True)
+
+    class Meta(StorageApplicationAdminSerializer.Meta):
+        fields = StorageApplicationAdminSerializer.Meta.fields + (
+            "attempts",
+            "events",
+        )
+
+
+class StorageAuditEventAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorageAuditEvent
+        fields = (
+            "id",
+            "tenant_id",
+            "actor_id",
+            "application_id",
+            "action",
+            "target_type",
+            "target_id",
+            "reason",
+            "ip_address",
+            "request_id",
+            "result",
+            "safe_metadata",
+            "created_at",
+        )
+
+
+class StorageAdminReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, allow_blank=False)

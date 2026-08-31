@@ -17,6 +17,7 @@ from object_storage.models import (
 from object_storage.permissions import (
     IsActiveObjectStorageMember,
     IsObjectStorageSuperuser,
+    RequireIdempotencyKeyMixin,
 )
 from object_storage.providers.aliyun import build_aliyun_provider
 from object_storage.serializers import (
@@ -289,18 +290,32 @@ class EmployeeBucketReleaseView(APIView):
         return _application_response(application)
 
 
-class ManagementAccessKeyRevealView(NoStoreAPIView):
+class ManagementAccessKeyRevealView(RequireIdempotencyKeyMixin, NoStoreAPIView):
     permission_classes = [IsObjectStorageSuperuser]
 
     def post(self, request, key_id):
         serializer = RevealAccessKeySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         access_key = get_object_or_404(StorageAccessKey, pk=key_id)
+        request_id = str(request.headers.get("Idempotency-Key") or "").strip()
+        if access_key.tenant.audit_events.filter(
+            action="storage.credential.revealed",
+            target_type="StorageAccessKey",
+            target_id=access_key.pk,
+            actor=request.user,
+            request_id=request_id,
+        ).exists():
+            return _no_store(
+                Response(
+                    {"error_code": "REVEAL_ALREADY_COMPLETED"},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            )
         secret = reveal_access_key(
             access_key=access_key,
             actor=request.user,
             reason=serializer.validated_data["reason"],
-            request_id=str(request.headers.get("X-Request-ID") or ""),
+            request_id=request_id,
             ip_address=_client_ip(request),
         )
         return _no_store(Response(secret))

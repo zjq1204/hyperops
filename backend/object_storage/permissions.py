@@ -1,4 +1,5 @@
 from django.core.exceptions import ObjectDoesNotExist
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
 
 
@@ -23,3 +24,12 @@ class IsActiveObjectStorageMember(BasePermission):
             return False
         request.storage_membership = membership
         return True
+
+
+class RequireIdempotencyKeyMixin:
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            key = str(request.headers.get("Idempotency-Key") or "").strip()
+            if not key:
+                raise ValidationError({"idempotency_key": "IDEMPOTENCY_KEY_REQUIRED"})

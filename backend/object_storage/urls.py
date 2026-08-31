@@ -12,6 +12,15 @@ from object_storage.views_admin import (
     StorageResourcePoolDetailView,
     StorageResourcePoolListCreateView,
     StorageResourcePoolValidationView,
+    StorageAccessKeyAdminListView,
+    StorageApplicationAdminDetailView,
+    StorageApplicationAdminListView,
+    StorageApplicationResolveView,
+    StorageApplicationRetryView,
+    StorageAuditEventAdminListView,
+    StorageBucketAdminListView,
+    StorageCloudIdentityAdminListView,
+    StorageMembershipAdminListView,
     StorageTenantDetailView,
     StorageTenantListCreateView,
 )
@@ -86,6 +95,51 @@ urlpatterns = [
         "management/access-keys/<int:key_id>/reveal/",
         ManagementAccessKeyRevealView.as_view(),
         name="management_access_key_reveal",
+    ),
+    path(
+        "management/members/",
+        StorageMembershipAdminListView.as_view(),
+        name="management_members",
+    ),
+    path(
+        "management/cloud-identities/",
+        StorageCloudIdentityAdminListView.as_view(),
+        name="management_cloud_identities",
+    ),
+    path(
+        "management/buckets/",
+        StorageBucketAdminListView.as_view(),
+        name="management_buckets",
+    ),
+    path(
+        "management/access-keys/",
+        StorageAccessKeyAdminListView.as_view(),
+        name="management_access_keys",
+    ),
+    path(
+        "management/applications/",
+        StorageApplicationAdminListView.as_view(),
+        name="management_applications",
+    ),
+    path(
+        "management/applications/<int:application_id>/",
+        StorageApplicationAdminDetailView.as_view(),
+        name="management_application_detail",
+    ),
+    path(
+        "management/applications/<int:application_id>/retry/",
+        StorageApplicationRetryView.as_view(),
+        name="management_application_retry",
+    ),
+    path(
+        "management/applications/<int:application_id>/resolve/",
+        StorageApplicationResolveView.as_view(),
+        name="management_application_resolve",
+    ),
+    path(
+        "management/audit-events/",
+        StorageAuditEventAdminListView.as_view(),
+        name="management_audit_events",
     ),
     path(
         "management/members/<int:membership_id>/suspend/",

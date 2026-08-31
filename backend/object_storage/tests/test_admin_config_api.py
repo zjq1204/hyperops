@@ -21,6 +21,7 @@ def superuser_client(client, django_user_model):
         password="secret123",
     )
     client.force_login(user)
+    client.defaults["HTTP_IDEMPOTENCY_KEY"] = "admin-config-test"
     return client
 
 
