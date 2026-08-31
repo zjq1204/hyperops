@@ -10,43 +10,12 @@ from object_storage.providers.base import (
     ManagementCapabilities,
     PersonalPrincipal,
 )
+from object_storage.services.policy import build_object_policy
 from object_storage.services.provider_errors import map_provider_error
-
-OBJECT_ACTIONS = (
-    "oss:ListObjects",
-    "oss:GetObject",
-    "oss:PutObject",
-    "oss:DeleteObject",
-    "oss:AbortMultipartUpload",
-    "oss:ListParts",
-)
 
 
 def _fingerprint(access_key_id):
     return hashlib.sha256(access_key_id.encode("utf-8")).hexdigest()
-
-
-def _policy_for_buckets(buckets):
-    bucket_resources = []
-    object_resources = []
-    for bucket in sorted(buckets, key=lambda item: item.name):
-        bucket_resources.append(f"acs:oss:*:*:{bucket.name}")
-        object_resources.append(f"acs:oss:*:*:{bucket.name}/*")
-    return {
-        "Version": "1",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": ["oss:ListObjects"],
-                "Resource": bucket_resources,
-            },
-            {
-                "Effect": "Allow",
-                "Action": list(OBJECT_ACTIONS[1:]),
-                "Resource": object_resources,
-            },
-        ],
-    }
 
 
 class AliyunObjectStorageProvider:
@@ -123,7 +92,7 @@ class AliyunObjectStorageProvider:
         return BucketMutation(request_id=str(result.get("request_id") or ""))
 
     def reconcile_object_policy(self, identity, buckets):
-        policy = _policy_for_buckets(buckets)
+        policy = build_object_policy(buckets)
         return self._call(
             self.ram_gateway.apply_policy,
             identity.ram_user_name,
