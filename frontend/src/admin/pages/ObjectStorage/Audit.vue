@@ -186,7 +186,7 @@ const resultLabel = (value) =>
   )
 const actionLabel = (value) =>
   t(
-    `adminPages.objectStorage.auditActions.${value}`,
+    `adminPages.objectStorage.auditActions.${String(value || '').replaceAll('.', '_')}`,
     value || t('common.emptyValue')
   )
 const resultClass = (value) => [
