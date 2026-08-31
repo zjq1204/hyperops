@@ -200,6 +200,17 @@ def _manual_failure(application, attempt, error, stage):
             "updated_at",
         )
     )
+    record_audit_event(
+        tenant=application.tenant,
+        actor=application.applicant.user,
+        application=application,
+        action="storage.application.manual_required",
+        target_type="StorageApplication",
+        target_id=application.pk,
+        result="manual_required",
+        safe_metadata={"stage": stage, "error_code": error_code},
+        request_id=request_id,
+    )
     return application
 
 
@@ -235,6 +246,17 @@ def _persist_retryable_failure(application_id, error, stage):
             )
         )
         _event(application, attempt, stage, "failed", error_code=error_code)
+        record_audit_event(
+            tenant=application.tenant,
+            actor=application.applicant.user,
+            application=application,
+            action="storage.application.retry_pending",
+            target_type="StorageApplication",
+            target_id=application.pk,
+            result="retry_pending",
+            safe_metadata={"stage": stage, "error_code": error_code},
+            request_id=request_id,
+        )
 
 
 def _execute_application_locked(application_id):
@@ -269,6 +291,12 @@ def _execute_application_locked(application_id):
     application.save(update_fields=("status", "started_at", "updated_at"))
     identity = _identity_for(application, membership, pool)
     try:
+        supported_actions = {
+            StorageApplication.ActionType.FIRST_BUCKET_AND_CREDENTIAL,
+            StorageApplication.ActionType.ADD_BUCKET,
+        }
+        if application.action_type not in supported_actions:
+            raise ObjectStorageProviderError("APPLICATION_ACTION_NOT_IMPLEMENTED")
         application.current_stage = "IDENTITY_CHECKING"
         _event(application, attempt, "IDENTITY_CHECKING", "succeeded")
         enforce_bucket_quota(membership)
@@ -284,6 +312,21 @@ def _execute_application_locked(application_id):
             raise ObjectStorageProviderError("BUCKET_STATE_INCONSISTENT")
         application.target_bucket = bucket
         application.save(update_fields=("target_bucket", "current_stage", "updated_at"))
+        application.current_stage = "BUCKET_CREATING"
+        bucket_exists = provider.find_owned_bucket(bucket)
+        if not bucket_exists:
+            try:
+                provider.create_owned_bucket(bucket)
+            except Exception as error:
+                if is_retryable_provider_error(error):
+                    if provider.find_owned_bucket(bucket):
+                        bucket.state = StorageBucket.State.ACTIVE
+                    else:
+                        raise
+                else:
+                    raise
+        bucket.state = StorageBucket.State.ACTIVE
+        bucket.save(update_fields=("state", "updated_at"))
         application.current_stage = "PRINCIPAL_BINDING"
         if (
             identity.state != StorageCloudIdentity.State.ACTIVE
@@ -297,28 +340,19 @@ def _execute_application_locked(application_id):
                 update_fields=("ram_user_id", "ram_user_name", "state", "updated_at")
             )
         _event(application, attempt, "PRINCIPAL_BINDING", "succeeded")
-        application.current_stage = "BUCKET_CREATING"
-        try:
-            provider.create_owned_bucket(bucket)
-        except Exception as error:
-            if is_retryable_provider_error(error) and hasattr(
-                provider, "find_owned_bucket"
-            ):
-                if provider.find_owned_bucket(bucket):
-                    bucket.state = StorageBucket.State.ACTIVE
-                else:
-                    raise
-            else:
-                raise
-        bucket.state = StorageBucket.State.ACTIVE
-        bucket.save(update_fields=("state", "updated_at"))
-        # BUCKET_CREATING is recorded once before the principal call so the
-        # technical event stream reflects the declared workflow order.
         application.current_stage = "POLICY_APPLYING"
         provider.reconcile_object_policy(identity, _active_owned_buckets(identity))
         _event(application, attempt, "POLICY_APPLYING", "succeeded")
         if _is_first_application(application):
             application.current_stage = "KEY_CREATING"
+            cloud_keys = provider.list_access_keys(identity)
+            known_fingerprints = set(
+                identity.access_keys.values_list("access_key_fingerprint", flat=True)
+            )
+            if any(key.fingerprint not in known_fingerprints for key in cloud_keys):
+                raise ObjectStorageProviderError("CLOUD_KEY_RECOVERY_REQUIRED")
+            if application.target_access_key_id or known_fingerprints:
+                raise ObjectStorageProviderError("LOCAL_KEY_STATE_INCONSISTENT")
             issued = provider.create_access_key(identity)
             try:
                 encrypted = encrypt_issued_access_key(issued)

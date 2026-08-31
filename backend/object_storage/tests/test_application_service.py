@@ -67,6 +67,18 @@ class FakeProvider:
         self.keys.append(key)
         return key
 
+    def list_access_keys(self, identity):
+        self.calls.append(("list_keys", identity.ram_user_name))
+        return tuple(
+            SimpleNamespace(
+                access_key_id=key.access_key_id,
+                fingerprint=applications_fingerprint(key.access_key_id),
+                last_four=key.access_key_id[-4:],
+                status="active",
+            )
+            for key in self.keys
+        )
+
     def delete_access_key(self, key):
         self.calls.append(("delete_key", key.access_key_id))
         return {"request_id": "request-delete-key"}
@@ -126,9 +138,11 @@ def test_first_application_creates_principal_bucket_policy_and_key(
         == 1
     )
     assert [call[0] for call in provider.calls] == [
-        "principal",
+        "reconcile_bucket",
         "bucket",
+        "principal",
         "policy",
+        "list_keys",
         "create_key",
     ]
     assert list(result.events.values_list("stage", flat=True)) == [
@@ -187,7 +201,11 @@ def test_additional_bucket_reuses_principal_and_active_keys(
         == 1
     )
     assert StorageBucket.objects.filter(owner=membership, state="active").count() == 2
-    assert [call[0] for call in provider.calls] == ["bucket", "policy"]
+    assert [call[0] for call in provider.calls] == [
+        "reconcile_bucket",
+        "bucket",
+        "policy",
+    ]
 
 
 def test_duplicate_idempotency_key_returns_existing_application(application_context):
@@ -277,7 +295,12 @@ def test_policy_failure_does_not_issue_a_key(application_context, monkeypatch):
 
     assert result.status == StorageApplication.Status.MANUAL_REQUIRED
     assert StorageAccessKey.objects.count() == 0
-    assert [call[0] for call in provider.calls] == ["principal", "bucket", "policy"]
+    assert [call[0] for call in provider.calls] == [
+        "reconcile_bucket",
+        "bucket",
+        "principal",
+        "policy",
+    ]
 
 
 def test_encryption_failure_deletes_the_exact_new_key(application_context, monkeypatch):
@@ -356,6 +379,86 @@ def test_retryable_provider_error_is_persisted_then_reraised(
     assert application.current_stage == "BUCKET_CREATING"
     assert attempt.status == StorageApplicationAttempt.Status.FAILED
     assert attempt.error_code == "PROVIDER_TIMEOUT"
+    assert application.audit_events.filter(
+        action="storage.application.retry_pending"
+    ).exists()
+
+
+def test_retry_reconciles_owned_bucket_before_creating_again(
+    application_context, monkeypatch
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    membership, pool = application_context
+    provider = FakeProvider()
+    owned = False
+
+    def find_owned_bucket(bucket):
+        provider.calls.append(("reconcile_bucket", bucket.name))
+        return owned
+
+    def fail_create(bucket):
+        provider.calls.append(("bucket", bucket.name))
+        raise ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
+
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    monkeypatch.setattr(provider, "find_owned_bucket", find_owned_bucket)
+    monkeypatch.setattr(provider, "create_owned_bucket", fail_create)
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.ADD_BUCKET,
+        idempotency_key="retry-reconcile",
+        request_fields={"project": "one", "environment": "test", "purpose": "data"},
+        enqueue=False,
+    )
+
+    with pytest.raises(ObjectStorageProviderError):
+        applications.execute_application(application.pk)
+    owned = True
+    provider.calls.clear()
+    result = applications.execute_application(application.pk)
+
+    assert result.status == StorageApplication.Status.SUCCEEDED
+    assert [call[0] for call in provider.calls] == [
+        "reconcile_bucket",
+        "principal",
+        "policy",
+    ]
+
+
+def test_unsupported_application_action_never_uses_add_bucket_workflow(
+    application_context, monkeypatch
+):
+    from object_storage.models import StorageApplication
+    from object_storage.services import applications
+
+    membership, pool = application_context
+    provider = FakeProvider()
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda selected: provider
+    )
+    application = applications.create_application(
+        membership=membership,
+        resource_pool=pool,
+        action_type=StorageApplication.ActionType.ROTATE_CREDENTIAL,
+        idempotency_key="unsupported-rotation",
+        request_fields={},
+        enqueue=False,
+    )
+
+    result = applications.execute_application(application.pk)
+
+    assert result.status == StorageApplication.Status.MANUAL_REQUIRED
+    assert result.error_code == "APPLICATION_ACTION_NOT_IMPLEMENTED"
+    assert provider.calls == []
+    assert application.audit_events.filter(
+        action="storage.application.manual_required"
+    ).exists()
 
 
 def test_audit_cleanup_deletes_only_expired_audit_rows(
@@ -405,3 +508,9 @@ def test_audit_cleanup_deletes_only_expired_audit_rows(
     assert cutoff == now - timedelta(days=30)
     assert StorageAuditEvent.objects.filter(pk=recent_event.pk).exists()
     assert StorageApplication.objects.filter(pk=application.pk).exists()
+
+
+def applications_fingerprint(access_key_id):
+    from object_storage.services.credentials import fingerprint_access_key
+
+    return fingerprint_access_key(access_key_id)
