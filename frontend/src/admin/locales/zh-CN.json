@@ -284,9 +284,15 @@
     "monitoringCredentials": "SSH 凭据",
     "monitoringRules": "告警规则",
     "monitoringJobs": "部署管理",
-    "monitoringSettings": "集成配置"
+    "monitoringSettings": "集成配置",
+    "objectStorageManagement": "对象存储管理",
+    "objectStorageOverview": "管理概览"
   },
   "adminPages": {
+    "objectStorage": {
+      "title": "对象存储管理",
+      "notConfigured": "请先配置企业和资源池，再向员工开放对象存储功能。"
+    },
     "monitoring": {
       "overviewTitle": "监控接入概览",
       "overviewSubtitle": "统一查看接入配置、平台状态和采集风险。",

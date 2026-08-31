@@ -302,5 +302,20 @@ export const adminRoutes = [
       requiredFeature: 'admin_monitoring',
       requiresModuleFlag: 'enable_monitoring'
     }
+  },
+  {
+    path: '/management/object-storage',
+    redirect: '/management/object-storage/overview'
+  },
+  {
+    path: '/management/object-storage/overview',
+    name: 'AdminObjectStorageOverview',
+    component: () => import('@/admin/pages/ObjectStorage/Overview.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
   }
 ]

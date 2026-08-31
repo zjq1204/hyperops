@@ -454,12 +454,35 @@ const allNavSections = computed(() => [
         ]
       }
     ]
+  },
+  {
+    key: 'object-storage',
+    requiresSuperuser: true,
+    requiredFeature: 'admin_object_storage',
+    requiredModuleFlag: 'enable_object_storage',
+    title: t('adminNav.objectStorageManagement'),
+    iconClass: 'admin-section-icon-slate',
+    iconPaths: [
+      'M4 7.5C4 5.57 7.58 4 12 4s8 1.57 8 3.5S16.42 11 12 11 4 9.43 4 7.5Z',
+      'M4 7.5V12c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5V7.5',
+      'M4 12v4.5C4 18.43 7.58 20 12 20s8-1.57 8-3.5V12'
+    ],
+    items: [
+      {
+        path: '/management/object-storage/overview',
+        label: t('adminNav.objectStorageOverview'),
+        iconPaths: ['M4 13a8 8 0 0116 0', 'M12 13l3-3', 'M5 19h14']
+      }
+    ]
   }
 ])
 
 const navSections = computed(() =>
   allNavSections.value
     .filter((section) => {
+      if (section.requiresSuperuser && !currentUser.value?.is_superuser) {
+        return false
+      }
       if (
         section.requiredModuleFlag &&
         !userStore.hasModuleFlag(section.requiredModuleFlag)
@@ -488,7 +511,8 @@ const openSections = ref({
   gitlab: false,
   notifier: false,
   actions: false,
-  monitoring: false
+  monitoring: false,
+  'object-storage': false
 })
 
 const isSectionActive = (section) => {

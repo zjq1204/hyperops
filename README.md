@@ -23,6 +23,7 @@ hyperops/
 │   ├── gitlab_resource/       # GitLab resource management
 │   ├── action_orchestration/  # Reusable action templates and execution
 │   ├── monitoring_stack/      # Prometheus/n9e/Grafana component management
+│   ├── object_storage/        # Optional Feishu/Alibaba OSS credential module
 │   ├── tests/                 # Shared pytest settings for cross-app test runs
 │   └── agentcore/             # Optional integrations (git submodules)
 └── frontend/                  # Vue 3 + Vite application
@@ -36,6 +37,7 @@ so the notification admin pages are available out of the box:
 - `ENABLE_NOTIFIER=true`
 - `ENABLE_AGENTCORE_TASK=true`
 - `ENABLE_AGENTCORE_METERING=true`
+- `ENABLE_OBJECT_STORAGE=false`
 
 Only enable the modules you actually use.
 

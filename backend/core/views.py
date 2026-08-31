@@ -26,5 +26,8 @@ class PlatformMetaView(APIView):
                 "enable_monitoring": bool(
                     getattr(settings, "ENABLE_MONITORING", False)
                 ),
+                "enable_object_storage": bool(
+                    getattr(settings, "ENABLE_OBJECT_STORAGE", False)
+                ),
             }
         )

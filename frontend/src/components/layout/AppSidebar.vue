@@ -63,9 +63,7 @@
     </div>
 
     <!-- Navigation -->
-    <nav
-      class="workspace-sidebar-nav glass-scrollbar"
-    >
+    <nav class="workspace-sidebar-nav glass-scrollbar">
       <!-- Dashboard -->
       <router-link
         v-if="canUseDashboard"
@@ -89,6 +87,69 @@
         </svg>
         <span>{{ t('navigation.dashboard') }}</span>
       </router-link>
+
+      <div v-if="canUseObjectStorage" class="workspace-sidebar-group">
+        <button
+          @click="toggleObjectStorageMenu"
+          class="workspace-sidebar-item workspace-sidebar-item-parent w-full"
+        >
+          <svg
+            class="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 7.5C4 5.57 7.58 4 12 4s8 1.57 8 3.5S16.42 11 12 11 4 9.43 4 7.5Zm0 0V12c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5V7.5M4 12v4.5C4 18.43 7.58 20 12 20s8-1.57 8-3.5V12"
+            />
+          </svg>
+          <span class="flex-1 text-left">
+            {{ t('navigation.objectStorage') }}
+          </span>
+          <svg
+            class="h-4 w-4 transition-transform"
+            :class="objectStorageMenuOpen ? 'rotate-90' : ''"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+        <Transition
+          enter-active-class="transition-all duration-200 ease-out"
+          enter-from-class="max-h-0 opacity-0"
+          enter-to-class="max-h-96 opacity-100"
+          leave-active-class="transition-all duration-200 ease-in"
+          leave-from-class="max-h-96 opacity-100"
+          leave-to-class="max-h-0 opacity-0"
+        >
+          <div v-if="objectStorageMenuOpen" class="workspace-sidebar-submenu">
+            <router-link
+              to="/object-storage/overview"
+              class="workspace-sidebar-item workspace-sidebar-item-child"
+              :class="
+                isActive('/object-storage/overview')
+                  ? 'workspace-sidebar-item-active'
+                  : ''
+              "
+              @click="isMobile && $emit('close')"
+            >
+              <span>{{ t('navigation.objectStorageOverview') }}</span>
+            </router-link>
+          </div>
+        </Transition>
+      </div>
 
       <!-- Jenkins Section -->
       <div v-if="canUseJenkins" class="workspace-sidebar-group">
@@ -206,7 +267,9 @@
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m2 3h2m0 0v2m0-2l-4 4"
             />
           </svg>
-          <span class="flex-1 text-left">{{ t('navigation.actionOrchestration') }}</span>
+          <span class="flex-1 text-left">{{
+            t('navigation.actionOrchestration')
+          }}</span>
           <svg
             class="w-4 h-4 transition-transform"
             :class="actionsMenuOpen ? 'rotate-90' : ''"
@@ -234,7 +297,11 @@
             <router-link
               to="/actions/workspace"
               class="workspace-sidebar-item workspace-sidebar-item-child"
-              :class="isActive('/actions/workspace') ? 'workspace-sidebar-item-active' : ''"
+              :class="
+                isActive('/actions/workspace')
+                  ? 'workspace-sidebar-item-active'
+                  : ''
+              "
               @click="isMobile && $emit('close')"
             >
               <svg
@@ -255,7 +322,9 @@
             <router-link
               to="/actions/runs"
               class="workspace-sidebar-item workspace-sidebar-item-child"
-              :class="isActive('/actions/runs') ? 'workspace-sidebar-item-active' : ''"
+              :class="
+                isActive('/actions/runs') ? 'workspace-sidebar-item-active' : ''
+              "
               @click="isMobile && $emit('close')"
             >
               <svg
@@ -276,7 +345,6 @@
           </div>
         </Transition>
       </div>
-
     </nav>
   </aside>
 </template>
@@ -303,6 +371,7 @@ const { t } = useI18n()
 
 const jenkinsMenuOpen = ref(true)
 const actionsMenuOpen = ref(true)
+const objectStorageMenuOpen = ref(true)
 
 const currentUser = computed(() => userStore.userInfo || userStore.user)
 const canUseDashboard = computed(() =>
@@ -313,6 +382,11 @@ const canUseJenkins = computed(() =>
 )
 const canUseActions = computed(() =>
   hasFeature(currentUser.value, 'workspace_actions')
+)
+const canUseObjectStorage = computed(
+  () =>
+    userStore.hasModuleFlag('enable_object_storage') &&
+    hasFeature(currentUser.value, 'object_storage')
 )
 
 const MOBILE_BREAKPOINT = 1024
@@ -339,11 +413,18 @@ function toggleActionsMenu() {
   actionsMenuOpen.value = !actionsMenuOpen.value
 }
 
+function toggleObjectStorageMenu() {
+  objectStorageMenuOpen.value = !objectStorageMenuOpen.value
+}
+
 watch(
   () => route.path,
   (newPath) => {
     if (newPath.startsWith('/jenkins')) jenkinsMenuOpen.value = true
     if (newPath.startsWith('/actions')) actionsMenuOpen.value = true
+    if (newPath.startsWith('/object-storage')) {
+      objectStorageMenuOpen.value = true
+    }
   },
   { immediate: true }
 )

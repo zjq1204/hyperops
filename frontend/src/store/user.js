@@ -198,6 +198,7 @@ export const useUserStore = defineStore('user', () => {
   const platformFlags = ref({
     enable_notifier: false,
     enable_monitoring: true,
+    enable_object_storage: false,
     enable_agentcore_task: false,
     enable_agentcore_metering: false
   })
@@ -211,6 +212,7 @@ export const useUserStore = defineStore('user', () => {
       platformFlags.value = {
         enable_notifier: Boolean(payload.enable_notifier),
         enable_monitoring: Boolean(payload.enable_monitoring),
+        enable_object_storage: Boolean(payload.enable_object_storage),
         enable_agentcore_task: Boolean(payload.enable_agentcore_task),
         enable_agentcore_metering: Boolean(payload.enable_agentcore_metering)
       }
@@ -220,14 +222,14 @@ export const useUserStore = defineStore('user', () => {
       platformFlags.value = {
         enable_notifier: false,
         enable_monitoring: true,
+        enable_object_storage: false,
         enable_agentcore_task: false,
         enable_agentcore_metering: false
       }
     }
   }
 
-  const hasModuleFlag = (flagName) =>
-    Boolean(platformFlags.value?.[flagName])
+  const hasModuleFlag = (flagName) => Boolean(platformFlags.value?.[flagName])
 
   return {
     // State

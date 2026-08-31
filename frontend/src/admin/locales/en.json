@@ -134,9 +134,15 @@
     "monitoringCredentials": "SSH Credentials",
     "monitoringRules": "Alert Rules",
     "monitoringJobs": "Deployment",
-    "monitoringSettings": "Integrations"
+    "monitoringSettings": "Integrations",
+    "objectStorageManagement": "Object Storage Management",
+    "objectStorageOverview": "Overview"
   },
   "adminPages": {
+    "objectStorage": {
+      "title": "Object Storage Management",
+      "notConfigured": "Configure an enterprise and resource pool before enabling employee access."
+    },
     "monitoring": {
       "overviewTitle": "Monitoring Access Overview",
       "overviewSubtitle": "Review access config, platform state, and collection risks.",

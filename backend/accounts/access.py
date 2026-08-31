@@ -29,6 +29,13 @@ FEATURE_DEFINITIONS = (
         "parent_key": "workspace",
     },
     {
+        "key": "object_storage",
+        "label": "对象存储",
+        "default_path": "/object-storage/overview",
+        "platform": "object_storage",
+        "parent_key": "object_storage",
+    },
+    {
         "key": "admin_users",
         "label": "用户管理",
         "default_path": "/management/users",
@@ -67,6 +74,13 @@ FEATURE_DEFINITIONS = (
         "key": "admin_monitoring",
         "label": "监控接入控制台",
         "default_path": "/management/monitoring/overview",
+        "platform": "admin_console",
+        "parent_key": "admin_console",
+    },
+    {
+        "key": "admin_object_storage",
+        "label": "对象存储管理",
+        "default_path": "/management/object-storage/overview",
         "platform": "admin_console",
         "parent_key": "admin_console",
     },

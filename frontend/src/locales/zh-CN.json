@@ -1590,7 +1590,13 @@
     "adminConsole": "管理后台",
     "actionOrchestration": "动作编排",
     "actionWorkspace": "工作台",
-    "actionRuns": "执行记录"
+    "actionRuns": "执行记录",
+    "objectStorage": "对象存储",
+    "objectStorageOverview": "资源概览"
+  },
+  "objectStorage": {
+    "title": "对象存储",
+    "notConfigured": "对象存储接入尚未配置。"
   },
   "routeTitles": {
     "JenkinsWorkspace": "Jenkins 工作台",

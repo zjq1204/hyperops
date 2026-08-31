@@ -1578,7 +1578,13 @@
     "adminConsole": "Admin Console",
     "actionOrchestration": "Action orchestration",
     "actionWorkspace": "Workspace",
-    "actionRuns": "Run records"
+    "actionRuns": "Run records",
+    "objectStorage": "Object Storage",
+    "objectStorageOverview": "Overview"
+  },
+  "objectStorage": {
+    "title": "Object Storage",
+    "notConfigured": "Object storage access is not configured yet."
   },
   "routeTitles": {
     "JenkinsWorkspace": "Jenkins Workspace",

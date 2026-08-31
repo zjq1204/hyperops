@@ -184,6 +184,7 @@ ENABLE_NOTIFIER = env_flag('ENABLE_NOTIFIER', False)
 ENABLE_AGENTCORE_TASK = env_flag('ENABLE_AGENTCORE_TASK', False)
 ENABLE_AGENTCORE_METERING = env_flag('ENABLE_AGENTCORE_METERING', False)
 ENABLE_MONITORING = env_flag('ENABLE_MONITORING', True)
+ENABLE_OBJECT_STORAGE = env_flag('ENABLE_OBJECT_STORAGE', False)
 
 STORAGE_ROOT = os.getenv("STORAGE_ROOT", "/opt/storage")
 MONITORING_STACK_ROOT = os.getenv(
@@ -243,6 +244,9 @@ if ENABLE_AGENTCORE_TASK:
 
 if ENABLE_AGENTCORE_METERING:
     INSTALLED_APPS.append('agentcore_metering.adapters.django')
+
+if ENABLE_OBJECT_STORAGE:
+    INSTALLED_APPS.append('object_storage')
 
 # The ID of the site that this Django project is associated with.
 # This is required for django.contrib.sites and django-allauth

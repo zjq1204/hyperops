@@ -62,6 +62,20 @@ const routes = [
     component: () => import('@/pages/Actions/Runs.vue'),
     meta: { requiresAuth: true, requiredFeature: 'workspace_actions' }
   },
+  {
+    path: '/object-storage',
+    redirect: '/object-storage/overview'
+  },
+  {
+    path: '/object-storage/overview',
+    name: 'ObjectStorageOverview',
+    component: () => import('@/pages/ObjectStorage/Overview.vue'),
+    meta: {
+      requiresAuth: true,
+      requiredFeature: 'object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
   // Settings
   {
     path: '/settings',
@@ -141,6 +155,11 @@ router.beforeEach(async (to, from, next) => {
     }
 
     const currentUser = userStore.userInfo || userStore.user
+    if (to.meta.requiresSuperuser && !currentUser?.is_superuser) {
+      next(getLandingPath(currentUser))
+      return
+    }
+
     if (
       to.meta.requiredFeature &&
       !hasFeature(currentUser, to.meta.requiredFeature)
@@ -151,16 +170,16 @@ router.beforeEach(async (to, from, next) => {
 
     if (
       to.meta.requiredOperationPermission &&
-      !hasOperationPermission(
-        currentUser,
-        to.meta.requiredOperationPermission
-      )
+      !hasOperationPermission(currentUser, to.meta.requiredOperationPermission)
     ) {
       next(getLandingPath(currentUser))
       return
     }
 
-    if (to.meta.requiresModuleFlag && !userStore.hasModuleFlag(to.meta.requiresModuleFlag)) {
+    if (
+      to.meta.requiresModuleFlag &&
+      !userStore.hasModuleFlag(to.meta.requiresModuleFlag)
+    ) {
       next(getLandingPath(currentUser))
       return
     }

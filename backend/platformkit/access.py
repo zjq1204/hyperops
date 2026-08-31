@@ -25,11 +25,13 @@ class AccessPolicy:
     PLATFORM_LABELS = {
         "workspace": "User Workspace",
         "admin_console": "Admin Console",
+        "object_storage": "Object Storage",
     }
 
     PLATFORM_DEFAULT_PATHS = {
         "workspace": "/dashboard",
         "admin_console": "/management",
+        "object_storage": "/object-storage/overview",
     }
 
     def __init__(

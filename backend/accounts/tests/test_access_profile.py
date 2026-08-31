@@ -189,11 +189,13 @@ class AccessProfileTests(TestCase):
                 'workspace_dashboard',
                 'workspace_jenkins',
                 'workspace_actions',
+                'object_storage',
                 'admin_users',
                 'admin_jenkins',
                 'admin_gitlab',
                 'admin_notifications',
                 'admin_actions',
                 'admin_monitoring',
+                'admin_object_storage',
             ],
         )

@@ -25,6 +25,7 @@ def test_meta_view_returns_module_flags(settings, authed_client):
     settings.ENABLE_AGENTCORE_TASK = False
     settings.ENABLE_AGENTCORE_METERING = True
     settings.ENABLE_MONITORING = True
+    settings.ENABLE_OBJECT_STORAGE = False
     response = authed_client.get("/")
     assert response.status_code == 200
     body = response.json()
@@ -34,6 +35,7 @@ def test_meta_view_returns_module_flags(settings, authed_client):
         "enable_agentcore_task": False,
         "enable_agentcore_metering": True,
         "enable_monitoring": True,
+        "enable_object_storage": False,
     }
 
 

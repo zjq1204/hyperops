@@ -86,6 +86,11 @@ if getattr(settings, 'ENABLE_MONITORING', True):
         path('api/v1/monitoring/', include('monitoring_stack.urls'))
     )
 
+if getattr(settings, 'ENABLE_OBJECT_STORAGE', False):
+    urlpatterns.append(
+        path('api/v1/object-storage/', include('object_storage.urls'))
+    )
+
 # SPA bootstrap meta (feature flags). Authenticated only.
 urlpatterns.append(
     path('api/v1/meta/', core_views.PlatformMetaView.as_view(), name='platform_meta')
