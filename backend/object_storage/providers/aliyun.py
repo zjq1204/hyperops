@@ -70,6 +70,13 @@ class AliyunObjectStorageProvider:
             request_id=str(result.get("request_id") or ""),
         )
 
+    def find_owned_bucket(self, bucket):
+        return self._call(
+            self.oss_gateway.find_bucket,
+            bucket_name=bucket.name,
+            marker=bucket.cloud_marker,
+        )
+
     def inspect_bucket_emptiness(self, bucket):
         result = self._call(self.oss_gateway.inspect_bucket, bucket.name)
         counts = {
@@ -374,6 +381,22 @@ class AliyunOssGateway:
             "multipart_upload_count": len(getattr(uploads, "upload_list", None) or []),
             "request_id": str(getattr(objects, "request_id", "") or ""),
         }
+
+    def find_bucket(self, *, bucket_name, marker):
+        bucket = self._bucket(bucket_name)
+        try:
+            tags = bucket.get_bucket_tagging().tag_set
+        except Exception as exc:
+            # A missing bucket is a negative reconciliation result; all other
+            # provider failures retain their mapped error semantics.
+            if str(getattr(exc, "code", "")) == "NoSuchBucket":
+                return False
+            raise
+        return any(
+            str(getattr(tag, "key", "")) == "hyperops-owner"
+            and str(getattr(tag, "value", "")) == marker
+            for tag in tags
+        )
 
     def delete_bucket(self, bucket_name):
         result = self._bucket(bucket_name).delete_bucket()
