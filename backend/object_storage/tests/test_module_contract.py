@@ -1,7 +1,8 @@
 from django.test import override_settings
-from django.urls import clear_url_caches
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from accounts.access import FEATURE_KEYS, FEATURE_DEFAULT_PATHS
+from core.views import PlatformMetaView
 
 
 def test_object_storage_module_is_disabled_by_default(settings):
@@ -25,17 +26,15 @@ def test_object_storage_features_are_registered():
 
 
 @override_settings(ENABLE_OBJECT_STORAGE=True)
-def test_meta_view_returns_object_storage_module_flag(client, django_user_model):
-    clear_url_caches()
+def test_meta_view_returns_object_storage_module_flag(django_user_model):
     user = django_user_model.objects.create_user(
         username="object-storage-meta-user",
         password="secret123",
     )
-    client.force_login(user)
+    request = APIRequestFactory().get("/api/v1/meta/")
+    force_authenticate(request, user=user)
 
-    response = client.get("/api/v1/meta/")
+    response = PlatformMetaView.as_view()(request)
 
     assert response.status_code == 200
-    body = response.json()
-    payload = body.get("data", body)
-    assert payload["enable_object_storage"] is True
+    assert response.data["enable_object_storage"] is True

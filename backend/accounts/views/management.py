@@ -91,6 +91,19 @@ def _resolve_group_roles(group):
     return direct_roles
 
 
+def _set_assignable_roles(owner, role_ids):
+    """Replace administrator-managed roles while preserving system roles."""
+    system_role_ids = list(
+        owner.platform_roles.filter(is_system=True).values_list('pk', flat=True)
+    )
+    assignable_role_ids = list(
+        Role.objects.filter(pk__in=role_ids, is_system=False).values_list(
+            'pk', flat=True
+        )
+    )
+    owner.platform_roles.set([*system_role_ids, *assignable_role_ids])
+
+
 class ManagementUserListView(APIView):
     """
     GET: List all users for management console (with profile and groups).
@@ -206,11 +219,7 @@ class ManagementUserListView(APIView):
             if valid_ids:
                 user.groups.set(valid_ids)
         if role_ids:
-            valid_role_ids = list(
-                Role.objects.filter(pk__in=role_ids).values_list('pk', flat=True)
-            )
-            if valid_role_ids:
-                user.platform_roles.set(valid_role_ids)
+            _set_assignable_roles(user, role_ids)
         upsert_profile_preferences(
             user,
             profile_model=Profile,
@@ -307,10 +316,7 @@ class ManagementUserDetailView(APIView):
         if role_ids is not None:
             if not isinstance(role_ids, list):
                 role_ids = []
-            valid_role_ids = list(
-                Role.objects.filter(pk__in=role_ids).values_list('pk', flat=True)
-            )
-            user.platform_roles.set(valid_role_ids)
+            _set_assignable_roles(user, role_ids)
 
         upsert_profile_preferences(
             user,
@@ -452,10 +458,7 @@ class ManagementGroupDetailView(APIView):
         if role_ids is not None:
             if not isinstance(role_ids, list):
                 role_ids = []
-            valid_role_ids = list(
-                Role.objects.filter(pk__in=role_ids).values_list('pk', flat=True)
-                )
-            group.platform_roles.set(valid_role_ids)
+            _set_assignable_roles(group, role_ids)
 
         if notification_settings is not None:
             config, _ = GroupNotificationConfig.objects.get_or_create(group=group)
@@ -501,7 +504,7 @@ class ManagementRoleListView(APIView):
             request.query_params.get('page_size'),
             default=20,
         )
-        qs = Role.objects.annotate(
+        qs = Role.objects.filter(is_system=False).annotate(
             user_count=Count('users', distinct=True),
             group_count=Count('groups', distinct=True),
         ).order_by('name', 'id')
@@ -644,6 +647,6 @@ def _get_group_or_404(group_id):
 def _get_role_or_404(role_id):
     """Load a role or raise 404."""
     try:
-        return Role.objects.get(pk=role_id)
+        return Role.objects.get(pk=role_id, is_system=False)
     except Role.DoesNotExist as exc:
         raise Http404 from exc

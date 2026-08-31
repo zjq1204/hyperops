@@ -59,6 +59,10 @@ class Role(models.Model):
         default=True,
         help_text="Whether this role participates in access calculation.",
     )
+    is_system = models.BooleanField(
+        default=False,
+        help_text="System roles are managed by platform modules, not administrators.",
+    )
     users = models.ManyToManyField(
         User,
         blank=True,
