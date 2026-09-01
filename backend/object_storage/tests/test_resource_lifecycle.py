@@ -614,7 +614,7 @@ def test_frozen_bucket_claims_reject_normal_mutations(bucket_factory, user_facto
     assert provider.calls == []
 
 
-def test_explicit_bucket_configuration_reconciliation_unfreezes_exact_match(
+def test_bucket_configuration_reconciliation_records_observation_without_unfreezing(
     bucket_factory, user_factory
 ):
     from object_storage.models import AuditEvent, Bucket
@@ -654,9 +654,10 @@ def test_explicit_bucket_configuration_reconciliation_unfreezes_exact_match(
         reason="provider request confirmed complete",
     )
 
-    assert reconciled.config_state == Bucket.ConfigurationState.APPLIED
-    assert reconciled.applied_config_snapshot == desired
-    assert reconciled.configuration_operation_token == ""
+    assert reconciled.config_state == Bucket.ConfigurationState.UNKNOWN
+    assert reconciled.applied_config_snapshot == {}
+    assert reconciled.configuration_operation_token == "frozen-config-token"
+    assert reconciled.configuration_observed_snapshot == desired
     assert AuditEvent.objects.filter(
         action="storage.bucket.configuration.reconciled",
         target_id=str(bucket.pk),
@@ -664,7 +665,7 @@ def test_explicit_bucket_configuration_reconciliation_unfreezes_exact_match(
     ).exists()
 
 
-def test_bucket_configuration_manual_acknowledgement_requires_reason_and_audits(
+def test_bucket_configuration_manual_resolution_requires_current_fence_and_admin(
     bucket_factory, user_factory
 ):
     from object_storage.models import AuditEvent, Bucket
@@ -678,31 +679,54 @@ def test_bucket_configuration_manual_acknowledgement_requires_reason_and_audits(
     bucket.desired_config_snapshot = desired
     bucket.config_state = Bucket.ConfigurationState.UNKNOWN
     bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.configuration_generation = 7
     bucket.configuration_operation_token = "frozen-config-token"
     bucket.save(
         update_fields=(
             "desired_config_snapshot",
             "config_state",
             "config_error_code",
+            "configuration_generation",
             "configuration_operation_token",
             "updated_at",
         )
     )
     actor = _feature_admin(user_factory)
+    ordinary_owner = bucket.owner
+
+    arguments = {
+        "bucket": bucket,
+        "reason": "cloud request verified outside platform",
+        "bucket_name": bucket.name,
+        "operation_type": "configuration",
+        "operation_generation": 7,
+        "operation_token": "frozen-config-token",
+        "resolution": "desired",
+    }
+
+    with pytest.raises(LifecycleError, match="ADMIN_REQUIRED"):
+        acknowledge_bucket_configuration_uncertainty(
+            actor=ordinary_owner,
+            **arguments,
+        )
 
     with pytest.raises(LifecycleError, match="RECONCILIATION_REASON_REQUIRED"):
         acknowledge_bucket_configuration_uncertainty(
-            bucket=bucket,
             actor=actor,
             reason="",
-            resolved_snapshot=desired,
+            **{key: value for key, value in arguments.items() if key != "reason"},
+        )
+    with pytest.raises(
+        LifecycleError, match="RESOURCE_OPERATION_CONFIRMATION_MISMATCH"
+    ):
+        acknowledge_bucket_configuration_uncertainty(
+            actor=actor,
+            **{**arguments, "operation_token": "stale-token"},
         )
 
     acknowledged = acknowledge_bucket_configuration_uncertainty(
-        bucket=bucket,
         actor=actor,
-        reason="cloud request verified outside platform",
-        resolved_snapshot=desired,
+        **arguments,
     )
 
     assert acknowledged.configuration_operation_token == ""
@@ -714,7 +738,7 @@ def test_bucket_configuration_manual_acknowledgement_requires_reason_and_audits(
     ).exists()
 
 
-def test_explicit_bucket_lifecycle_reconciliation_only_finalizes_absence(
+def test_bucket_lifecycle_reconciliation_records_absence_without_unfreezing(
     bucket_factory, user_factory
 ):
     from object_storage.models import Bucket
@@ -746,9 +770,62 @@ def test_explicit_bucket_lifecycle_reconciliation_only_finalizes_absence(
         reason="provider confirms bucket absent",
     )
 
-    assert reconciled.state == Bucket.State.RELEASED
-    assert reconciled.action_owner_token == ""
-    assert reconciled.deletion_error_code == ""
+    assert reconciled.state == Bucket.State.DELETION_BLOCKED
+    assert reconciled.action_owner_token == "frozen-delete-token"
+    assert reconciled.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert reconciled.action_observed_snapshot == {
+        "exists": False,
+        "owned": False,
+    }
+
+
+def test_bucket_action_manual_resolution_requires_exact_operation_confirmation(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        acknowledge_bucket_action_uncertainty,
+    )
+
+    bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    bucket.action_generation = 4
+    bucket.action_owner_token = "frozen-delete-token"
+    bucket.action_type = "delete"
+    bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.save(
+        update_fields=(
+            "state",
+            "action_generation",
+            "action_owner_token",
+            "action_type",
+            "deletion_error_code",
+            "updated_at",
+        )
+    )
+    actor = _feature_admin(user_factory)
+    arguments = {
+        "bucket": bucket,
+        "actor": actor,
+        "reason": "bucket absence confirmed in cloud console",
+        "bucket_name": bucket.name,
+        "operation_type": "delete",
+        "operation_generation": 4,
+        "operation_token": "frozen-delete-token",
+        "resolved_state": Bucket.State.RELEASED,
+    }
+
+    with pytest.raises(
+        LifecycleError, match="RESOURCE_OPERATION_CONFIRMATION_MISMATCH"
+    ):
+        acknowledge_bucket_action_uncertainty(
+            **{**arguments, "operation_generation": 3}
+        )
+
+    resolved = acknowledge_bucket_action_uncertainty(**arguments)
+
+    assert resolved.state == Bucket.State.RELEASED
+    assert resolved.action_owner_token == ""
 
 
 def test_late_bucket_configuration_result_cannot_overwrite_expiry_freeze(

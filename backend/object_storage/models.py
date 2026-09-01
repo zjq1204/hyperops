@@ -257,6 +257,7 @@ class CloudIdentity(TimestampedModel):
     credential_operation_error_code = models.CharField(
         max_length=64, blank=True, default=""
     )
+    credential_observed_snapshot = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["user_id", "id"]
@@ -354,11 +355,13 @@ class Bucket(TimestampedModel):
     )
     configuration_operation_acquired_at = models.DateTimeField(null=True, blank=True)
     configuration_operation_lease_until = models.DateTimeField(null=True, blank=True)
+    configuration_observed_snapshot = models.JSONField(default=dict, blank=True)
     action_generation = models.PositiveBigIntegerField(default=0)
     action_owner_token = models.CharField(max_length=64, blank=True, default="")
     action_type = models.CharField(max_length=32, blank=True, default="")
     action_acquired_at = models.DateTimeField(null=True, blank=True)
     action_lease_until = models.DateTimeField(null=True, blank=True)
+    action_observed_snapshot = models.JSONField(default=dict, blank=True)
     deletion_error_code = models.CharField(max_length=64, blank=True, default="")
     deletion_error_summary = models.CharField(max_length=255, blank=True, default="")
 

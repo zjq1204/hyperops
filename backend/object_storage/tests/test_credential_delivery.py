@@ -492,6 +492,85 @@ def test_direct_key_create_cannot_overlap_rotation(cloud_identity_factory):
     assert provider.calls.count(("create",)) == 1
 
 
+@pytest.mark.parametrize(
+    ("operation", "local_state", "cloud_state", "failure_flag"),
+    [
+        ("disable", "active", "active", "fail_deactivate"),
+        ("enable", "disabled", "inactive", "fail_activate"),
+        ("revoke", "active", "active", "fail_delete"),
+    ],
+)
+def test_single_key_provider_timeout_freezes_identity_and_key(
+    cloud_identity_factory,
+    operation,
+    local_state,
+    cloud_state,
+    failure_flag,
+    monkeypatch,
+):
+    from object_storage.models import AccessKey, CloudIdentity
+    from object_storage.services import credentials
+    from object_storage.services.credentials import CredentialRotationError
+
+    monkeypatch.setattr(
+        "object_storage.services.platform.ensure_key_operations_allowed",
+        lambda: None,
+    )
+    identity = cloud_identity_factory()
+    key = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=getattr(AccessKey.LocalState, local_state.upper()),
+    )
+    key.cloud_state = getattr(AccessKey.CloudState, cloud_state.upper())
+    key.save(update_fields=("cloud_state", "updated_at"))
+    provider = RotationProvider([key])
+    provider.cloud_keys[key.pk].access_key_id = "LTAI-existing-one"
+    setattr(provider, failure_flag, True)
+
+    with pytest.raises(RuntimeError):
+        getattr(credentials, f"{operation}_access_key")(
+            access_key=key,
+            actor=identity.user,
+            provider=provider,
+        )
+
+    identity.refresh_from_db()
+    key.refresh_from_db()
+    assert identity.state == CloudIdentity.State.ERROR
+    assert identity.credential_operation_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert identity.credential_operation_token
+    assert key.cloud_state == AccessKey.CloudState.UNKNOWN
+    assert key.local_state == AccessKey.LocalState.ERROR
+    assert key.operation_token == identity.credential_operation_token
+
+    with pytest.raises(CredentialRotationError, match="MANUAL_RECONCILIATION_REQUIRED"):
+        credentials.persist_new_access_key(identity=identity, provider=provider)
+
+
+def test_direct_create_provider_timeout_freezes_identity(cloud_identity_factory):
+    from object_storage.models import CloudIdentity
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        persist_new_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    provider = RotationProvider([])
+    provider.fail_create = True
+
+    with pytest.raises(RuntimeError, match="provider create failed"):
+        persist_new_access_key(identity=identity, provider=provider)
+
+    identity.refresh_from_db()
+    assert identity.state == CloudIdentity.State.ERROR
+    assert identity.credential_operation_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert identity.credential_operation_token
+
+    with pytest.raises(CredentialRotationError, match="MANUAL_RECONCILIATION_REQUIRED"):
+        persist_new_access_key(identity=identity, provider=provider)
+
+
 def test_expired_rotation_claim_reconciles_to_manual_without_replay(
     cloud_identity_factory,
 ):
@@ -569,7 +648,7 @@ def test_expired_rotation_claim_reconciles_to_manual_without_replay(
     assert provider.calls == [("list", identity.pk)]
 
 
-def test_explicit_credential_reconciliation_unfreezes_only_exact_cloud_state(
+def test_credential_reconciliation_records_exact_snapshot_without_unfreezing(
     cloud_identity_factory, user_factory
 ):
     from datetime import timedelta
@@ -645,10 +724,137 @@ def test_explicit_credential_reconciliation_unfreezes_only_exact_cloud_state(
     )
 
     key.refresh_from_db()
-    assert reconciled.credential_operation_token == ""
-    assert reconciled.credential_operation_error_code == ""
-    assert key.operation_token == ""
+    assert reconciled.credential_operation_token == "frozen-disable-token"
+    assert (
+        reconciled.credential_operation_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    )
+    assert key.operation_token == "frozen-disable-token"
     assert key.operation_error_code == ""
+    assert reconciled.credential_observed_snapshot == {
+        "keys": [
+            {
+                "fingerprint": key.access_key_fingerprint,
+                "last_four": "",
+                "status": "inactive",
+            }
+        ]
+    }
+
+
+def test_credential_manual_resolution_requires_admin_reason_and_current_fence(
+    cloud_identity_factory, user_factory
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from accounts.models import Role
+    from object_storage.models import AccessKey, CloudIdentity
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        acknowledge_credential_operation_uncertainty,
+    )
+
+    identity = cloud_identity_factory(state=CloudIdentity.State.ERROR)
+    key = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ERROR,
+    )
+    key.cloud_state = AccessKey.CloudState.UNKNOWN
+    key.operation_token = "frozen-disable-token"
+    key.operation_type = "disable"
+    key.operation_lease_until = timezone.now() - timedelta(minutes=1)
+    key.save(
+        update_fields=(
+            "cloud_state",
+            "operation_token",
+            "operation_type",
+            "operation_lease_until",
+            "updated_at",
+        )
+    )
+    identity.credential_operation_generation = 9
+    identity.credential_operation_token = key.operation_token
+    identity.credential_operation_type = "disable"
+    identity.credential_operation_key_id = key.pk
+    identity.credential_operation_lease_until = key.operation_lease_until
+    identity.credential_operation_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    identity.credential_observed_snapshot = {
+        "keys": [
+            {
+                "fingerprint": key.access_key_fingerprint,
+                "last_four": key.access_key_last_four,
+                "status": "inactive",
+            },
+            {
+                "fingerprint": "extra-cloud-fingerprint",
+                "last_four": "9999",
+                "status": "active",
+            },
+        ]
+    }
+    identity.save(
+        update_fields=(
+            "credential_operation_generation",
+            "credential_operation_token",
+            "credential_operation_type",
+            "credential_operation_key_id",
+            "credential_operation_lease_until",
+            "credential_operation_error_code",
+            "credential_observed_snapshot",
+            "updated_at",
+        )
+    )
+    actor = user_factory()
+    role = Role.objects.create(
+        name=f"Credential resolver {actor.pk}",
+        visible_features=["admin_object_storage"],
+    )
+    role.users.add(actor)
+    arguments = {
+        "identity": identity,
+        "identity_name": identity.ram_user_name,
+        "reason": "all observed cloud keys handled in cloud console",
+        "operation_type": "disable",
+        "operation_generation": 9,
+        "operation_token": "frozen-disable-token",
+        "cloud_console_resolved": True,
+        "resolved_state": CloudIdentity.State.ACTIVE,
+        "resolved_key_state": AccessKey.CloudState.INACTIVE,
+        "observation_summary": "extra cloud key handled in cloud console",
+    }
+
+    with pytest.raises(CredentialRotationError, match="ADMIN_REQUIRED"):
+        acknowledge_credential_operation_uncertainty(
+            actor=identity.user,
+            **arguments,
+        )
+    with pytest.raises(CredentialRotationError, match="RECONCILIATION_REASON_REQUIRED"):
+        acknowledge_credential_operation_uncertainty(
+            actor=actor,
+            reason="",
+            **{key: value for key, value in arguments.items() if key != "reason"},
+        )
+    with pytest.raises(
+        CredentialRotationError, match="RESOURCE_OPERATION_CONFIRMATION_MISMATCH"
+    ):
+        acknowledge_credential_operation_uncertainty(
+            actor=actor,
+            **{**arguments, "operation_token": "stale-token"},
+        )
+
+    resolved = acknowledge_credential_operation_uncertainty(
+        actor=actor,
+        **arguments,
+    )
+
+    key.refresh_from_db()
+    assert resolved.credential_operation_token == ""
+    assert resolved.credential_operation_error_code == ""
+    assert key.cloud_state == AccessKey.CloudState.INACTIVE
+    assert key.local_state == AccessKey.LocalState.DISABLED
+    assert key.operation_token == ""
 
 
 def test_late_key_disable_result_cannot_overwrite_expiry_freeze(
@@ -772,7 +978,7 @@ def test_rotation_delete_failure_reactivates_and_preserves_local_active(
     provider.cloud_keys[remaining.pk].access_key_id = "LTAI-existing-two"
     provider.fail_delete = True
 
-    with pytest.raises(RuntimeError, match="delete failed"):
+    with pytest.raises(CredentialRotationError, match="KEY_DELETE_FAILED"):
         rotate_access_key(
             identity=identity,
             provider=provider,
@@ -780,11 +986,13 @@ def test_rotation_delete_failure_reactivates_and_preserves_local_active(
         )
 
     selected.refresh_from_db()
-    assert selected.cloud_state == AccessKey.CloudState.ACTIVE
-    assert selected.local_state == AccessKey.LocalState.ACTIVE
+    identity.refresh_from_db()
+    assert selected.cloud_state == AccessKey.CloudState.UNKNOWN
+    assert selected.local_state == AccessKey.LocalState.ERROR
+    assert identity.credential_operation_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert identity.credential_operation_token
     assert provider.calls == [
         ("deactivate", "LTAI-existing-one"),
-        ("activate", "LTAI-existing-one"),
     ]
 
 
@@ -825,10 +1033,9 @@ def test_rotation_reactivation_failure_marks_key_manual_without_claiming_active(
     assert error.value.manual_required is True
     assert selected.cloud_state == AccessKey.CloudState.UNKNOWN
     assert selected.local_state == AccessKey.LocalState.ERROR
-    assert AuditEvent.objects.filter(
-        action="storage.credential.rotation_manual_required",
-        target_id=str(selected.pk),
-    ).exists()
+    identity.refresh_from_db()
+    assert identity.credential_operation_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert identity.credential_operation_token
 
 
 def test_rotation_rejects_newer_active_key_when_two_active_keys_exist(

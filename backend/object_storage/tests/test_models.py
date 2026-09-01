@@ -5,7 +5,7 @@ from django.db.models import CASCADE, PROTECT, SET_NULL
 from django.db.models.deletion import ProtectedError
 
 pytestmark = pytest.mark.django_db
-CURRENT_LEAF = ("object_storage", "0015_cloud_mutation_leases")
+CURRENT_LEAF = ("object_storage", "0016_cloud_mutation_observations")
 
 
 def test_platform_migration_depends_on_linear_feishu_migration_chain():
