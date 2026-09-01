@@ -5,6 +5,7 @@ from object_storage.crypto import decrypt_secret
 from object_storage.providers.base import (
     AccessKeyMetadata,
     AccessKeyMutation,
+    BucketConfiguration,
     BucketConfigurationMutation,
     BucketEmptiness,
     BucketMutation,
@@ -23,6 +24,51 @@ from object_storage.services.provider_errors import (
 
 def _fingerprint(access_key_id):
     return hashlib.sha256(access_key_id.encode("utf-8")).hexdigest()
+
+
+def _lifecycle_rule(models, item):
+    if not isinstance(item, dict) or not str(item.get("id") or "").strip():
+        raise ValueError("BUCKET_LIFECYCLE_RULE_INVALID")
+    expiration_days = item.get("expiration_days")
+    expiration = (
+        models.LifecycleExpiration(days=int(expiration_days))
+        if expiration_days is not None
+        else None
+    )
+    abort_days = item.get("abort_multipart_upload_days")
+    abort = (
+        models.AbortMultipartUpload(days=int(abort_days))
+        if abort_days is not None
+        else None
+    )
+    transitions = []
+    for transition in item.get("storage_transitions", []):
+        if not isinstance(transition, dict):
+            raise ValueError("BUCKET_LIFECYCLE_TRANSITION_INVALID")
+        transitions.append(
+            models.StorageTransition(
+                days=int(transition["days"]),
+                storage_class=str(transition["storage_class"]),
+            )
+        )
+    return models.LifecycleRule(
+        id=str(item["id"]),
+        prefix=str(item.get("prefix") or ""),
+        status=str(item.get("status") or "Enabled"),
+        expiration=expiration,
+        abort_multipart_upload=abort,
+        storage_transitions=transitions or None,
+    )
+
+
+def _lifecycle_configuration(models, snapshot):
+    if isinstance(snapshot, dict):
+        rows = snapshot.get("rules", [])
+    else:
+        rows = snapshot
+    if not isinstance(rows, list):
+        raise ValueError("BUCKET_LIFECYCLE_INVALID")
+    return models.BucketLifecycle([_lifecycle_rule(models, item) for item in rows])
 
 
 class AliyunObjectStorageProvider:
@@ -75,14 +121,17 @@ class AliyunObjectStorageProvider:
         )
         return AccessKeyMutation(request_id=str(result.get("request_id") or ""))
 
-    def create_owned_bucket(self, bucket):
+    def create_owned_bucket(self, bucket, configuration=None):
+        configuration = configuration or BucketConfiguration.from_snapshot(
+            getattr(bucket, "config_snapshot", {}).get("bucket_configuration", {})
+        )
         result = self._call(
             self.oss_gateway.create_bucket,
             bucket_name=bucket.name,
             region=bucket.region,
-            acl="private",
-            storage_class="Standard",
-            server_side_encryption="AES256",
+            acl=configuration.acl,
+            storage_class=configuration.storage_class,
+            server_side_encryption=configuration.encryption,
             marker=bucket.cloud_marker,
         )
         return BucketMutation(
@@ -633,9 +682,35 @@ class AliyunOssGateway:
             "private": oss2.BUCKET_ACL_PRIVATE,
             "public_read": oss2.BUCKET_ACL_PUBLIC_READ,
         }
-        result = self._bucket(bucket_name).put_bucket_acl(
-            permissions[configuration.acl]
-        )
+        bucket = self._bucket(bucket_name)
+        result = bucket.put_bucket_acl(permissions[configuration.acl])
+        if configuration.storage_class != "Standard":
+            put_storage_class = getattr(bucket, "put_bucket_storage_class", None)
+            if put_storage_class is None:
+                raise ValueError("BUCKET_STORAGE_CLASS_UNSUPPORTED")
+            put_storage_class(configuration.storage_class)
+        if configuration.encryption:
+            bucket.put_bucket_encryption(
+                oss2.models.ServerSideEncryptionRule(configuration.encryption)
+            )
+        put_versioning = getattr(bucket, "put_bucket_versioning", None)
+        if put_versioning is not None:
+            put_versioning(
+                oss2.models.BucketVersioningConfig(
+                    "Enabled" if configuration.versioning else "Suspended"
+                )
+            )
+        if configuration.lifecycle:
+            put_lifecycle = getattr(bucket, "put_bucket_lifecycle", None)
+            if put_lifecycle is None:
+                raise ValueError("BUCKET_LIFECYCLE_UNSUPPORTED")
+            put_lifecycle(
+                _lifecycle_configuration(oss2.models, configuration.lifecycle)
+            )
+        else:
+            delete_lifecycle = getattr(bucket, "delete_bucket_lifecycle", None)
+            if delete_lifecycle is not None:
+                delete_lifecycle()
         return {"request_id": str(getattr(result, "request_id", "") or "")}
 
 

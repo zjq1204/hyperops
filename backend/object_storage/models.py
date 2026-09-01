@@ -80,6 +80,11 @@ class PlatformObjectStorageConfig(TimestampedModel):
     audit_retention_days = models.PositiveSmallIntegerField(default=30)
     pause_new_applications = models.BooleanField(default=True)
     pause_key_operations = models.BooleanField(default=True)
+    default_bucket_acl = models.CharField(max_length=20, default="private")
+    default_storage_class = models.CharField(max_length=32, default="Standard")
+    default_encryption = models.CharField(max_length=32, default="AES256")
+    default_versioning = models.BooleanField(default=False)
+    default_lifecycle = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["singleton_key"]
@@ -314,6 +319,12 @@ class Bucket(TimestampedModel):
     )
     pending_delete_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    desired_config_snapshot = models.JSONField(default=dict, blank=True)
+    applied_config_snapshot = models.JSONField(default=dict, blank=True)
+    config_error_code = models.CharField(max_length=64, blank=True, default="")
+    config_error_summary = models.CharField(max_length=255, blank=True, default="")
+    deletion_error_code = models.CharField(max_length=64, blank=True, default="")
+    deletion_error_summary = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         ordering = ["owner_id", "name"]
@@ -388,6 +399,7 @@ class AccessKey(TimestampedModel):
         ISSUING = "issuing", "Issuing"
         DELIVERY_READY = "delivery_ready", "Delivery ready"
         ACTIVE = "active", "Active"
+        DISABLED = "disabled", "Disabled"
         RETIRING = "retiring", "Retiring"
         RETIRED = "retired", "Retired"
         ERROR = "error", "Error"
@@ -401,6 +413,7 @@ class AccessKey(TimestampedModel):
         LocalState.ISSUING,
         LocalState.DELIVERY_READY,
         LocalState.ACTIVE,
+        LocalState.DISABLED,
         LocalState.RETIRING,
         LocalState.ERROR,
     )

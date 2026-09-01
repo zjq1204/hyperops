@@ -10,6 +10,11 @@ class ObjectStorageNotConfigured(PermissionDenied):
     default_code = "OBJECT_STORAGE_NOT_CONFIGURED"
 
 
+class ObjectStorageSuspended(PermissionDenied):
+    default_detail = "Object storage access is suspended"
+    default_code = "OBJECT_STORAGE_SUSPENDED"
+
+
 class IsObjectStorageSuperuser(BasePermission):
     def has_permission(self, request, view):
         user = request.user
@@ -41,6 +46,12 @@ class IsActiveObjectStorageMember(BasePermission):
             raise ObjectStorageNotConfigured()
         if not membership.is_active or not membership.tenant.enabled:
             raise ObjectStorageNotConfigured()
+        try:
+            identity = user.object_storage_cloud_identity
+        except (AttributeError, ObjectDoesNotExist):
+            identity = None
+        if identity is not None and identity.state == "suspended":
+            raise ObjectStorageSuspended()
         request.storage_membership = membership
         return True
 

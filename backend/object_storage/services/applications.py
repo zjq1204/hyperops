@@ -37,6 +37,7 @@ from object_storage.services.naming import (
     render_bucket_name,
 )
 from object_storage.services.policy import BucketQuotaExceeded, reserve_bucket_capacity
+from object_storage.services.platform import default_bucket_configuration_snapshot
 from object_storage.services.provider_errors import (
     ObjectStorageProviderError,
     is_temporary_provider_error,
@@ -256,7 +257,10 @@ def _create_reserved_batch(
             config_snapshot={
                 "naming_template": config.naming_template,
                 "naming_template_version": config.naming_template_version,
+                "bucket_configuration": default_bucket_configuration_snapshot(config),
             },
+            desired_config_snapshot=default_bucket_configuration_snapshot(config),
+            applied_config_snapshot=default_bucket_configuration_snapshot(config),
             cloud_marker=f"hyperops:bucket:item:{item.pk}",
             state=Bucket.State.REQUESTED,
         )

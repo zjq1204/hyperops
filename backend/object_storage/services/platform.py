@@ -29,6 +29,11 @@ OBJECT_STORAGE_CONFIG_FIELDS = frozenset(
         "audit_retention_days",
         "pause_new_applications",
         "pause_key_operations",
+        "default_bucket_acl",
+        "default_storage_class",
+        "default_encryption",
+        "default_versioning",
+        "default_lifecycle",
     }
 )
 NAMING_TEMPLATE_FIELDS = frozenset(
@@ -82,6 +87,17 @@ def get_object_storage_config():
         singleton_key=DEFAULT_SINGLETON_KEY
     )
     return config
+
+
+def default_bucket_configuration_snapshot(config=None):
+    config = config or get_object_storage_config()
+    return {
+        "acl": config.default_bucket_acl,
+        "storage_class": config.default_storage_class,
+        "encryption": config.default_encryption,
+        "versioning": config.default_versioning,
+        "lifecycle": config.default_lifecycle,
+    }
 
 
 def _error_code(exc, default):
@@ -198,6 +214,12 @@ def _validate_storage_field_values(updates):
                 and not isinstance(value, bool)
                 and 1 <= value <= 3650
             )
+        elif field == "default_bucket_acl":
+            valid = value in {"private", "public_read"}
+        elif field in {"default_storage_class", "default_encryption"}:
+            valid = isinstance(value, str) and bool(value)
+        elif field == "default_lifecycle":
+            valid = isinstance(value, (dict, list))
         else:
             valid = isinstance(value, bool)
         if not valid:

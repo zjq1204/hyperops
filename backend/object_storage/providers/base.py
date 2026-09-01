@@ -92,10 +92,47 @@ class AccessKeyMutation:
 @dataclass(frozen=True)
 class BucketConfiguration:
     acl: str = "private"
+    storage_class: str = "Standard"
+    encryption: str = "AES256"
+    versioning: bool = False
+    lifecycle: object = field(default_factory=dict)
 
     def __post_init__(self):
         if self.acl not in {"private", "public_read"}:
             raise ValueError("BUCKET_ACL_UNSUPPORTED")
+        if self.storage_class not in {
+            "Standard",
+            "IA",
+            "Archive",
+            "ColdArchive",
+            "DeepColdArchive",
+        }:
+            raise ValueError("BUCKET_STORAGE_CLASS_UNSUPPORTED")
+        if self.encryption not in {"AES256", "KMS"}:
+            raise ValueError("BUCKET_ENCRYPTION_UNSUPPORTED")
+        if not isinstance(self.versioning, bool):
+            raise ValueError("BUCKET_VERSIONING_INVALID")
+        if not isinstance(self.lifecycle, (dict, list)):
+            raise ValueError("BUCKET_LIFECYCLE_INVALID")
+
+    def as_snapshot(self):
+        return {
+            "acl": self.acl,
+            "storage_class": self.storage_class,
+            "encryption": self.encryption,
+            "versioning": self.versioning,
+            "lifecycle": self.lifecycle,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot):
+        return cls(
+            acl=snapshot.get("acl", "private"),
+            storage_class=snapshot.get("storage_class", "Standard"),
+            encryption=snapshot.get("encryption", "AES256"),
+            versioning=snapshot.get("versioning", False),
+            lifecycle=snapshot.get("lifecycle", {}),
+        )
 
 
 @dataclass(frozen=True)
@@ -109,7 +146,7 @@ class ObjectStorageProvider(Protocol):
 
     def find_or_create_personal_principal(self, identity): ...
 
-    def create_owned_bucket(self, bucket): ...
+    def create_owned_bucket(self, bucket, configuration=None): ...
 
     def find_owned_bucket(self, bucket): ...
 

@@ -31,6 +31,162 @@ class CredentialRotationError(RuntimeError):
         super().__init__(error_code)
 
 
+def _key_actor_allowed(access_key, actor):
+    return bool(
+        actor
+        and (
+            actor.is_superuser
+            or actor.is_staff
+            or actor.pk == access_key.cloud_identity.user_id
+        )
+    )
+
+
+def _assert_key_actor(access_key, actor):
+    if not _key_actor_allowed(access_key, actor):
+        raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
+
+
+def _key_audit(*, actor, action, access_key, result="succeeded", reason=""):
+    record_audit_event(
+        actor=actor,
+        action=action,
+        target_type="AccessKey",
+        target_id=access_key.pk,
+        result=result,
+        reason=reason,
+        safe_metadata={"last_four": access_key.access_key_last_four},
+    )
+
+
+def disable_access_key(*, access_key, actor, provider, reason=""):
+    """Disable one key; this remains available while key operations are paused."""
+
+    _assert_key_actor(access_key, actor)
+    if (
+        access_key.deleted_at is not None
+        or access_key.local_state == AccessKey.LocalState.RETIRED
+    ):
+        raise CredentialRotationError("ACCESS_KEY_REVOKED")
+    if access_key.local_state == AccessKey.LocalState.DISABLED:
+        return access_key
+    provider.deactivate_access_key(provider_access_key(access_key))
+    access_key.cloud_state = AccessKey.CloudState.INACTIVE
+    access_key.local_state = AccessKey.LocalState.DISABLED
+    access_key.deactivated_at = timezone.now()
+    access_key.save(
+        update_fields=("cloud_state", "local_state", "deactivated_at", "updated_at")
+    )
+    _key_audit(
+        actor=actor,
+        action="storage.credential.disabled",
+        access_key=access_key,
+        reason=reason,
+    )
+    return access_key
+
+
+def enable_access_key(*, access_key, actor, provider, reason=""):
+    """Enable one key after the platform key-operation gate permits it."""
+
+    _assert_key_actor(access_key, actor)
+    from object_storage.services.platform import ensure_key_operations_allowed
+
+    ensure_key_operations_allowed()
+    if (
+        access_key.deleted_at is not None
+        or access_key.local_state == AccessKey.LocalState.RETIRED
+    ):
+        raise CredentialRotationError("ACCESS_KEY_REVOKED")
+    if access_key.local_state == AccessKey.LocalState.ACTIVE:
+        return access_key
+    provider.activate_access_key(provider_access_key(access_key))
+    access_key.cloud_state = AccessKey.CloudState.ACTIVE
+    access_key.local_state = AccessKey.LocalState.ACTIVE
+    access_key.deactivated_at = None
+    access_key.save(
+        update_fields=("cloud_state", "local_state", "deactivated_at", "updated_at")
+    )
+    _key_audit(
+        actor=actor,
+        action="storage.credential.enabled",
+        access_key=access_key,
+        reason=reason,
+    )
+    return access_key
+
+
+def revoke_access_key(*, access_key, actor, provider, reason=""):
+    """Revoke one key without changing any sibling key."""
+
+    _assert_key_actor(access_key, actor)
+    if (
+        access_key.deleted_at is not None
+        or access_key.local_state == AccessKey.LocalState.RETIRED
+    ):
+        return access_key
+    provider.delete_access_key(provider_access_key(access_key))
+    access_key.cloud_state = AccessKey.CloudState.DELETED
+    access_key.local_state = AccessKey.LocalState.RETIRED
+    access_key.deleted_at = timezone.now()
+    access_key.save(
+        update_fields=("cloud_state", "local_state", "deleted_at", "updated_at")
+    )
+    _key_audit(
+        actor=actor,
+        action="storage.credential.revoked",
+        access_key=access_key,
+        reason=reason,
+    )
+    return access_key
+
+
+def rotate_access_key_for_actor(
+    *, identity, actor, provider, selected_access_key_id=None, reason=""
+):
+    if not actor or not (
+        actor.is_superuser or actor.is_staff or actor.pk == identity.user_id
+    ):
+        raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
+    result = rotate_access_key(
+        identity=identity,
+        provider=provider,
+        selected_access_key_id=selected_access_key_id,
+        actor=actor,
+        reason=reason,
+    )
+    _key_audit(
+        actor=actor,
+        action="storage.credential.rotated",
+        access_key=result,
+        reason=reason,
+    )
+    return result
+
+
+def create_access_key_for_actor(*, identity, actor, provider, reason=""):
+    if not actor or not (
+        actor.is_superuser or actor.is_staff or actor.pk == identity.user_id
+    ):
+        raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
+    from object_storage.services.platform import ensure_key_operations_allowed
+
+    ensure_key_operations_allowed()
+    try:
+        result = persist_new_access_key(identity=identity, provider=provider)
+    except Exception as error:
+        if isinstance(error, CredentialRotationError):
+            raise
+        raise CredentialRotationError("KEY_CREATION_FAILED") from error
+    _key_audit(
+        actor=actor,
+        action="storage.credential.created",
+        access_key=result,
+        reason=reason,
+    )
+    return result
+
+
 def fingerprint_access_key(access_key_id):
     return hashlib.sha256(str(access_key_id).encode("utf-8")).hexdigest()
 
@@ -329,7 +485,19 @@ def _compensate_rotation_failure(
     raise original_error
 
 
-def rotate_access_key(*, identity, provider, selected_access_key_id=None):
+def rotate_access_key(
+    *, identity, provider, selected_access_key_id=None, actor=None, reason=""
+):
+    if actor is not None:
+        if (
+            not actor.is_superuser
+            and not actor.is_staff
+            and actor.pk != identity.user_id
+        ):
+            raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
+        from object_storage.services.platform import ensure_key_operations_allowed
+
+        ensure_key_operations_allowed()
     with transaction.atomic():
         local_keys = _reconciled_local_keys(identity, provider)
         if not local_keys:

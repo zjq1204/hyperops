@@ -125,3 +125,64 @@ def recover_expired_application_claims():
         "failed_enqueue_count": failed_enqueue_count,
         "failed_count": failed_count,
     }
+
+
+@shared_task(name="object_storage.release_bucket")
+def release_bucket_task(bucket_id, *, actor_id=None, reason=""):
+    from django.contrib.auth import get_user_model
+
+    from object_storage.services.lifecycle import _release_bucket_cloud
+
+    actor = get_user_model().objects.get(pk=actor_id) if actor_id else None
+    bucket = _release_bucket_cloud(bucket_id, actor=actor, reason=reason)
+    return {"bucket_id": bucket.pk, "state": bucket.state}
+
+
+@shared_task(name="object_storage.recover_bucket")
+def recover_bucket_task(bucket_id, *, actor_id=None, bucket_name="", confirmed=True):
+    from django.contrib.auth import get_user_model
+
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import recover_bucket
+
+    bucket = Bucket.objects.get(pk=bucket_id)
+    actor = get_user_model().objects.get(pk=actor_id) if actor_id else bucket.owner
+    result = recover_bucket(
+        bucket=bucket,
+        actor=actor,
+        bucket_name=bucket_name or bucket.name,
+        confirmed=confirmed,
+    )
+    return {"bucket_id": result.pk, "state": result.state}
+
+
+@shared_task(name="object_storage.delete_bucket")
+def delete_bucket_task(bucket_id):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import delete_bucket
+
+    bucket = Bucket.objects.get(pk=bucket_id)
+    result = delete_bucket(bucket=bucket)
+    return {"bucket_id": result.pk, "state": result.state}
+
+
+@shared_task(name="object_storage.update_bucket_configuration")
+def update_bucket_configuration_task(bucket_id, *, actor_id=None, reason=""):
+    from django.contrib.auth import get_user_model
+
+    from object_storage.services.lifecycle import _apply_bucket_configuration
+
+    actor = get_user_model().objects.get(pk=actor_id) if actor_id else None
+    result = _apply_bucket_configuration(bucket_id, actor=actor, reason=reason)
+    return {"bucket_id": result.pk, "state": result.state}
+
+
+@shared_task(name="object_storage.suspend_user_resources")
+def suspend_user_resources_task(identity_id, *, actor_id=None, reason=""):
+    from django.contrib.auth import get_user_model
+
+    from object_storage.services.lifecycle import _disable_identity_keys
+
+    actor = get_user_model().objects.get(pk=actor_id) if actor_id else None
+    identity = _disable_identity_keys(identity_id, actor=actor, reason=reason)
+    return {"identity_id": identity.pk, "state": identity.state}
