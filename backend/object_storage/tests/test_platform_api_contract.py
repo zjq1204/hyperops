@@ -150,6 +150,7 @@ def test_idempotency_in_progress_fails_closed(admin_client, settings, monkeypatc
 def test_uncertainty_views_are_sensitive_idempotency_endpoints():
     from object_storage.permissions import RequireIdempotencyKeyMixin
     from object_storage.urls import urlpatterns
+    from object_storage.views_admin import NoStoreResponseMixin
 
     uncertainty_views = {
         "management_credential_uncertainty_observe",
@@ -164,7 +165,19 @@ def test_uncertainty_views_are_sensitive_idempotency_endpoints():
             continue
         view_class = pattern.callback.view_class
         assert issubclass(view_class, RequireIdempotencyKeyMixin)
+        assert issubclass(view_class, NoStoreResponseMixin)
         assert view_class.idempotency_sensitive is True
+
+
+def test_admin_views_that_serialize_operation_tokens_are_no_store():
+    from object_storage.views_admin import (
+        BucketAdminDetailView,
+        CloudIdentityAdminDetailView,
+        NoStoreResponseMixin,
+    )
+
+    assert issubclass(BucketAdminDetailView, NoStoreResponseMixin)
+    assert issubclass(CloudIdentityAdminDetailView, NoStoreResponseMixin)
 
 
 def test_sensitive_idempotency_never_persists_response_body(

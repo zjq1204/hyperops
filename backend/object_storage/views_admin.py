@@ -182,11 +182,13 @@ class AdminMutationAPIView(RejectTenantScopeMixin, RequireIdempotencyKeyMixin, A
     permission_classes = [HasObjectStorageAdminAccess]
 
 
-class NoStoreAdminMutationAPIView(AdminMutationAPIView):
-    idempotency_sensitive = True
-
+class NoStoreResponseMixin:
     def finalize_response(self, request, response, *args, **kwargs):
         return _no_store(super().finalize_response(request, response, *args, **kwargs))
+
+
+class NoStoreAdminMutationAPIView(NoStoreResponseMixin, AdminMutationAPIView):
+    idempotency_sensitive = True
 
 
 class AccessGroupListView(RejectTenantScopeMixin, generics.ListAPIView):
@@ -399,7 +401,9 @@ class CloudIdentityAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
     queryset = CloudIdentity.objects.select_related("user", "resource_pool").all()
 
 
-class CloudIdentityAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+class CloudIdentityAdminDetailView(
+    NoStoreResponseMixin, RejectTenantScopeMixin, generics.RetrieveAPIView
+):
     permission_classes = [HasObjectStorageAdminAccess]
     serializer_class = CloudIdentityDetailAdminSerializer
     queryset = CloudIdentity.objects.select_related("user", "resource_pool").all()
@@ -414,7 +418,9 @@ class BucketAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
     ).all()
 
 
-class BucketAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+class BucketAdminDetailView(
+    NoStoreResponseMixin, RejectTenantScopeMixin, generics.RetrieveAPIView
+):
     permission_classes = [HasObjectStorageAdminAccess]
     serializer_class = BucketDetailAdminSerializer
     queryset = Bucket.objects.select_related(
@@ -661,8 +667,7 @@ class BucketConfigurationRetryView(AdminMutationAPIView):
         )
 
 
-class BucketActionUncertaintyObserveView(AdminMutationAPIView):
-    idempotency_sensitive = True
+class BucketActionUncertaintyObserveView(NoStoreAdminMutationAPIView):
 
     def post(self, request, bucket_id):
         serializer = ReasonSerializer(data=request.data)
@@ -683,8 +688,7 @@ class BucketActionUncertaintyObserveView(AdminMutationAPIView):
         return Response(BucketDetailAdminSerializer(result).data)
 
 
-class BucketActionUncertaintyAcknowledgeView(AdminMutationAPIView):
-    idempotency_sensitive = True
+class BucketActionUncertaintyAcknowledgeView(NoStoreAdminMutationAPIView):
 
     def post(self, request, bucket_id):
         serializer = BucketActionAcknowledgementSerializer(data=request.data)
@@ -694,10 +698,12 @@ class BucketActionUncertaintyAcknowledgeView(AdminMutationAPIView):
         if _mutation_seen(request, action, "Bucket", bucket.pk):
             return Response(BucketDetailAdminSerializer(bucket).data)
         try:
+            values = dict(serializer.validated_data)
+            values.pop("confirmed")
             result = acknowledge_bucket_action_uncertainty(
                 bucket=bucket,
                 actor=request.user,
-                **serializer.validated_data,
+                **values,
             )
         except LifecycleError as error:
             return _error(_service_error(error), status.HTTP_409_CONFLICT)
@@ -705,8 +711,7 @@ class BucketActionUncertaintyAcknowledgeView(AdminMutationAPIView):
         return Response(BucketDetailAdminSerializer(result).data)
 
 
-class BucketConfigurationUncertaintyObserveView(AdminMutationAPIView):
-    idempotency_sensitive = True
+class BucketConfigurationUncertaintyObserveView(NoStoreAdminMutationAPIView):
 
     def post(self, request, bucket_id):
         serializer = ReasonSerializer(data=request.data)
@@ -727,8 +732,7 @@ class BucketConfigurationUncertaintyObserveView(AdminMutationAPIView):
         return Response(BucketDetailAdminSerializer(result).data)
 
 
-class BucketConfigurationUncertaintyAcknowledgeView(AdminMutationAPIView):
-    idempotency_sensitive = True
+class BucketConfigurationUncertaintyAcknowledgeView(NoStoreAdminMutationAPIView):
 
     def post(self, request, bucket_id):
         serializer = BucketConfigurationAcknowledgementSerializer(data=request.data)
@@ -738,10 +742,12 @@ class BucketConfigurationUncertaintyAcknowledgeView(AdminMutationAPIView):
         if _mutation_seen(request, action, "Bucket", bucket.pk):
             return Response(BucketDetailAdminSerializer(bucket).data)
         try:
+            values = dict(serializer.validated_data)
+            values.pop("confirmed")
             result = acknowledge_bucket_configuration_uncertainty(
                 bucket=bucket,
                 actor=request.user,
-                **serializer.validated_data,
+                **values,
             )
         except BucketConfigurationError as error:
             return _error(_service_error(error), status.HTTP_409_CONFLICT)
@@ -866,8 +872,7 @@ class ApplicationBatchRetryView(AdminMutationAPIView):
         )
 
 
-class CredentialUncertaintyObserveView(AdminMutationAPIView):
-    idempotency_sensitive = True
+class CredentialUncertaintyObserveView(NoStoreAdminMutationAPIView):
 
     def post(self, request, identity_id):
         serializer = ReasonSerializer(data=request.data)
@@ -897,8 +902,7 @@ class CredentialUncertaintyObserveView(AdminMutationAPIView):
         return Response(CloudIdentityDetailAdminSerializer(result).data)
 
 
-class CredentialUncertaintyAcknowledgeView(AdminMutationAPIView):
-    idempotency_sensitive = True
+class CredentialUncertaintyAcknowledgeView(NoStoreAdminMutationAPIView):
 
     def post(self, request, identity_id):
         serializer = CredentialAcknowledgementSerializer(data=request.data)

@@ -540,14 +540,21 @@ class BucketConfigurationSerializer(BucketAdminActionSerializer):
     desired = serializers.DictField()
 
 
-class BucketActionAcknowledgementSerializer(BucketAdminActionSerializer):
+class BucketAcknowledgementSerializer(BucketAdminActionSerializer):
+    def validate_confirmed(self, value):
+        if value is not True:
+            raise serializers.ValidationError("CONFIRMATION_REQUIRED")
+        return value
+
+
+class BucketActionAcknowledgementSerializer(BucketAcknowledgementSerializer):
     operation_type = serializers.CharField(max_length=32)
     operation_generation = serializers.IntegerField(min_value=1)
     operation_token = serializers.CharField(max_length=64)
     resolved_state = serializers.ChoiceField(choices=Bucket.State.choices)
 
 
-class BucketConfigurationAcknowledgementSerializer(BucketAdminActionSerializer):
+class BucketConfigurationAcknowledgementSerializer(BucketAcknowledgementSerializer):
     operation_type = serializers.CharField(max_length=32)
     operation_generation = serializers.IntegerField(min_value=1)
     operation_token = serializers.CharField(max_length=64)

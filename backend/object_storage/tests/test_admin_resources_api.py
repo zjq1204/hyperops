@@ -373,11 +373,184 @@ def test_uncertainty_operations_do_not_persist_tokens_and_are_not_replayable(
         actor=_admin, idempotency_key="uncertain-observe-sensitive"
     )
     assert first.status_code == 200
+    assert first["Cache-Control"] == "no-store"
     assert replay.status_code == 409
+    assert replay["Cache-Control"] == "no-store"
     assert replay.json()["data"]["error_code"] == "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
     assert record.response_body is None
     assert "frozen-operation-token" not in str(record.__dict__)
     assert "generation" not in str(record.__dict__)
+
+
+def test_bucket_uncertainty_acknowledgements_call_real_services_without_500(
+    admin_client, bucket_factory
+):
+    from object_storage.models import Bucket
+
+    client, _admin = admin_client
+    action_bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    action_bucket.action_generation = 4
+    action_bucket.action_owner_token = "frozen-delete-token"
+    action_bucket.action_type = "delete"
+    action_bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    action_bucket.save()
+    action_url = (
+        f"/api/v1/object-storage/management/buckets/{action_bucket.id}"
+        "/uncertainty/acknowledge/"
+    )
+    false_confirmation = client.post(
+        action_url,
+        {
+            "reason": "not actually confirmed",
+            "bucket_name": action_bucket.name,
+            "confirmed": False,
+            "operation_type": "delete",
+            "operation_generation": 4,
+            "operation_token": "frozen-delete-token",
+            "resolved_state": Bucket.State.RELEASED,
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="real-action-ack-false",
+    )
+    action_response = client.post(
+        action_url,
+        {
+            "reason": "bucket absence confirmed in cloud console",
+            "bucket_name": action_bucket.name,
+            "confirmed": True,
+            "operation_type": "delete",
+            "operation_generation": 4,
+            "operation_token": "frozen-delete-token",
+            "resolved_state": Bucket.State.RELEASED,
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="real-action-ack",
+    )
+
+    config_bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    config_bucket.desired_config_snapshot = {"acl": "private"}
+    config_bucket.config_state = Bucket.ConfigurationState.UNKNOWN
+    config_bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    config_bucket.configuration_generation = 7
+    config_bucket.configuration_operation_token = "frozen-config-token"
+    config_bucket.save()
+    config_url = (
+        f"/api/v1/object-storage/management/buckets/{config_bucket.id}"
+        "/configuration/uncertainty/acknowledge/"
+    )
+    config_response = client.post(
+        config_url,
+        {
+            "reason": "configuration verified in cloud console",
+            "bucket_name": config_bucket.name,
+            "confirmed": True,
+            "operation_type": "configuration",
+            "operation_generation": 7,
+            "operation_token": "frozen-config-token",
+            "resolution": "desired",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="real-config-ack",
+    )
+
+    action_bucket.refresh_from_db()
+    config_bucket.refresh_from_db()
+    assert false_confirmation.status_code == 400
+    assert action_response.status_code == 200
+    assert config_response.status_code == 200
+    assert action_response["Cache-Control"] == "no-store"
+    assert config_response["Cache-Control"] == "no-store"
+    assert action_bucket.action_owner_token == ""
+    assert config_bucket.configuration_operation_token == ""
+
+
+def test_all_uncertainty_observe_responses_are_no_store(
+    admin_client, bucket_factory, cloud_identity_factory, monkeypatch
+):
+    client, _admin = admin_client
+    action_bucket = bucket_factory(state="deletion_blocked")
+    action_bucket.action_owner_token = "action-observe-token"
+    action_bucket.action_type = "delete"
+    action_bucket.action_generation = 2
+    action_bucket.save()
+    config_bucket = bucket_factory(state="active")
+    config_bucket.configuration_operation_token = "config-observe-token"
+    config_bucket.configuration_generation = 3
+    config_bucket.save()
+    identity = cloud_identity_factory(state="error")
+    identity.credential_operation_token = "credential-observe-token"
+    identity.credential_operation_type = "rotate"
+    identity.credential_operation_generation = 4
+    identity.save()
+    monkeypatch.setattr(
+        "object_storage.views_admin.reconcile_bucket_action_uncertainty",
+        lambda **kwargs: action_bucket,
+    )
+    monkeypatch.setattr(
+        "object_storage.views_admin.reconcile_bucket_configuration_uncertainty",
+        lambda **kwargs: config_bucket,
+    )
+    monkeypatch.setattr(
+        "object_storage.views_admin.reconcile_credential_operation_uncertainty",
+        lambda **kwargs: identity,
+    )
+    monkeypatch.setattr(
+        "object_storage.views_admin.build_aliyun_provider", lambda _pool: object()
+    )
+
+    responses = [
+        client.post(
+            f"/api/v1/object-storage/management/buckets/{action_bucket.id}/uncertainty/observe/",
+            {"reason": "inspect action"},
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="observe-action-header",
+        ),
+        client.post(
+            f"/api/v1/object-storage/management/buckets/{config_bucket.id}/configuration/uncertainty/observe/",
+            {"reason": "inspect configuration"},
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="observe-config-header",
+        ),
+        client.post(
+            f"/api/v1/object-storage/management/cloud-identities/{identity.id}/uncertainty/observe/",
+            {"reason": "inspect credential"},
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="observe-credential-header",
+        ),
+    ]
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(response["Cache-Control"] == "no-store" for response in responses)
+
+
+def test_admin_operation_token_details_are_no_store(
+    admin_client, bucket_factory, cloud_identity_factory
+):
+    client, _admin = admin_client
+    bucket = bucket_factory(state="deletion_blocked")
+    bucket.action_owner_token = "bucket-detail-token"
+    bucket.action_type = "delete"
+    bucket.action_generation = 2
+    bucket.save()
+    identity = cloud_identity_factory(state="error")
+    identity.credential_operation_token = "identity-detail-token"
+    identity.credential_operation_type = "rotate"
+    identity.credential_operation_generation = 3
+    identity.save()
+
+    bucket_response = client.get(
+        f"/api/v1/object-storage/management/buckets/{bucket.id}/"
+    )
+    identity_response = client.get(
+        f"/api/v1/object-storage/management/cloud-identities/{identity.id}/"
+    )
+
+    assert bucket_response.status_code == 200
+    assert identity_response.status_code == 200
+    assert bucket_response["Cache-Control"] == "no-store"
+    assert identity_response["Cache-Control"] == "no-store"
+    assert "bucket-detail-token" in bucket_response.content.decode()
+    assert "identity-detail-token" in identity_response.content.decode()
 
 
 def test_uncertainty_acknowledgement_requires_strict_boolean_and_all_fields(
