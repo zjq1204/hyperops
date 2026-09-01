@@ -552,6 +552,90 @@ def test_bucket_configuration_rollback_failure_marks_cloud_state_unknown(
     assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
 
 
+def test_unknown_bucket_configuration_cannot_be_retried(bucket_factory, user_factory):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        BucketConfigurationError,
+        retry_bucket_configuration,
+    )
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    bucket.desired_config_snapshot = {"acl": "public_read"}
+    bucket.applied_config_snapshot = {"acl": "private"}
+    bucket.config_state = Bucket.ConfigurationState.UNKNOWN
+    bucket.config_error_code = "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+    bucket.save(
+        update_fields=(
+            "desired_config_snapshot",
+            "applied_config_snapshot",
+            "config_state",
+            "config_error_code",
+            "updated_at",
+        )
+    )
+    provider = LifecycleProvider()
+
+    with pytest.raises(
+        BucketConfigurationError,
+        match="BUCKET_CONFIGURATION_STATE_UNKNOWN",
+    ):
+        retry_bucket_configuration(
+            bucket=bucket,
+            actor=_feature_admin(user_factory),
+            provider=provider,
+            enqueue=False,
+            reason="manual investigation required",
+            bucket_name=bucket.name,
+            confirmed=True,
+        )
+
+    bucket.refresh_from_db()
+    assert provider.calls == []
+    assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
+    assert bucket.config_error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+    assert bucket.desired_config_snapshot == {"acl": "public_read"}
+    assert bucket.applied_config_snapshot == {"acl": "private"}
+
+
+@pytest.mark.parametrize(
+    "config_state",
+    [
+        "pending",
+        "retryable_error",
+    ],
+)
+def test_pending_and_retryable_bucket_configuration_can_be_retried(
+    bucket_factory, user_factory, config_state
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import retry_bucket_configuration
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    bucket.desired_config_snapshot = {"acl": "private"}
+    bucket.config_state = config_state
+    bucket.config_error_code = "BUCKET_CONFIGURATION_UPDATE_FAILED"
+    bucket.save(
+        update_fields=(
+            "desired_config_snapshot",
+            "config_state",
+            "config_error_code",
+            "updated_at",
+        )
+    )
+    provider = LifecycleProvider()
+
+    retry_bucket_configuration(
+        bucket=bucket,
+        actor=_feature_admin(user_factory),
+        provider=provider,
+        enqueue=False,
+    )
+
+    bucket.refresh_from_db()
+    assert provider.calls == [("configure", bucket.name)]
+    assert bucket.config_state == Bucket.ConfigurationState.APPLIED
+
+
 def test_confirmed_admin_public_read_update_reaches_provider_authorized(
     bucket_factory, user_factory
 ):

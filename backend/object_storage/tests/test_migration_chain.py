@@ -96,3 +96,118 @@ def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
 
     executor = MigrationExecutor(connection)
     executor.migrate([("object_storage", "0005_platform_model")])
+
+
+def test_0013_backfills_bucket_configuration_state_without_losing_uncertainty():
+    executor = MigrationExecutor(connection)
+    try:
+        executor.migrate([("object_storage", "0012_platform_default_acl_private")])
+        old_apps = executor.loader.project_state(
+            [("object_storage", "0012_platform_default_acl_private")]
+        ).apps
+        User = old_apps.get_model("auth", "User")
+        Config = old_apps.get_model("object_storage", "PlatformObjectStorageConfig")
+        Pool = old_apps.get_model("object_storage", "StorageResourcePool")
+        Identity = old_apps.get_model("object_storage", "CloudIdentity")
+        Bucket = old_apps.get_model("object_storage", "Bucket")
+
+        user = User.objects.create_user(username="configuration-migration-user")
+        config, _created = Config.objects.get_or_create(singleton_key="default")
+        pool = Pool.objects.create(
+            config=config,
+            cloud_account_id="configuration-migration-account",
+            region="cn-hangzhou",
+            management_access_key_encrypted="encrypted-ak",
+            management_secret_key_encrypted="encrypted-sk",
+            credential_fingerprint="configuration-migration-fingerprint",
+            access_key_last_four="1234",
+        )
+        identity = Identity.objects.create(
+            user=user,
+            resource_pool=pool,
+            ram_user_name="configuration-migration-user",
+        )
+        private = {
+            "acl": "private",
+            "storage_class": "Standard",
+            "encryption": "AES256",
+            "versioning": False,
+            "lifecycle": {},
+        }
+        public = {**private, "acl": "public_read"}
+        rows = {
+            "applied": (private, private, "", "active"),
+            "pending-empty": ({}, {}, "", "active"),
+            "pending-requested": (private, {}, "", "requested"),
+            "unapplied-active": (private, {}, "", "active"),
+            "mismatch": (public, private, "", "active"),
+            "provider-error": (
+                private,
+                private,
+                "PROVIDER_PERMISSION_DENIED",
+                "active",
+            ),
+            "rollback-failed": (
+                public,
+                private,
+                "BUCKET_CONFIGURATION_ROLLBACK_FAILED",
+                "active",
+            ),
+            "cloud-state-unknown": (
+                public,
+                private,
+                "BUCKET_CONFIGURATION_STATE_UNKNOWN",
+                "active",
+            ),
+        }
+        bucket_ids = {}
+        for label, (desired, applied, error_code, state) in rows.items():
+            bucket_ids[label] = Bucket.objects.create(
+                owner=user,
+                resource_pool=pool,
+                cloud_identity=identity,
+                business_name=label,
+                name=f"configuration-migration-{label}",
+                purpose="migration test",
+                region=pool.region,
+                desired_config_snapshot=desired,
+                applied_config_snapshot=applied,
+                config_error_code=error_code,
+                state=state,
+            ).pk
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([("object_storage", "0013_bucket_configuration_state")])
+        new_apps = executor.loader.project_state(
+            [("object_storage", "0013_bucket_configuration_state")]
+        ).apps
+        MigratedBucket = new_apps.get_model("object_storage", "Bucket")
+        states = {
+            label: MigratedBucket.objects.get(pk=bucket_id).config_state
+            for label, bucket_id in bucket_ids.items()
+        }
+
+        assert states == {
+            "applied": "applied",
+            "pending-empty": "pending",
+            "pending-requested": "pending",
+            "unapplied-active": "retryable_error",
+            "mismatch": "retryable_error",
+            "provider-error": "retryable_error",
+            "rollback-failed": "unknown",
+            "cloud-state-unknown": "unknown",
+        }
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([("object_storage", "0012_platform_default_acl_private")])
+        reversed_apps = executor.loader.project_state(
+            [("object_storage", "0012_platform_default_acl_private")]
+        ).apps
+        ReversedBucket = reversed_apps.get_model("object_storage", "Bucket")
+        rollback_row = ReversedBucket.objects.get(pk=bucket_ids["rollback-failed"])
+        assert rollback_row.desired_config_snapshot == public
+        assert rollback_row.applied_config_snapshot == private
+        assert rollback_row.config_error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate([("object_storage", "0013_bucket_configuration_state")])

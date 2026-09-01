@@ -425,17 +425,27 @@ def update_bucket_configuration(
     reason="",
     bucket_name=None,
     confirmed=False,
+    _retry=False,
 ):
     if not _is_admin(actor):
         raise BucketConfigurationError("ADMIN_REQUIRED")
-    if desired.get("acl") == "public_read":
-        if not str(reason or "").strip():
-            raise BucketConfigurationError("CONFIG_REASON_REQUIRED")
-        _assert_confirmation(bucket, bucket_name, confirmed)
-    configuration = _configuration_from_desired(desired)
-    snapshot = configuration.as_snapshot()
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        if _retry:
+            if locked.config_state == Bucket.ConfigurationState.UNKNOWN:
+                raise BucketConfigurationError("BUCKET_CONFIGURATION_STATE_UNKNOWN")
+            if locked.config_state not in {
+                Bucket.ConfigurationState.PENDING,
+                Bucket.ConfigurationState.RETRYABLE_ERROR,
+            }:
+                raise BucketConfigurationError("BUCKET_CONFIGURATION_RETRY_NOT_ALLOWED")
+            desired = locked.desired_config_snapshot
+        if desired.get("acl") == "public_read":
+            if not str(reason or "").strip():
+                raise BucketConfigurationError("CONFIG_REASON_REQUIRED")
+            _assert_confirmation(locked, bucket_name, confirmed)
+        configuration = _configuration_from_desired(desired)
+        snapshot = configuration.as_snapshot()
         locked.desired_config_snapshot = snapshot
         locked.config_state = Bucket.ConfigurationState.PENDING
         locked.config_error_code = ""
@@ -537,16 +547,16 @@ def retry_bucket_configuration(
 ):
     if not _is_admin(actor):
         raise BucketConfigurationError("ADMIN_REQUIRED")
-    desired = bucket.desired_config_snapshot
     return update_bucket_configuration(
         bucket=bucket,
         actor=actor,
-        desired=desired,
+        desired=bucket.desired_config_snapshot,
         provider=provider,
         enqueue=enqueue,
         reason=reason,
         bucket_name=bucket_name or bucket.name,
         confirmed=confirmed,
+        _retry=True,
     )
 
 

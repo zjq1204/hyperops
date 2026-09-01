@@ -78,6 +78,9 @@ def test_platform_migration_assigns_existing_pool_to_default_config():
     config = PlatformObjectStorageConfig.objects.get(singleton_key="default")
     assert MigratedPool.objects.get(pk=pool.pk).config_id == config.pk
 
+    executor = MigrationExecutor(connection)
+    executor.migrate([("object_storage", "0013_bucket_configuration_state")])
+
 
 def test_platform_settings_are_singletons_and_use_phase_one_defaults(db):
     from object_storage.models import (
