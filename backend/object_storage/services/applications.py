@@ -899,6 +899,122 @@ def _release_batch_lease(batch_id, owner):
     ).update(running_task_id="", run_lease_until=None)
 
 
+def recover_expired_application_claim(batch, *, now=None, provider=None):
+    batch_id = getattr(batch, "pk", batch)
+    now = now or timezone.now()
+    with transaction.atomic():
+        locked_batch = ApplicationBatch.objects.select_for_update().get(pk=batch_id)
+        get_user_model().objects.select_for_update().get(pk=locked_batch.applicant_id)
+        if locked_batch.cloud_identity_id:
+            identity = (
+                CloudIdentity.objects.select_for_update()
+                .select_related("resource_pool")
+                .get(pk=locked_batch.cloud_identity_id)
+            )
+        else:
+            identity = (
+                CloudIdentity.objects.select_for_update()
+                .select_related("resource_pool")
+                .filter(user_id=locked_batch.applicant_id)
+                .first()
+            )
+        if not (
+            locked_batch.status == ApplicationBatch.Status.RUNNING
+            and locked_batch.running_task_id
+            and locked_batch.run_lease_until
+            and locked_batch.run_lease_until < now
+        ):
+            return locked_batch
+        selected_provider = provider
+        if selected_provider is None and identity is not None:
+            selected_provider = get_provider_for_pool(identity.resource_pool)
+        for item in locked_batch.items.select_for_update().filter(
+            status=ApplicationItem.Status.CREATING
+        ):
+            attempt = item.attempts.order_by("-attempt_number").first()
+            cloud_uncertain = False
+            cloud_exists = False
+            if item.bucket_id and selected_provider is not None:
+                try:
+                    cloud_exists, owned = _owned(
+                        selected_provider.find_owned_bucket(item.bucket)
+                    )
+                    cloud_uncertain = cloud_exists and not owned
+                except Exception:
+                    cloud_uncertain = True
+            if item.bucket_id and not cloud_uncertain:
+                item.bucket.state = Bucket.State.WAITING_RETRY
+                item.bucket.save(update_fields=("state", "updated_at"))
+            item.current_stage = "CLAIM_RECOVERY"
+            item.error_code = (
+                "CLAIM_EXPIRED_CLOUD_STATE_UNKNOWN"
+                if cloud_uncertain
+                else "CLAIM_EXPIRED"
+            )
+            item.error_summary = item.error_code
+            item.status = (
+                ApplicationItem.Status.MANUAL_REQUIRED
+                if cloud_uncertain
+                else ApplicationItem.Status.WAITING_RETRY
+            )
+            item.retry_count += 1
+            item.save(
+                update_fields=(
+                    "status",
+                    "current_stage",
+                    "retry_count",
+                    "error_code",
+                    "error_summary",
+                    "updated_at",
+                )
+            )
+            if attempt is not None:
+                _finish_attempt(
+                    attempt,
+                    ApplicationAttempt.Status.FAILED,
+                    error_code=item.error_code,
+                )
+            _event(
+                item,
+                attempt,
+                "CLAIM_RECOVERY",
+                "manual_required" if cloud_uncertain else "recovered",
+                error_code=item.error_code,
+            )
+        locked_batch.running_task_id = ""
+        locked_batch.run_lease_until = None
+        locked_batch.current_stage = "CLAIM_RECOVERY"
+        locked_batch.error_code = "CLAIM_EXPIRED"
+        locked_batch.error_summary = "Expired application claim recovered"
+        locked_batch.save(
+            update_fields=(
+                "running_task_id",
+                "run_lease_until",
+                "current_stage",
+                "error_code",
+                "error_summary",
+                "updated_at",
+            )
+        )
+        result = refresh_batch_status(locked_batch)
+        record_audit_event(
+            actor=locked_batch.applicant,
+            action="storage.application.claim_recovered",
+            target_type="ApplicationBatch",
+            target_id=locked_batch.pk,
+            result=(
+                "manual_required"
+                if result.status == ApplicationBatch.Status.MANUAL_REQUIRED
+                else "recovered"
+            ),
+            safe_metadata={
+                "application_id": locked_batch.pk,
+                "status": result.status,
+            },
+        )
+        return result
+
+
 def execute_application_batch(batch_id, *, execution_key=""):
     batch, claimed, owner = _claim_batch(batch_id, execution_key)
     if not claimed:
@@ -959,6 +1075,8 @@ def execute_application_batch(batch_id, *, execution_key=""):
         return batch
     finally:
         _release_batch_lease(batch_id, owner)
+        batch.running_task_id = ""
+        batch.run_lease_until = None
 
 
 def execute_application(application_id, *, execution_key=""):
@@ -1032,7 +1150,7 @@ def _cancel_cloud_states(batch, provider):
 
 
 def _can_delete_principal(batch, identity):
-    if not batch.principal_created_by_batch:
+    if not batch.identity_created_by_batch or not batch.principal_created_by_batch:
         return False
     current_bucket_ids = set(
         batch.items.exclude(bucket_id=None).values_list("bucket_id", flat=True)
@@ -1048,7 +1166,10 @@ def _can_delete_principal(batch, identity):
     ):
         return False
     if (
-        Bucket.objects.filter(cloud_identity=identity)
+        Bucket.objects.filter(
+            cloud_identity=identity,
+            state__in=RESOURCE_STATES_WITH_UNRESOLVED_CLOUD_RESOURCE,
+        )
         .exclude(pk__in=current_bucket_ids)
         .exists()
     ):
@@ -1056,39 +1177,36 @@ def _can_delete_principal(batch, identity):
     if (
         AccessKey.objects.filter(
             cloud_identity=identity,
+            cloud_state__in=(
+                AccessKey.CloudState.ACTIVE,
+                AccessKey.CloudState.INACTIVE,
+                AccessKey.CloudState.UNKNOWN,
+            ),
             deleted_at__isnull=True,
         )
         .exclude(pk=batch.issued_access_key_id)
         .exists()
     ):
         return False
-    if (
-        ApplicationBatch.objects.filter(cloud_identity=identity)
-        .exclude(pk=batch.pk)
-        .exists()
-    ):
-        return False
     return True
 
 
-def _mark_cancel_cleanup_manual(batch_id, error):
-    with transaction.atomic():
-        batch = ApplicationBatch.objects.select_for_update().get(pk=batch_id)
-        item = (
-            batch.items.select_for_update()
-            .exclude(status=ApplicationItem.Status.SUCCEEDED)
-            .order_by("id")
-            .first()
-        )
-        if item is not None:
-            _cancel_manual(batch, item, error)
-        batch.error_code = _error_code(error, "CANCEL_CLEANUP_FAILED")
-        batch.error_summary = batch.error_code
-        batch.save(update_fields=("error_code", "error_summary", "updated_at"))
-        return refresh_batch_status(batch)
+def _mark_cancel_cleanup_manual_locked(batch, error):
+    item = (
+        batch.items.select_for_update()
+        .exclude(status=ApplicationItem.Status.SUCCEEDED)
+        .order_by("id")
+        .first()
+    )
+    if item is not None:
+        _cancel_manual(batch, item, error)
+    batch.error_code = _error_code(error, "CANCEL_CLEANUP_FAILED")
+    batch.error_summary = batch.error_code
+    batch.save(update_fields=("error_code", "error_summary", "updated_at"))
+    return refresh_batch_status(batch)
 
 
-def _cleanup_cancelled_batch(batch, identity, provider):
+def _cleanup_cancelled_batch_locked(batch, identity, provider):
     if batch.success_count or batch.status == ApplicationBatch.Status.MANUAL_REQUIRED:
         return batch
     if batch.key_created_by_batch and batch.issued_access_key_id:
@@ -1099,12 +1217,12 @@ def _cleanup_cancelled_batch(batch, identity, provider):
                 for item in _provider_items(provider.list_access_keys(identity))
             }
         except Exception as error:
-            return _mark_cancel_cleanup_manual(batch.pk, error)
+            return _mark_cancel_cleanup_manual_locked(batch, error)
         if key.access_key_fingerprint in cloud_fingerprints:
             try:
                 provider.delete_access_key(provider_access_key(key))
             except Exception as error:
-                return _mark_cancel_cleanup_manual(batch.pk, error)
+                return _mark_cancel_cleanup_manual_locked(batch, error)
         batch.issued_access_key = None
         batch.key_created_by_batch = False
         batch.save(
@@ -1116,7 +1234,7 @@ def _cleanup_cancelled_batch(batch, identity, provider):
         try:
             provider.delete_personal_principal(identity)
         except Exception as error:
-            return _mark_cancel_cleanup_manual(batch.pk, error)
+            return _mark_cancel_cleanup_manual_locked(batch, error)
         identity.state = CloudIdentity.State.ERROR
         identity.save(update_fields=("state", "updated_at"))
     return batch.refresh_from_db() or batch
@@ -1124,14 +1242,14 @@ def _cleanup_cancelled_batch(batch, identity, provider):
 
 def cancel_application_batch(batch_id):
     with transaction.atomic():
-        batch = ApplicationBatch.objects.select_for_update().get(pk=batch_id)
-        now = timezone.now()
-        if (
-            batch.status == ApplicationBatch.Status.RUNNING
-            and batch.run_lease_until
-            and batch.run_lease_until > now
-        ):
-            raise ApplicationServiceError("APPLICATION_RUNNING")
+        batch = (
+            ApplicationBatch.objects.select_for_update()
+            .select_related("applicant")
+            .get(pk=batch_id)
+        )
+        get_user_model().objects.select_for_update().get(pk=batch.applicant_id)
+        if batch.status == ApplicationBatch.Status.RUNNING and batch.running_task_id:
+            raise ApplicationServiceError("CANCEL_IN_PROGRESS")
         identity_id = batch.cloud_identity_id
         if identity_id is None:
             identity_id = (
@@ -1140,30 +1258,64 @@ def cancel_application_batch(batch_id):
                 .first()
             )
         if identity_id is None:
-            return batch
-    identity = CloudIdentity.objects.select_related("resource_pool").get(pk=identity_id)
-    provider = get_provider_for_pool(identity.resource_pool)
-    batch = ApplicationBatch.objects.select_related("applicant").get(pk=batch_id)
-    clear_ids, manual = _cancel_cloud_states(batch, provider)
-    with transaction.atomic():
-        batch = ApplicationBatch.objects.select_for_update().get(pk=batch_id)
-        manual_ids = set(manual)
+            for item in batch.items.select_for_update().exclude(
+                status=ApplicationItem.Status.SUCCEEDED
+            ):
+                item.status = ApplicationItem.Status.CANCELLED
+                item.save(update_fields=("status", "updated_at"))
+            return refresh_batch_status(batch)
+        identity = (
+            CloudIdentity.objects.select_for_update()
+            .select_related("resource_pool")
+            .get(pk=identity_id)
+        )
+        provider = get_provider_for_pool(identity.resource_pool)
+        manual_ids, clear_ids = set(), set()
+        for item in batch.items.select_for_update().select_related("bucket"):
+            if item.status in (
+                ApplicationItem.Status.SUCCEEDED,
+                ApplicationItem.Status.CANCELLED,
+            ):
+                continue
+            if item.bucket_id is None:
+                clear_ids.add(item.pk)
+                continue
+            try:
+                exists, owned = _owned(provider.find_owned_bucket(item.bucket))
+            except Exception as error:
+                manual_ids.add((item.pk, error))
+                continue
+            if exists:
+                manual_ids.add(
+                    (
+                        item.pk,
+                        ObjectStorageProviderError(
+                            "CANCEL_CLOUD_BUCKET_PRESENT"
+                            if owned
+                            else "BUCKET_OWNERSHIP_CONFLICT"
+                        ),
+                    )
+                )
+            else:
+                clear_ids.add(item.pk)
         for item in batch.items.select_for_update().select_related("bucket"):
             if item.status == ApplicationItem.Status.SUCCEEDED:
                 continue
-            if item.pk in manual_ids:
-                _cancel_manual(batch, item, manual[item.pk])
+            manual_error = next(
+                (error for item_id, error in manual_ids if item_id == item.pk), None
+            )
+            if manual_error is not None:
+                _cancel_manual(batch, item, manual_error)
                 continue
-            if item.pk not in clear_ids:
-                continue
-            item.status = ApplicationItem.Status.CANCELLED
-            item.current_stage = ""
-            item.save(update_fields=("status", "current_stage", "updated_at"))
-            if item.bucket_id and item.bucket.state != Bucket.State.ACTIVE:
-                item.bucket.state = Bucket.State.CANCELLED
-                item.bucket.save(update_fields=("state", "updated_at"))
+            if item.pk in clear_ids:
+                item.status = ApplicationItem.Status.CANCELLED
+                item.current_stage = ""
+                item.save(update_fields=("status", "current_stage", "updated_at"))
+                if item.bucket_id and item.bucket.state != Bucket.State.CANCELLED:
+                    item.bucket.state = Bucket.State.CANCELLED
+                    item.bucket.save(update_fields=("state", "updated_at"))
         if manual_ids:
             batch.error_code = "CANCEL_CLOUD_STATE_UNKNOWN"
             batch.error_summary = "Cancellation requires manual cleanup"
         batch = refresh_batch_status(batch)
-    return _cleanup_cancelled_batch(batch, identity, provider)
+        return _cleanup_cancelled_batch_locked(batch, identity, provider)

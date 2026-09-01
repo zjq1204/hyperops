@@ -432,9 +432,51 @@ def test_repeated_execution_for_completed_batch_has_no_new_attempt_or_mutation(
     assert provider.calls == []
 
 
-def test_expired_running_lease_fails_closed_without_cloud_mutation(
-    batch_context, monkeypatch
-):
+def test_expired_running_lease_has_explicit_recovery_path(batch_context, monkeypatch):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import ApplicationBatch, ApplicationItem
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    batch, claimed, _owner = applications._claim_batch(batch.pk, "possibly-slow-worker")
+    assert claimed is True
+    assert (
+        applications._claim_item(batch.items.get().pk, "possibly-slow-worker")
+        is not None
+    )
+    batch.run_lease_until = timezone.now() - timedelta(seconds=1)
+    batch.save(update_fields=("run_lease_until",))
+    provider = FakeProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    recovered = applications.recover_expired_application_claim(
+        batch.pk,
+        now=timezone.now(),
+    )
+
+    recovered.refresh_from_db()
+    item = recovered.items.get()
+    assert recovered.status == ApplicationBatch.Status.RUNNING
+    assert recovered.running_task_id == ""
+    assert recovered.run_lease_until is None
+    assert item.status == ApplicationItem.Status.WAITING_RETRY
+    assert item.attempts.get().error_code == "CLAIM_EXPIRED"
+    assert item.events.filter(stage="CLAIM_RECOVERY").exists()
+
+    result = applications.execute_application_batch(
+        batch.pk,
+        execution_key="replacement-worker",
+    )
+
+    assert result.status == ApplicationBatch.Status.SUCCEEDED
+    assert result.running_task_id == ""
+
+
+def test_unexpired_running_lease_is_still_a_worker_noop(batch_context, monkeypatch):
     from datetime import timedelta
 
     from django.utils import timezone
@@ -445,8 +487,8 @@ def test_expired_running_lease_fails_closed_without_cloud_mutation(
     _user, _pool, create = batch_context
     batch = create()
     batch.status = ApplicationBatch.Status.RUNNING
-    batch.running_task_id = "possibly-slow-worker"
-    batch.run_lease_until = timezone.now() - timedelta(seconds=1)
+    batch.running_task_id = "active-worker"
+    batch.run_lease_until = timezone.now() + timedelta(minutes=1)
     batch.save(update_fields=("status", "running_task_id", "run_lease_until"))
     monkeypatch.setattr(
         applications,
@@ -460,8 +502,55 @@ def test_expired_running_lease_fails_closed_without_cloud_mutation(
     )
 
     assert result.status == ApplicationBatch.Status.RUNNING
-    assert result.running_task_id == "possibly-slow-worker"
-    assert not batch.items.get().attempts.exists()
+    assert result.running_task_id == "active-worker"
+
+
+def test_cancel_first_makes_worker_terminal_noop(batch_context, monkeypatch):
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    cancelled = applications.cancel_application_batch(batch.pk)
+    provider.calls.clear()
+    result = applications.execute_application_batch(
+        batch.pk,
+        execution_key="worker-after-cancel",
+    )
+
+    assert cancelled.status == "cancelled"
+    assert result.status == "cancelled"
+    assert batch.items.get().attempts.count() == 0
+    assert provider.calls == []
+
+
+def test_worker_claim_first_makes_cancel_report_in_progress(batch_context):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import ApplicationBatch, ApplicationItem
+    from object_storage.services.applications import (
+        ApplicationServiceError,
+        cancel_application_batch,
+    )
+
+    _user, _pool, create = batch_context
+    batch = create()
+    batch.status = ApplicationBatch.Status.RUNNING
+    batch.running_task_id = "claimed-worker"
+    batch.run_lease_until = timezone.now() + timedelta(minutes=1)
+    batch.save(update_fields=("status", "running_task_id", "run_lease_until"))
+
+    with pytest.raises(ApplicationServiceError, match="CANCEL_IN_PROGRESS"):
+        cancel_application_batch(batch.pk)
+
+    batch.refresh_from_db()
+    assert batch.status == ApplicationBatch.Status.RUNNING
+    assert batch.running_task_id == "claimed-worker"
+    assert batch.items.get().status == ApplicationItem.Status.PENDING
 
 
 def test_provider_retryability_uses_stable_temporary_code_classification():
