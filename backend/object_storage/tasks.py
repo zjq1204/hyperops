@@ -1,49 +1,48 @@
-import logging
-
 from celery import shared_task
 
 from object_storage.services.applications import (
     MAX_PROVIDER_RETRIES,
-    execute_application,
+    execute_application_batch,
+    mark_batch_manual_required,
     is_retryable_provider_error,
-    mark_application_manual_required,
 )
 from object_storage.services.provider_errors import ObjectStorageProviderError
 
-logger = logging.getLogger(__name__)
 
-
-def _application_result(application):
+def _batch_result(batch):
     return {
-        "application_id": application.pk,
-        "status": application.status,
+        "batch_id": batch.pk,
+        "status": batch.status,
+        "counts": {
+            "item_count": int(batch.item_count),
+            "pending_count": int(batch.pending_count),
+            "success_count": int(batch.success_count),
+            "failed_count": int(batch.failed_count),
+        },
     }
 
 
-def _run_storage_application(task, application_id):
+def _run_storage_application_batch(task, batch_id):
     task_id = str(getattr(task.request, "id", "") or "")
     execution_key = (
         f"{task_id}:{getattr(task.request, 'retries', 0)}" if task_id else ""
     )
     try:
-        return _application_result(
-            execute_application(application_id, execution_key=execution_key)
+        return _batch_result(
+            execute_application_batch(batch_id, execution_key=execution_key)
         )
     except ObjectStorageProviderError as error:
-        retries = getattr(task.request, "retries", 0)
+        retries = int(getattr(task.request, "retries", 0) or 0)
         if is_retryable_provider_error(error) and retries < MAX_PROVIDER_RETRIES:
             raise task.retry(exc=error, countdown=2 ** (retries + 1))
-        if not is_retryable_provider_error(error):
-            application = mark_application_manual_required(application_id, error)
-            return _application_result(application)
-        application = mark_application_manual_required(application_id, error)
-        return _application_result(application)
+        batch = mark_batch_manual_required(batch_id, error)
+        return _batch_result(batch)
 
 
 @shared_task(
     bind=True,
-    name="object_storage.run_storage_application",
+    name="object_storage.run_storage_application_batch",
     max_retries=MAX_PROVIDER_RETRIES,
 )
-def run_storage_application(self, application_id):
-    return _run_storage_application(self, application_id)
+def run_storage_application_batch(self, batch_id):
+    return _run_storage_application_batch(self, batch_id)

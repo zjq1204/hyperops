@@ -213,6 +213,7 @@ def application_batch_factory(db, user_factory):
                 project="project",
                 environment="test",
                 purpose="integration testing",
+                initial_suffix="preview1",
                 rendered_bucket_name=f"hyperops-batch-{number}-{item_number}",
             )
         return batch

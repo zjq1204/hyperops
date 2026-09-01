@@ -506,6 +506,7 @@ class ApplicationBatch(TimestampedModel):
         related_name="object_storage_application_batches",
     )
     idempotency_key = models.CharField(max_length=128)
+    payload_digest = models.CharField(max_length=64, blank=True, default="")
     status = models.CharField(
         max_length=24,
         choices=Status.choices,
@@ -520,6 +521,13 @@ class ApplicationBatch(TimestampedModel):
     error_summary = models.CharField(max_length=255, blank=True, default="")
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    issued_access_key = models.ForeignKey(
+        AccessKey,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="issued_for_application_batches",
+    )
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -548,9 +556,11 @@ class ApplicationItem(TimestampedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         CREATING = "creating", "Creating"
+        WAITING_RETRY = "waiting_retry", "Waiting retry"
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
         CANCELLED = "cancelled", "Cancelled"
+        MANUAL_REQUIRED = "manual_required", "Manual required"
         RELEASING = "releasing", "Releasing"
         PENDING_DELETE = "pending_delete", "Pending delete"
         DELETE_BLOCKED = "delete_blocked", "Delete blocked"
@@ -569,6 +579,7 @@ class ApplicationItem(TimestampedModel):
     )
     purpose = models.CharField(max_length=255)
     notes = models.TextField(blank=True, default="")
+    initial_suffix = models.CharField(max_length=8, blank=True, default="")
     rendered_bucket_name = models.CharField(max_length=63)
     status = models.CharField(
         max_length=24,
@@ -635,7 +646,12 @@ class ApplicationAttempt(models.Model):
             models.UniqueConstraint(
                 fields=["application_item", "attempt_number"],
                 name="storage_attempt_number_unique",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["application_item", "task_id"],
+                condition=~Q(task_id=""),
+                name="storage_attempt_item_task_unique",
+            ),
         ]
         indexes = [
             models.Index(
@@ -717,6 +733,7 @@ class DeliveryTicket(models.Model):
     token_digest = models.CharField(max_length=128, unique=True)
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
+    token_rotated_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=16,
         choices=Status.choices,

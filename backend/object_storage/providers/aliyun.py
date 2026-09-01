@@ -67,6 +67,14 @@ class AliyunObjectStorageProvider:
             request_id=str(result.get("request_id") or ""),
         )
 
+    def delete_personal_principal(self, identity):
+        result = self._call(
+            self.ram_gateway.delete_user,
+            identity.ram_user_name,
+            f"hyperops:identity:{identity.pk}",
+        )
+        return AccessKeyMutation(request_id=str(result.get("request_id") or ""))
+
     def create_owned_bucket(self, bucket):
         result = self._call(
             self.oss_gateway.create_bucket,
@@ -486,6 +494,28 @@ class AliyunRamGateway:
             )
         )
         return {"request_id": _request_id(response)}
+
+    def delete_user(self, user_name, marker):
+        try:
+            response = self.client.get_user(
+                self.models.GetUserRequest(user_name=user_name)
+            )
+        except Exception as exc:
+            if str(getattr(exc, "code", "")) == "NoSuchEntity":
+                return {"request_id": str(getattr(exc, "request_id", "") or "")}
+            raise
+        user = response.body.user
+        if str(getattr(user, "comments", "") or "") != marker:
+            raise ObjectStorageProviderError("PRINCIPAL_OWNERSHIP_CONFLICT")
+        try:
+            deleted = self.client.delete_user(
+                self.models.DeleteUserRequest(user_name=user_name)
+            )
+        except Exception as exc:
+            if str(getattr(exc, "code", "")) == "NoSuchEntity":
+                return {"request_id": str(getattr(exc, "request_id", "") or "")}
+            raise
+        return {"request_id": _request_id(deleted)}
 
 
 class AliyunOssGateway:

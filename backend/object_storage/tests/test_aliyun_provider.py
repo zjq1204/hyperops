@@ -8,6 +8,7 @@ class FakeRamGateway:
         self.policy = None
         self.updated_key = None
         self.detached_policy = None
+        self.deleted_user = None
 
     def validate_identity(self):
         return {
@@ -65,6 +66,10 @@ class FakeRamGateway:
 
     def delete_access_key(self, user_name, access_key_id):
         return {"request_id": "ram-request-delete"}
+
+    def delete_user(self, user_name, marker):
+        self.deleted_user = (user_name, marker)
+        return {"request_id": "ram-request-delete-user"}
 
 
 class FakeOssGateway:
@@ -408,6 +413,19 @@ def test_access_key_operations_return_sanitized_results():
     assert "must-not-leak" not in repr(listed)
 
 
+def test_personal_principal_delete_uses_exact_identity_marker():
+    provider, ram, _oss = _provider()
+    identity = SimpleNamespace(pk=42, ram_user_name="managed-user")
+
+    result = provider.delete_personal_principal(identity)
+
+    assert ram.deleted_user == (
+        "managed-user",
+        "hyperops:identity:42",
+    )
+    assert result.request_id == "ram-request-delete-user"
+
+
 def test_bucket_configuration_requires_explicit_public_read_authorization():
     from object_storage.providers.base import BucketConfiguration
     from object_storage.services.provider_errors import ObjectStorageProviderError
@@ -729,6 +747,48 @@ def test_ram_gateway_entity_already_exists_with_foreign_marker_is_rejected(
         ObjectStorageProviderError, match="PRINCIPAL_OWNERSHIP_CONFLICT"
     ):
         gateway.find_or_create_user("managed-user", "hyperops:identity:42")
+
+
+def test_ram_gateway_delete_user_requires_exact_marker(monkeypatch):
+    from object_storage.providers.aliyun import AliyunRamGateway
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    deleted = []
+    user = SimpleNamespace(
+        user_id="ram-user-id",
+        user_name="managed-user",
+        comments="hyperops:identity:42",
+    )
+    gateway = AliyunRamGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-secret",
+    )
+    gateway._client = SimpleNamespace(
+        get_user=lambda _request: SimpleNamespace(
+            body=SimpleNamespace(user=user, request_id="find-user-request")
+        ),
+        delete_user=lambda request: deleted.append(request)
+        or SimpleNamespace(body=SimpleNamespace(request_id="delete-user-request")),
+    )
+    monkeypatch.setattr(
+        AliyunRamGateway,
+        "models",
+        SimpleNamespace(
+            GetUserRequest=lambda **kwargs: kwargs,
+            DeleteUserRequest=lambda **kwargs: kwargs,
+        ),
+    )
+
+    result = gateway.delete_user("managed-user", "hyperops:identity:42")
+
+    assert result == {"request_id": "delete-user-request"}
+    assert deleted == [{"user_name": "managed-user"}]
+    user.comments = "foreign-owner"
+    with pytest.raises(
+        ObjectStorageProviderError, match="PRINCIPAL_OWNERSHIP_CONFLICT"
+    ):
+        gateway.delete_user("managed-user", "hyperops:identity:42")
+    assert deleted == [{"user_name": "managed-user"}]
 
 
 def test_provider_errors_map_to_stable_domain_codes():

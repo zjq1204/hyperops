@@ -1,14 +1,9 @@
-from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
-from django.utils import timezone
+from django.core.cache import cache
 
 pytestmark = pytest.mark.django_db
-
-
-def _payload(response):
-    body = response.json()
-    return body.get("data", body)
 
 
 @pytest.fixture(autouse=True)
@@ -16,171 +11,304 @@ def stable_object_storage_secret(settings):
     settings.SECRET_KEY = "object-storage-delivery-tests-stable-secret"
 
 
-@pytest.fixture
-def member_client(client, storage_membership_factory, storage_resource_pool_factory):
-    membership = storage_membership_factory()
-    storage_resource_pool_factory(tenant=membership.tenant, enabled=True)
-    client.force_login(membership.user)
-    return client, membership
+def _encrypted_key(identity, *, access_key_id="LTAI-delivery-1234", state=None):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import encrypt_issued_access_key
 
-
-def test_delivery_ticket_is_single_use_and_no_store(
-    member_client, storage_cloud_identity_factory
-):
-    from object_storage.crypto import encrypt_secret
-    from object_storage.models import StorageAccessKey
-    from object_storage.services.credentials import create_delivery_ticket
-
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    key = StorageAccessKey.objects.create(
-        tenant=membership.tenant,
+    return AccessKey.objects.create(
         cloud_identity=identity,
-        access_key_id_encrypted=encrypt_secret("LTAI-delivery-1234"),
-        secret_access_key_encrypted=encrypt_secret("delivery-secret"),
-        access_key_fingerprint="delivery-fingerprint",
-        access_key_last_four="1234",
-        local_state=StorageAccessKey.LocalState.DELIVERY_READY,
-    )
-    _ticket, raw_token = create_delivery_ticket(
-        application=_application(membership, identity.resource_pool),
-        access_key=key,
-        membership=membership,
-        tenant=membership.tenant,
+        local_state=state or AccessKey.LocalState.DELIVERY_READY,
+        **encrypt_issued_access_key(
+            SimpleNamespace(
+                access_key_id=access_key_id,
+                secret_access_key="delivery-secret",
+            )
+        ),
     )
 
-    first = client.post(
-        "/api/v1/object-storage/workspace/credentials/deliver/",
-        {"token": raw_token},
-        content_type="application/json",
-    )
-    second = client.post(
-        "/api/v1/object-storage/workspace/credentials/deliver/",
-        {"token": raw_token},
-        content_type="application/json",
-    )
 
-    assert first.status_code == 200
-    assert first["Cache-Control"] == "no-store"
-    assert second.status_code == 400
-    assert _payload(second)["error_code"] == "DELIVERY_TOKEN_CONSUMED"
-
-
-def test_delivery_ticket_uses_enterprise_expiry_range(
-    member_client, storage_cloud_identity_factory
+def test_delivery_ticket_is_owned_single_use_and_returns_full_secret_once(
+    application_batch_factory, cloud_identity_factory, user_factory
 ):
-    from object_storage.models import StorageAccessKey
-    from object_storage.services.credentials import create_delivery_ticket
-
-    _client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    key = StorageAccessKey.objects.create(
-        tenant=membership.tenant,
-        cloud_identity=identity,
-        access_key_id_encrypted="id",
-        secret_access_key_encrypted="secret",
-        access_key_fingerprint="expiry-fingerprint",
-        access_key_last_four="4321",
+    from object_storage.models import AccessKey, DeliveryTicket
+    from object_storage.services.credentials import (
+        CredentialDeliveryError,
+        consume_delivery_token,
+        create_delivery_ticket,
     )
-    application = _application(membership, identity.resource_pool)
-    before = timezone.now()
-    ticket, _raw_token = create_delivery_ticket(
-        application=application,
+
+    identity = cloud_identity_factory()
+    batch = application_batch_factory(applicant=identity.user)
+    key = _encrypted_key(identity)
+    ticket, raw_token = create_delivery_ticket(
+        application_batch=batch,
         access_key=key,
-        membership=membership,
-        tenant=membership.tenant,
+        user=identity.user,
     )
 
-    assert (
-        before + timedelta(seconds=membership.tenant.delivery_lifetime_seconds)
-        <= ticket.expires_at
-    )
-    assert ticket.expires_at <= timezone.now() + timedelta(
-        seconds=membership.tenant.delivery_lifetime_seconds
+    assert raw_token not in ticket.token_digest
+    with pytest.raises(CredentialDeliveryError, match="DELIVERY_TOKEN_INVALID"):
+        consume_delivery_token(
+            raw_token=raw_token,
+            user=user_factory(),
+            application_batch=batch,
+        )
+    with pytest.raises(CredentialDeliveryError, match="DELIVERY_TOKEN_INVALID"):
+        consume_delivery_token(
+            raw_token=raw_token,
+            user=identity.user,
+            application_batch=application_batch_factory(applicant=identity.user),
+        )
+
+    secret = consume_delivery_token(
+        raw_token=raw_token,
+        user=identity.user,
+        application_batch=batch,
     )
 
+    assert secret == {
+        "access_key_id": "LTAI-delivery-1234",
+        "secret_access_key": "delivery-secret",
+    }
+    ticket.refresh_from_db()
+    key.refresh_from_db()
+    assert ticket.status == DeliveryTicket.Status.CONSUMED
+    assert ticket.consumed_at is not None
+    assert key.local_state == AccessKey.LocalState.ACTIVE
+    with pytest.raises(CredentialDeliveryError, match="DELIVERY_TOKEN_CONSUMED"):
+        consume_delivery_token(
+            raw_token=raw_token,
+            user=identity.user,
+            application_batch=batch,
+        )
 
-def test_employee_fetches_ephemeral_delivery_token_for_owned_application(
-    member_client,
-    storage_cloud_identity_factory,
+
+@pytest.mark.parametrize("lifetime", [599, 604801])
+def test_delivery_ticket_rejects_lifetime_outside_enterprise_range(
+    lifetime,
+    application_batch_factory,
+    cloud_identity_factory,
+    platform_object_storage_config,
 ):
-    from object_storage.models import StorageAccessKey
-    from object_storage.services.credentials import create_delivery_ticket
-
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    key = StorageAccessKey.objects.create(
-        tenant=membership.tenant,
-        cloud_identity=identity,
-        access_key_id_encrypted="encrypted-id",
-        secret_access_key_encrypted="encrypted-secret",
-        access_key_fingerprint="handoff-fingerprint",
-        access_key_last_four="9876",
-    )
-    application = _application(membership, identity.resource_pool)
-    _ticket, raw_token = create_delivery_ticket(
-        application=application,
-        access_key=key,
-        membership=membership,
-        tenant=membership.tenant,
+    from object_storage.services.credentials import (
+        CredentialDeliveryError,
+        create_delivery_ticket,
     )
 
-    response = client.get(
-        f"/api/v1/object-storage/workspace/applications/{application.id}/delivery-token/"
-    )
+    identity = cloud_identity_factory()
+    batch = application_batch_factory(applicant=identity.user)
+    key = _encrypted_key(identity)
+    platform_object_storage_config.delivery_lifetime_seconds = lifetime
 
-    assert response.status_code == 200
-    assert response["Cache-Control"] == "no-store"
-    assert _payload(response)["token"] == raw_token
-    assert raw_token not in application.delivery_ticket.token_digest
+    with pytest.raises(CredentialDeliveryError, match="DELIVERY_LIFETIME_INVALID"):
+        create_delivery_ticket(
+            application_batch=batch,
+            access_key=key,
+            user=identity.user,
+            platform_config=platform_object_storage_config,
+        )
 
 
-def test_missing_delivery_cache_reissues_token_and_digest(
-    member_client, storage_cloud_identity_factory
+def test_missing_cache_rotates_delivery_token_only_once_and_audits(
+    application_batch_factory, cloud_identity_factory
 ):
-    from django.core.cache import cache
-
-    from object_storage.models import StorageAccessKey
-    from object_storage.services.credentials import create_delivery_ticket
-
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    key = StorageAccessKey.objects.create(
-        tenant=membership.tenant,
-        cloud_identity=identity,
-        access_key_id_encrypted="encrypted-id",
-        secret_access_key_encrypted="encrypted-secret",
-        access_key_fingerprint="reissue-fingerprint",
-        access_key_last_four="6789",
+    from object_storage.models import AuditEvent
+    from object_storage.services.credentials import (
+        CredentialDeliveryError,
+        create_delivery_ticket,
+        get_ephemeral_delivery_token,
     )
-    application = _application(membership, identity.resource_pool)
-    ticket, original_token = create_delivery_ticket(
-        application=application,
+
+    identity = cloud_identity_factory()
+    batch = application_batch_factory(applicant=identity.user)
+    key = _encrypted_key(identity)
+    ticket, original = create_delivery_ticket(
+        application_batch=batch,
         access_key=key,
-        membership=membership,
-        tenant=membership.tenant,
+        user=identity.user,
     )
     original_digest = ticket.token_digest
     cache.clear()
 
-    response = client.get(
-        f"/api/v1/object-storage/workspace/applications/{application.id}/delivery-token/"
+    replacement = get_ephemeral_delivery_token(
+        application_batch=batch,
+        user=identity.user,
     )
 
     ticket.refresh_from_db()
-    replacement = _payload(response)["token"]
-    assert response.status_code == 200
-    assert replacement != original_token
+    assert replacement != original
     assert ticket.token_digest != original_digest
+    assert ticket.token_rotated_at is not None
+    assert AuditEvent.objects.filter(
+        action="storage.credential.delivery_token_rotated",
+        target_id=str(ticket.pk),
+    ).exists()
+    cache.clear()
+    with pytest.raises(CredentialDeliveryError, match="DELIVERY_TOKEN_UNAVAILABLE"):
+        get_ephemeral_delivery_token(
+            application_batch=batch,
+            user=identity.user,
+        )
 
 
-def _application(membership, pool):
-    from object_storage.models import StorageApplication
-
-    return StorageApplication.objects.create(
-        tenant=membership.tenant,
-        applicant=membership,
-        action_type=StorageApplication.ActionType.FIRST_BUCKET_AND_CREDENTIAL,
-        idempotency_key=f"delivery-{membership.pk}-{pool.pk}-{timezone.now().timestamp()}",
-        request_fields={"resource_pool_id": pool.pk},
+def test_consumed_ticket_never_reissues_after_cache_loss(
+    application_batch_factory, cloud_identity_factory
+):
+    from object_storage.services.credentials import (
+        CredentialDeliveryError,
+        consume_delivery_token,
+        create_delivery_ticket,
+        get_ephemeral_delivery_token,
     )
+
+    identity = cloud_identity_factory()
+    batch = application_batch_factory(applicant=identity.user)
+    key = _encrypted_key(identity)
+    _ticket, token = create_delivery_ticket(
+        application_batch=batch,
+        access_key=key,
+        user=identity.user,
+    )
+    consume_delivery_token(
+        raw_token=token,
+        user=identity.user,
+        application_batch=batch,
+    )
+    cache.clear()
+
+    with pytest.raises(CredentialDeliveryError, match="DELIVERY_TOKEN_UNAVAILABLE"):
+        get_ephemeral_delivery_token(
+            application_batch=batch,
+            user=identity.user,
+        )
+
+
+class RotationProvider:
+    def __init__(self, keys):
+        from object_storage.services.credentials import fingerprint_access_key
+
+        self.cloud_keys = {
+            key.pk: SimpleNamespace(
+                access_key_id=f"LTAI-existing-{key.pk}",
+                fingerprint=key.access_key_fingerprint,
+                status=key.cloud_state,
+            )
+            for key in keys
+        }
+        self.calls = []
+        self.fail_create = False
+        self.fingerprint_access_key = fingerprint_access_key
+
+    def list_access_keys(self, _identity):
+        return SimpleNamespace(items=tuple(self.cloud_keys.values()))
+
+    def deactivate_access_key(self, key):
+        self.calls.append(("deactivate", key.access_key_id))
+
+    def delete_access_key(self, key):
+        self.calls.append(("delete", key.access_key_id))
+
+    def create_access_key(self, _identity):
+        self.calls.append(("create",))
+        if self.fail_create:
+            raise RuntimeError("provider create failed")
+        return SimpleNamespace(
+            access_key_id="LTAI-rotation-new",
+            secret_access_key="rotation-secret",
+        )
+
+
+def test_rotation_with_one_key_creates_second_without_deleting(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import rotate_access_key
+
+    identity = cloud_identity_factory()
+    first = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    provider = RotationProvider([first])
+    provider.cloud_keys[first.pk].access_key_id = "LTAI-existing-one"
+
+    replacement = rotate_access_key(identity=identity, provider=provider)
+
+    assert replacement.access_key_last_four == "-new"
+    assert identity.access_keys.count() == 2
+    assert provider.calls == [("create",)]
+
+
+def test_rotation_with_two_keys_requires_explicit_selected_key(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    first = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    second = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    provider = RotationProvider([first, second])
+
+    with pytest.raises(CredentialRotationError, match="ROTATION_SELECTION_REQUIRED"):
+        rotate_access_key(identity=identity, provider=provider)
+
+    assert provider.calls == []
+
+
+def test_rotation_delete_then_create_failure_preserves_other_key_and_is_manual(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    remaining = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    provider = RotationProvider([selected, remaining])
+    provider.cloud_keys[selected.pk].access_key_id = "LTAI-existing-one"
+    provider.cloud_keys[remaining.pk].access_key_id = "LTAI-existing-two"
+    provider.fail_create = True
+
+    with pytest.raises(
+        CredentialRotationError, match="ROTATION_REPLACEMENT_FAILED"
+    ) as captured:
+        rotate_access_key(
+            identity=identity,
+            provider=provider,
+            selected_access_key_id=selected.pk,
+        )
+
+    selected.refresh_from_db()
+    remaining.refresh_from_db()
+    assert captured.value.manual_required is True
+    assert selected.cloud_state == AccessKey.CloudState.DELETED
+    assert remaining.cloud_state == AccessKey.CloudState.ACTIVE
+    assert provider.calls == [
+        ("deactivate", "LTAI-existing-one"),
+        ("delete", "LTAI-existing-one"),
+        ("create",),
+    ]

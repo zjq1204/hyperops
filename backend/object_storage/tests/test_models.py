@@ -25,6 +25,14 @@ def test_user_bucket_quota_migration_extends_platform_model_migration():
     assert migration.dependencies == [("object_storage", "0005_platform_model")]
 
 
+def test_batch_workflow_migration_extends_quota_migration():
+    from importlib import import_module
+
+    migration = import_module("object_storage.migrations.0007_batch_workflow").Migration
+
+    assert migration.dependencies == [("object_storage", "0006_user_bucket_quota")]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_platform_migration_assigns_existing_pool_to_default_config():
     from django.db.migrations.executor import MigrationExecutor
@@ -414,6 +422,32 @@ def test_application_batch_has_independent_items(application_batch_factory):
         ApplicationItem.Status.SUCCEEDED,
         ApplicationItem.Status.FAILED,
     ]
+
+
+def test_batch_workflow_models_store_idempotency_and_retry_state(
+    application_batch_factory,
+):
+    from object_storage.models import ApplicationBatch, ApplicationItem
+
+    batch = application_batch_factory(item_count=1)
+    item = batch.items.get()
+
+    assert batch.payload_digest == ""
+    assert batch.issued_access_key_id is None
+    assert item.initial_suffix == "preview1"
+    assert {
+        ApplicationItem.Status.WAITING_RETRY,
+        ApplicationItem.Status.MANUAL_REQUIRED,
+        ApplicationItem.Status.RELEASING,
+        ApplicationItem.Status.PENDING_DELETE,
+        ApplicationItem.Status.DELETE_BLOCKED,
+    }.issubset(set(ApplicationItem.Status.values))
+    assert {
+        ApplicationBatch.Status.PENDING,
+        ApplicationBatch.Status.RUNNING,
+        ApplicationBatch.Status.PARTIALLY_SUCCEEDED,
+        ApplicationBatch.Status.MANUAL_REQUIRED,
+    }.issubset(set(ApplicationBatch.Status.values))
 
 
 def test_application_attempt_event_and_delivery_ticket_have_no_tenant_field():
