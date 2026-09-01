@@ -26,6 +26,8 @@ class FeishuIdentity:
 
 class FeishuClient:
     base_url = "https://open.feishu.cn/open-apis"
+    max_visible_departments = 1000
+    max_visible_users = 100000
 
     def __init__(self, *, timeout=10):
         self.timeout = timeout
@@ -59,28 +61,91 @@ class FeishuClient:
         )
 
     def list_visible_users(self, *, app_config):
-        """Enumerate users visible to the configured app through Contacts API."""
+        """Return a complete root-and-descendant Contacts API snapshot."""
         tenant_token = self._tenant_token(app_config)
-        headers = {"Authorization": f"Bearer {tenant_token}"}
-        page_token = ""
+        department_ids = ["0"]
+        queued = ["0"]
+        seen_departments = set()
+        while queued:
+            department_id = queued.pop(0)
+            if department_id in seen_departments:
+                continue
+            seen_departments.add(department_id)
+            children = self.list_child_departments(
+                app_config=app_config,
+                department_id=department_id,
+                tenant_token=tenant_token,
+            )
+            for child_id in children:
+                if child_id in seen_departments or child_id in queued:
+                    continue
+                if len(department_ids) >= self.max_visible_departments:
+                    raise FeishuProviderError("FEISHU_CONTACTS_TRAVERSAL_LIMIT")
+                department_ids.append(child_id)
+                queued.append(child_id)
+
         identities = []
         seen_open_ids = set()
+        for department_id in department_ids:
+            for identity in self.list_department_users(
+                app_config=app_config,
+                department_id=department_id,
+                tenant_token=tenant_token,
+            ):
+                if identity.open_id in seen_open_ids:
+                    continue
+                seen_open_ids.add(identity.open_id)
+                identities.append(identity)
+                if len(identities) > self.max_visible_users:
+                    raise FeishuProviderError("FEISHU_CONTACTS_TRAVERSAL_LIMIT")
+        return identities
 
-        while True:
-            params = {
-                "department_id": "0",
+    def list_child_departments(self, *, app_config, department_id, tenant_token=None):
+        token = tenant_token or self._tenant_token(app_config)
+        items = self._list_contacts_pages(
+            f"{self.base_url}/contact/v3/departments/{department_id}/children",
+            headers={"Authorization": f"Bearer {token}"},
+            params={
+                "department_id_type": "open_department_id",
+                "page_size": 50,
+            },
+        )
+        department_ids = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
+            child_id = str(
+                item.get("open_department_id") or item.get("department_id") or ""
+            ).strip()
+            if not child_id:
+                raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
+            department_ids.append(child_id)
+        return department_ids
+
+    def list_department_users(self, *, app_config, department_id, tenant_token=None):
+        token = tenant_token or self._tenant_token(app_config)
+        items = self._list_contacts_pages(
+            f"{self.base_url}/contact/v3/users/find_by_department",
+            headers={"Authorization": f"Bearer {token}"},
+            params={
+                "department_id": department_id,
                 "department_id_type": "open_department_id",
                 "user_id_type": "open_id",
                 "page_size": 50,
-            }
+            },
+        )
+        return [self._identity_from_payload(item) for item in items]
+
+    def _list_contacts_pages(self, url, *, headers, params):
+        page_token = ""
+        items = []
+        while True:
+            request_params = dict(params)
             if page_token:
-                params["page_token"] = page_token
+                request_params["page_token"] = page_token
             try:
                 payload = self._request_json(
-                    "GET",
-                    f"{self.base_url}/contact/v3/users/find_by_department",
-                    headers=headers,
-                    params=params,
+                    "GET", url, headers=headers, params=request_params
                 )
             except FeishuProviderError as exc:
                 error_code = {
@@ -91,17 +156,9 @@ class FeishuClient:
             data = payload.get("data")
             if not isinstance(data, dict) or not isinstance(data.get("items"), list):
                 raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
-            for item in data["items"]:
-                if not isinstance(item, dict):
-                    raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
-                identity = self._identity_from_payload(item)
-                if identity.open_id in seen_open_ids:
-                    raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
-                seen_open_ids.add(identity.open_id)
-                identities.append(identity)
-
+            items.extend(data["items"])
             if not data.get("has_more"):
-                return identities
+                return items
             next_page_token = str(data.get("page_token") or "").strip()
             if not next_page_token or next_page_token == page_token:
                 raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
@@ -125,7 +182,7 @@ class FeishuClient:
             or status.get("is_activated") is False
         ):
             is_active = False
-            status_reason = "deactivated"
+            status_reason = "account_disabled"
         else:
             is_active = True
             status_reason = ""

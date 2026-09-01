@@ -17,6 +17,8 @@ from object_storage.services.identity import (
     provision_feishu_identity,
 )
 
+TENANT_SCOPE_KEYS = frozenset({"tenant", "tenant_id", "tenant_code"})
+
 
 def _no_store(response):
     response["Cache-Control"] = "no-store"
@@ -32,15 +34,22 @@ def _error(detail, error_code, status_code):
     )
 
 
+def _has_tenant_scope_params(request):
+    return bool(
+        TENANT_SCOPE_KEYS.intersection(request.query_params)
+        or TENANT_SCOPE_KEYS.intersection(request.data)
+    )
+
+
 class FeishuLoginStartView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if "tenant" in request.data or "tenant_code" in request.data:
+        if _has_tenant_scope_params(request):
             return _error(
                 "Tenant selection is not supported",
-                "FEISHU_TENANT_NOT_SUPPORTED",
+                "TENANT_SCOPE_UNSUPPORTED",
                 status.HTTP_400_BAD_REQUEST,
             )
         config = PlatformFeishuConfig.objects.filter(
@@ -68,6 +77,12 @@ class FeishuCallbackView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        if _has_tenant_scope_params(request):
+            return _error(
+                "Tenant selection is not supported",
+                "TENANT_SCOPE_UNSUPPORTED",
+                status.HTTP_400_BAD_REQUEST,
+            )
         state_payload = consume_oauth_state(request.query_params.get("state"))
         if not state_payload or not state_payload.get("nonce"):
             return _error(

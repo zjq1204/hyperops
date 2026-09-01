@@ -1,4 +1,5 @@
 import hashlib
+import json
 import secrets
 
 from django.core.cache import cache
@@ -19,14 +20,14 @@ class FeishuSyncConfirmationError(RuntimeError):
 
 def _cache_key(kind, value):
     digest = hashlib.sha256(str(value).encode("utf-8")).hexdigest()
-    return f"object-storage:feishu-sync:{kind}:v1:{digest}"
+    return f"object-storage:feishu-sync:{kind}:v2:{digest}"
 
 
 def _status_reason(identity):
     if identity.status_reason:
         return identity.status_reason
     if not identity.is_active:
-        return "deactivated"
+        return "account_disabled"
     if not identity.is_eligible:
         return "outside_scope"
     return ""
@@ -38,11 +39,18 @@ def _identity_payload(identity):
         "union_id": identity.union_id,
         "display_name": identity.display_name,
         "email": identity.email,
-        "department_ids": list(identity.department_ids),
-        "is_active": identity.is_active,
-        "is_eligible": identity.is_eligible,
+        "department_ids": sorted(str(item) for item in identity.department_ids),
+        "is_active": bool(identity.is_active),
+        "is_eligible": bool(identity.is_eligible),
         "status_reason": _status_reason(identity),
     }
+
+
+def _canonical_hash(snapshot):
+    encoded = json.dumps(
+        snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _identity_from_payload(payload):
@@ -60,67 +68,113 @@ def _identity_from_payload(payload):
     )
 
 
-def _row(identity, existing_open_ids):
+def _local_changed(identity, remote):
+    return any(
+        (
+            identity.union_id != remote.union_id,
+            identity.display_name != remote.display_name,
+            list(identity.department_snapshot or []) != list(remote.department_ids),
+            identity.profile_snapshot != {"email": remote.email},
+            not identity.is_active,
+        )
+    )
+
+
+def _classify(identity, existing):
     reason = _status_reason(identity)
-    if reason:
-        status = reason
-    elif identity.open_id not in existing_open_ids:
-        status = "new_remote"
-    else:
-        status = "eligible"
+    if existing is None:
+        return "new_remote", reason
+    if reason == "outside_scope":
+        return "outside_scope", reason
+    if reason == "account_disabled":
+        return "account_disabled", reason
+    if reason == "deleted":
+        return "deleted", reason
+    if _local_changed(existing, identity):
+        return "updates", ""
+    return "unchanged", ""
+
+
+def _item(identity, category, reason):
+    email = getattr(identity, "email", "")
+    if not email:
+        email = (identity.profile_snapshot or {}).get("email", "")
     return {
         "open_id": identity.open_id,
         "display_name": identity.display_name,
-        "email": identity.email,
-        "status": status,
+        "email": email,
+        "category": category,
+        "status": category,
         "reason": reason,
     }
 
 
 def create_sync_preview(*, config, actor_id, remote_identities):
-    remote_identities = list(remote_identities)
-    existing_open_ids = set(
-        FeishuIdentity.objects.filter(
-            open_id__in=[identity.open_id for identity in remote_identities]
-        ).values_list("open_id", flat=True)
+    remote_identities = sorted(
+        list(remote_identities), key=lambda identity: identity.open_id
     )
-    rows = [_row(identity, existing_open_ids) for identity in remote_identities]
-    remote_open_ids = {identity.open_id for identity in remote_identities}
-    for identity in FeishuIdentity.objects.exclude(open_id__in=remote_open_ids):
-        rows.append(
-            {
-                "open_id": identity.open_id,
-                "display_name": identity.display_name,
-                "email": (identity.profile_snapshot or {}).get("email", ""),
-                "status": "outside_scope",
-                "reason": "outside_scope",
-            }
-        )
-    rows.sort(key=lambda row: (row["status"], row["display_name"], row["open_id"]))
-    payload = {
-        "items": rows,
-        "new_remote": sum(
-            identity.open_id not in existing_open_ids for identity in remote_identities
-        ),
-        "eligible_count": sum(
-            identity.is_active and identity.is_eligible
-            for identity in remote_identities
-        ),
+    remote_open_ids = [identity.open_id for identity in remote_identities]
+    existing_by_open_id = {
+        identity.open_id: identity
+        for identity in FeishuIdentity.objects.filter(open_id__in=remote_open_ids)
     }
+    items = []
+    actions = []
+    for remote in remote_identities:
+        category, reason = _classify(remote, existing_by_open_id.get(remote.open_id))
+        items.append(_item(remote, category, reason))
+        actions.append({"open_id": remote.open_id, "category": category})
+
+    for existing in FeishuIdentity.objects.exclude(open_id__in=remote_open_ids):
+        items.append(
+            _item(
+                existing,
+                "outside_scope",
+                "outside_scope",
+            )
+        )
+        actions.append({"open_id": existing.open_id, "category": "outside_scope"})
+
+    items.sort(key=lambda item: (item["category"], item["open_id"]))
+    counts = {
+        "creates": sum(item["category"] == "new_remote" for item in items),
+        "updates": sum(item["category"] == "updates" for item in items),
+        "account_disabled": sum(
+            item["category"] == "account_disabled" for item in items
+        ),
+        "deleted": sum(item["category"] == "deleted" for item in items),
+        "outside_scope": sum(item["category"] == "outside_scope" for item in items),
+        "unchanged": sum(item["category"] == "unchanged" for item in items),
+    }
+    snapshot = {
+        "identities": [_identity_payload(identity) for identity in remote_identities],
+        "items": items,
+        "counts": counts,
+    }
+    snapshot_hash = _canonical_hash(snapshot)
     token = secrets.token_urlsafe(32)
     cache.set(
         _cache_key("confirmation", token),
         {
             "config_id": config.id,
             "actor_id": actor_id,
-            "identities": [
-                _identity_payload(identity) for identity in remote_identities
-            ],
+            "snapshot_hash": snapshot_hash,
+            "snapshot": snapshot,
+            "actions": actions,
         },
         timeout=CONFIRMATION_TTL_SECONDS,
     )
-    payload["confirmation_token"] = token
-    return payload
+    return {
+        "items": items,
+        "counts": counts,
+        "new_remote": counts["creates"],
+        "eligible_count": sum(
+            identity.is_active and identity.is_eligible
+            for identity in remote_identities
+        ),
+        "snapshot_hash": snapshot_hash,
+        "confirmation_token": token,
+    }
 
 
 def _risk_snapshot(current, reason):
@@ -163,6 +217,12 @@ def _update_existing(identity, remote, access_group):
     return reason
 
 
+def _get_confirmation(token):
+    if not token:
+        return None
+    return cache.get(_cache_key("confirmation", token))
+
+
 def _consume_confirmation(token):
     if not token:
         return None
@@ -170,51 +230,58 @@ def _consume_confirmation(token):
     if not cache.add(f"{key}:consume", True, timeout=30):
         return None
     payload = cache.get(key)
-    cache.delete(key)
     return payload
 
 
 def confirm_sync(*, token, idempotency_key, actor_id):
+    confirmation = _get_confirmation(token)
     result_key = _cache_key("idempotency", f"{actor_id}:{idempotency_key}")
-    previous_result = cache.get(result_key)
-    if previous_result is not None:
-        return previous_result
-    confirmation = _consume_confirmation(token)
+    previous = cache.get(result_key)
+    if previous is not None:
+        if confirmation is None or previous["snapshot_hash"] != confirmation.get(
+            "snapshot_hash", ""
+        ):
+            raise FeishuSyncConfirmationError("IDEMPOTENCY_KEY_REUSED")
+        return previous["result"]
     if confirmation is None or confirmation.get("actor_id") != actor_id:
         raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_INVALID")
+    consumed = _consume_confirmation(token)
+    if consumed is None:
+        raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_INVALID")
 
-    remote = [_identity_from_payload(item) for item in confirmation["identities"]]
-    remote_open_ids = {identity.open_id for identity in remote}
-    updated_count = 0
-    deactivated_count = 0
-    outside_scope_count = 0
-    skipped_new_remote = 0
+    remote_by_open_id = {
+        item["open_id"]: _identity_from_payload(item)
+        for item in confirmation["snapshot"]["identities"]
+    }
+    counts = {
+        "updates": 0,
+        "account_disabled": 0,
+        "deleted": 0,
+        "outside_scope": 0,
+        "unchanged": 0,
+        "new_remote": 0,
+    }
     with transaction.atomic():
         config = PlatformFeishuConfig.objects.select_for_update().get(
             pk=confirmation["config_id"], singleton_key="default"
         )
-        existing_identities = {
+        existing_by_open_id = {
             identity.open_id: identity
             for identity in FeishuIdentity.objects.select_for_update()
         }
-        for remote_identity in remote:
-            existing = existing_identities.get(remote_identity.open_id)
-            if existing is None:
-                skipped_new_remote += 1
+        for action in confirmation["actions"]:
+            category = action["category"]
+            identity = existing_by_open_id.get(action["open_id"])
+            if category == "new_remote":
+                counts["new_remote"] += 1
                 continue
-            reason = _update_existing(existing, remote_identity, config.access_group)
-            if reason == "outside_scope":
-                outside_scope_count += 1
-            elif reason:
-                deactivated_count += 1
-            else:
-                updated_count += 1
-        for identity in existing_identities.values():
-            if identity.open_id in remote_open_ids:
+            if category == "unchanged":
+                counts["unchanged"] += 1
                 continue
-            _update_existing(
-                identity,
-                _identity_from_payload(
+            if identity is None:
+                continue
+            if category == "outside_scope":
+                remote = _identity_from_payload(
                     {
                         "open_id": identity.open_id,
                         "union_id": identity.union_id,
@@ -225,15 +292,23 @@ def confirm_sync(*, token, idempotency_key, actor_id):
                         "is_eligible": False,
                         "status_reason": "outside_scope",
                     }
-                ),
-                config.access_group,
-            )
-            outside_scope_count += 1
+                )
+            else:
+                remote = remote_by_open_id[action["open_id"]]
+            _update_existing(identity, remote, config.access_group)
+            counts[category] += 1
     result = {
-        "updated_count": updated_count,
-        "deactivated_count": deactivated_count,
-        "outside_scope_count": outside_scope_count,
-        "skipped_new_remote": skipped_new_remote,
+        "updated_count": counts["updates"],
+        "deactivated_count": counts["account_disabled"] + counts["deleted"],
+        "account_disabled_count": counts["account_disabled"],
+        "deleted_count": counts["deleted"],
+        "outside_scope_count": counts["outside_scope"],
+        "skipped_new_remote": counts["new_remote"],
+        "unchanged_count": counts["unchanged"],
     }
-    cache.set(result_key, result, timeout=IDEMPOTENCY_TTL_SECONDS)
+    cache.set(
+        result_key,
+        {"snapshot_hash": confirmation["snapshot_hash"], "result": result},
+        timeout=IDEMPOTENCY_TTL_SECONDS,
+    )
     return result

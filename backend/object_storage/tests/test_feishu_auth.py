@@ -109,7 +109,7 @@ def test_login_start_is_platform_singleton_and_rejects_tenant_input(
     response, state = _start_login(client, tenant_code="legacy-tenant")
 
     assert response.status_code == 400
-    assert _payload(response)["error_code"] == "FEISHU_TENANT_NOT_SUPPORTED"
+    assert _payload(response)["error_code"] == "TENANT_SCOPE_UNSUPPORTED"
     assert state is None
 
     response, state = _start_login(client)
@@ -258,6 +258,17 @@ def test_disabled_or_invalid_singleton_blocks_login_start(client, feishu_config)
 
     assert response.status_code == 404
     assert _payload(response)["error_code"] == "FEISHU_LOGIN_UNAVAILABLE"
+    assert response["Cache-Control"] == "no-store"
+
+
+def test_login_callback_rejects_tenant_query_parameter(client, feishu_config):
+    response = client.get(
+        "/api/v1/object-storage/auth/feishu/callback/",
+        {"tenant_id": "42", "state": "state", "code": "valid-code"},
+    )
+
+    assert response.status_code == 400
+    assert _payload(response)["error_code"] == "TENANT_SCOPE_UNSUPPORTED"
     assert response["Cache-Control"] == "no-store"
 
 
