@@ -52,7 +52,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("auth", "0012_alter_user_first_name_max_length"),
-        ("object_storage", "0002_object_storage_user_role"),
+        ("object_storage", "0004_feishu_access_group"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
