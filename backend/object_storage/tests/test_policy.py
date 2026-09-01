@@ -184,6 +184,104 @@ def test_reserved_bucket_makes_second_reservation_fail(
         )
 
 
+def test_reservation_rolls_back_callback_bucket_when_callback_fails(
+    cloud_identity_factory,
+    bucket_factory,
+    platform_object_storage_config,
+):
+    from object_storage.models import Bucket
+    from object_storage.services.policy import reserve_bucket_capacity
+
+    identity = cloud_identity_factory()
+    platform_object_storage_config.default_bucket_quota = 1
+    platform_object_storage_config.save(update_fields=("default_bucket_quota",))
+
+    def reserve_then_fail(_locked_user, _capacity):
+        bucket_factory(
+            cloud_identity=identity,
+            name="rolled-back-reservation",
+            state=Bucket.State.REQUESTED,
+        )
+        raise RuntimeError("RESERVE_FAILED")
+
+    with pytest.raises(RuntimeError, match="RESERVE_FAILED"):
+        reserve_bucket_capacity(
+            identity.user,
+            requested_count=1,
+            reserve_callback=reserve_then_fail,
+        )
+
+    assert not Bucket.objects.filter(name="rolled-back-reservation").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_reservations_compete_for_last_user_quota(
+    cloud_identity_factory,
+    platform_object_storage_config,
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections, connection
+
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL row locking is required for this race test")
+
+    from object_storage.models import Bucket
+    from object_storage.services.policy import (
+        BucketQuotaExceeded,
+        reserve_bucket_capacity,
+    )
+
+    identity = cloud_identity_factory()
+    platform_object_storage_config.default_bucket_quota = 1
+    platform_object_storage_config.save(update_fields=("default_bucket_quota",))
+    barrier = Barrier(2)
+
+    def reserve(number):
+        close_old_connections()
+        try:
+            barrier.wait()
+
+            def create_bucket(locked_user, _capacity):
+                return Bucket.objects.create(
+                    owner_id=locked_user.pk,
+                    resource_pool_id=identity.resource_pool_id,
+                    cloud_identity_id=identity.pk,
+                    business_name=f"Concurrent {number}",
+                    name=f"concurrent-reservation-{number}",
+                    project="quota-race",
+                    environment=Bucket.Environment.TEST,
+                    purpose="quota concurrency test",
+                    region=identity.resource_pool.region,
+                    state=Bucket.State.REQUESTED,
+                )
+
+            reserve_bucket_capacity(
+                identity.user,
+                requested_count=1,
+                reserve_callback=create_bucket,
+            )
+            return "reserved"
+        except BucketQuotaExceeded:
+            return "quota_exceeded"
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(reserve, (1, 2)))
+
+    assert sorted(results) == ["quota_exceeded", "reserved"]
+    assert (
+        Bucket.objects.filter(
+            owner=identity.user,
+            state=Bucket.State.REQUESTED,
+            name__startswith="concurrent-reservation-",
+        ).count()
+        == 1
+    )
+
+
 def test_object_policy_is_stable_and_scoped_to_active_owned_buckets(
     bucket_factory,
     cloud_identity_factory,
