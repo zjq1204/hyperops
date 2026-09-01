@@ -271,6 +271,75 @@ def test_claim_recovery_enqueue_failure_marks_batch_manual_and_audits(
 
 
 @pytest.mark.django_db
+def test_claim_recovery_enqueue_failure_uses_its_own_generation(
+    user_factory, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage import tasks
+    from object_storage.models import ApplicationBatch
+
+    user = user_factory()
+    first = ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="first-recovered-enqueue-failure",
+        status=ApplicationBatch.Status.RUNNING,
+        running_task_id="expired-first-worker",
+        owner_token="expired-first-owner",
+        claim_version=3,
+        run_lease_until=timezone.now() - timedelta(minutes=1),
+    )
+    second = ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="second-recovered-enqueue-success",
+        status=ApplicationBatch.Status.RUNNING,
+        running_task_id="expired-second-worker",
+        owner_token="expired-second-owner",
+        claim_version=7,
+        run_lease_until=timezone.now() - timedelta(minutes=1),
+    )
+    recovery_generations = {first.pk: 4, second.pk: 8}
+    enqueue_calls = []
+
+    def recover(batch_id, *, now):
+        del now
+        ApplicationBatch.objects.filter(pk=batch_id).update(
+            running_task_id="",
+            owner_token="",
+            run_lease_until=None,
+            claim_version=recovery_generations[batch_id],
+        )
+        return ApplicationBatch.objects.get(pk=batch_id), recovery_generations[batch_id]
+
+    def enqueue(batch_id):
+        enqueue_calls.append(batch_id)
+        if batch_id == first.pk:
+            raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(tasks, "recover_expired_application_claim", recover)
+    monkeypatch.setattr(tasks.run_storage_application_batch, "delay", enqueue)
+
+    result = tasks.recover_expired_application_claims()
+
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert enqueue_calls == [first.pk, second.pk]
+    assert first.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert first.claim_version == 4
+    assert second.status == ApplicationBatch.Status.RUNNING
+    assert second.claim_version == 8
+    assert result == {
+        "candidate_count": 2,
+        "recovered_count": 2,
+        "enqueued_count": 1,
+        "failed_enqueue_count": 1,
+        "failed_count": 0,
+    }
+
+
+@pytest.mark.django_db
 def test_claim_recovery_enqueue_failure_does_not_overwrite_replacement_claim(
     user_factory, monkeypatch
 ):

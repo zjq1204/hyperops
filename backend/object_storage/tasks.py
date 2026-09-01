@@ -71,7 +71,7 @@ def recover_expired_application_claims():
     enqueued_count = 0
     failed_enqueue_count = 0
     failed_count = 0
-    recovered_batch_ids = []
+    recovered_batches = []
     for batch_id in batch_ids:
         try:
             batch, recovery_generation = recover_expired_application_claim(
@@ -86,8 +86,8 @@ def recover_expired_application_claims():
             continue
         if not batch.running_task_id and not batch.owner_token:
             recovered_count += 1
-            recovered_batch_ids.append(batch_id)
-    for batch_id in recovered_batch_ids:
+            recovered_batches.append((batch_id, recovery_generation))
+    for batch_id, recovery_generation in recovered_batches:
         try:
             run_storage_application_batch.delay(batch_id)
         except Exception:
