@@ -463,12 +463,13 @@ def test_expired_running_lease_has_explicit_recovery_path(batch_context, monkeyp
     provider = FakeProvider()
     monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
 
-    recovered = applications.recover_expired_application_claim(
+    recovered, recovery_generation = applications.recover_expired_application_claim(
         batch.pk,
         now=timezone.now(),
     )
 
     recovered.refresh_from_db()
+    assert recovery_generation == recovered.claim_version
     item = recovered.items.get()
     assert recovered.status == ApplicationBatch.Status.RUNNING
     assert recovered.running_task_id == ""
@@ -509,12 +510,13 @@ def test_claim_recovery_moves_unstarted_items_to_waiting_retry(
     provider = FakeProvider()
     monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
 
-    recovered = applications.recover_expired_application_claim(
+    recovered, recovery_generation = applications.recover_expired_application_claim(
         batch.pk,
         now=timezone.now(),
     )
 
     item = recovered.items.get()
+    assert recovery_generation == recovered.claim_version
     item.bucket.refresh_from_db()
     assert item.status == ApplicationItem.Status.WAITING_RETRY
     assert item.bucket.state == Bucket.State.WAITING_RETRY
@@ -553,12 +555,13 @@ def test_claim_recovery_marks_terminal_state_without_delivery_manual(
     batch.run_lease_until = timezone.now() - timedelta(seconds=1)
     batch.save(update_fields=("run_lease_until",))
 
-    recovered = applications.recover_expired_application_claim(
+    recovered, recovery_generation = applications.recover_expired_application_claim(
         batch.pk,
         now=timezone.now(),
     )
 
     item.refresh_from_db()
+    assert recovery_generation == recovered.claim_version
     assert recovered.status == ApplicationBatch.Status.MANUAL_REQUIRED
     assert recovered.error_code == "CLAIM_EXPIRED_TERMINAL_STATE_UNKNOWN"
     assert item.status == ApplicationItem.Status.SUCCEEDED

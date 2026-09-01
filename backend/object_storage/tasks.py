@@ -74,7 +74,9 @@ def recover_expired_application_claims():
     recovered_batch_ids = []
     for batch_id in batch_ids:
         try:
-            batch = recover_expired_application_claim(batch_id, now=now)
+            batch, recovery_generation = recover_expired_application_claim(
+                batch_id, now=now
+            )
         except Exception:
             failed_count += 1
             logger.exception(
@@ -95,7 +97,7 @@ def recover_expired_application_claims():
                 batch_id,
             )
             try:
-                mark_claim_recovery_enqueue_failed(batch_id)
+                mark_claim_recovery_enqueue_failed(batch_id, recovery_generation)
             except Exception:
                 logger.exception(
                     "Object storage recovered claim manual fallback failed "

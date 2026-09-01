@@ -545,6 +545,7 @@ class ApplicationBatch(TimestampedModel):
         default="",
         editable=False,
     )
+    claim_version = models.PositiveBigIntegerField(default=0, editable=False)
     run_lease_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:

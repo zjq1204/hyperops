@@ -1289,10 +1289,12 @@ def _claim_batch(batch_id, execution_key):
             item.save(update_fields=("status", "updated_at"))
         owner = execution_key or f"direct:{batch.pk}:{now.timestamp()}"
         owner_token = uuid.uuid4().hex
+        claim_version = batch.claim_version + 1
         batch.status = ApplicationBatch.Status.RUNNING
         batch.started_at = batch.started_at or now
         batch.running_task_id = owner
         batch.owner_token = owner_token
+        batch.claim_version = claim_version
         batch.run_lease_until = now + timedelta(seconds=RUN_LEASE_SECONDS)
         batch.current_stage = batch.current_stage or "PRINCIPAL_BINDING"
         batch.save(
@@ -1301,6 +1303,7 @@ def _claim_batch(batch_id, execution_key):
                 "started_at",
                 "running_task_id",
                 "owner_token",
+                "claim_version",
                 "run_lease_until",
                 "current_stage",
                 "updated_at",
@@ -1406,6 +1409,8 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
             )
         locked_batch.running_task_id = ""
         locked_batch.owner_token = ""
+        recovery_generation = locked_batch.claim_version + 1
+        locked_batch.claim_version = recovery_generation
         locked_batch.run_lease_until = None
         locked_batch.current_stage = "CLAIM_RECOVERY"
         locked_batch.error_code = "CLAIM_EXPIRED"
@@ -1414,6 +1419,7 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
             update_fields=(
                 "running_task_id",
                 "owner_token",
+                "claim_version",
                 "run_lease_until",
                 "current_stage",
                 "error_code",
@@ -1454,10 +1460,10 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
                 "status": result.status,
             },
         )
-        return result
+        return result, recovery_generation
 
 
-def mark_claim_recovery_enqueue_failed(batch_id):
+def mark_claim_recovery_enqueue_failed(batch_id, recovery_generation):
     error_code = "CLAIM_RECOVERY_ENQUEUE_FAILED"
     with transaction.atomic():
         batch = (
@@ -1465,6 +1471,13 @@ def mark_claim_recovery_enqueue_failed(batch_id):
             .select_related("applicant")
             .get(pk=batch_id)
         )
+        if not (
+            batch.status == ApplicationBatch.Status.RUNNING
+            and not batch.running_task_id
+            and not batch.owner_token
+            and batch.claim_version == recovery_generation
+        ):
+            return batch
         items = list(
             batch.items.select_for_update().filter(
                 status__in=(

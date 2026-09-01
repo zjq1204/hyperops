@@ -172,7 +172,15 @@ def test_claim_recovery_task_scans_only_expired_running_batches(
 
     def recover(batch_id, *, now):
         recovery_calls.append((batch_id, now))
-        return SimpleNamespace(pk=batch_id, running_task_id="", owner_token="")
+        return (
+            SimpleNamespace(
+                pk=batch_id,
+                running_task_id="",
+                owner_token="",
+                claim_version=4,
+            ),
+            4,
+        )
 
     monkeypatch.setattr(
         tasks,
@@ -217,6 +225,7 @@ def test_claim_recovery_enqueue_failure_marks_batch_manual_and_audits(
         status=ApplicationBatch.Status.RUNNING,
         running_task_id="expired-worker",
         owner_token="expired-owner-token",
+        claim_version=3,
         run_lease_until=timezone.now() - timedelta(minutes=1),
     )
 
@@ -227,7 +236,7 @@ def test_claim_recovery_enqueue_failure_marks_batch_manual_and_audits(
             owner_token="",
             run_lease_until=None,
         )
-        return ApplicationBatch.objects.get(pk=batch_id)
+        return ApplicationBatch.objects.get(pk=batch_id), 3
 
     monkeypatch.setattr(tasks, "recover_expired_application_claim", recover)
     monkeypatch.setattr(
@@ -259,6 +268,71 @@ def test_claim_recovery_enqueue_failure_marks_batch_manual_and_audits(
         "failed_enqueue_count": 1,
         "failed_count": 0,
     }
+
+
+@pytest.mark.django_db
+def test_claim_recovery_enqueue_failure_does_not_overwrite_replacement_claim(
+    user_factory, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage import tasks
+    from object_storage.models import ApplicationBatch, ApplicationItem
+    from object_storage.services import applications
+
+    user = user_factory()
+    started_at = timezone.now()
+    batch = ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="recovered-replacement-claim",
+        status=ApplicationBatch.Status.RUNNING,
+        running_task_id="expired-worker",
+        owner_token="expired-owner-token",
+        claim_version=6,
+        started_at=started_at,
+        run_lease_until=started_at - timedelta(minutes=1),
+    )
+    item = ApplicationItem.objects.create(
+        batch=batch,
+        business_name="Recovery",
+        purpose="recovery",
+        status=ApplicationItem.Status.WAITING_RETRY,
+    )
+
+    def recover(batch_id, *, now):
+        recovered, generation = applications.recover_expired_application_claim(
+            batch_id, now=now
+        )
+        return recovered, generation
+
+    def claim_then_fail(batch_id):
+        current = ApplicationBatch.objects.get(pk=batch_id)
+        assert current.status == ApplicationBatch.Status.RUNNING
+        assert current.running_task_id == ""
+        assert current.owner_token == ""
+        replacement, claimed, replacement_token = applications._claim_batch(
+            batch_id, "replacement-worker"
+        )
+        assert claimed is True
+        assert replacement.owner_token == replacement_token
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(tasks, "recover_expired_application_claim", recover)
+    monkeypatch.setattr(tasks.run_storage_application_batch, "delay", claim_then_fail)
+
+    result = tasks.recover_expired_application_claims()
+
+    batch.refresh_from_db()
+    item.refresh_from_db()
+    assert result["recovered_count"] == 1
+    assert result["failed_enqueue_count"] == 1
+    assert batch.status == ApplicationBatch.Status.RUNNING
+    assert batch.running_task_id == "replacement-worker"
+    assert batch.owner_token
+    assert batch.owner_token != "expired-owner-token"
+    assert item.status == ApplicationItem.Status.WAITING_RETRY
 
 
 def test_object_storage_periodic_tasks_are_registered():
