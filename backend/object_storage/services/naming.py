@@ -110,18 +110,59 @@ def generate_bucket_name_candidate(**render_values):
     )
 
 
-def create_bucket_with_unique_name(*, create_callback, **render_values):
+def _candidate_for_suffix(suffix, render_values):
+    return BucketNameCandidate(
+        name=render_bucket_name(suffix=suffix, **render_values),
+        suffix=suffix,
+    )
+
+
+def _initial_bucket_name_candidate(initial_suffix, initial_candidate, render_values):
+    if (initial_suffix is None) == (initial_candidate is None):
+        raise BucketNamingError("INITIAL_BUCKET_NAME_REQUIRED")
+    if initial_candidate is None:
+        return _candidate_for_suffix(initial_suffix, render_values)
+    if not isinstance(initial_candidate, BucketNameCandidate):
+        raise BucketNamingError("INITIAL_CANDIDATE_INVALID")
+    expected = _candidate_for_suffix(initial_candidate.suffix, render_values)
+    if initial_candidate != expected:
+        raise BucketNamingError("INITIAL_CANDIDATE_MISMATCH")
+    return initial_candidate
+
+
+def _generate_fresh_candidate(render_values, used_suffixes):
+    for _generation_attempt in range(32):
+        suffix = generate_suffix()
+        if suffix not in used_suffixes:
+            return _candidate_for_suffix(suffix, render_values)
+    raise BucketNamingError("SUFFIX_GENERATION_EXHAUSTED")
+
+
+def create_bucket_with_unique_name(
+    *,
+    create_callback,
+    initial_suffix=None,
+    initial_candidate=None,
+    **render_values,
+):
     from object_storage.services.provider_errors import ObjectStorageProviderError
 
-    for _attempt in range(3):
-        candidate = generate_bucket_name_candidate(**render_values)
+    candidate = _initial_bucket_name_candidate(
+        initial_suffix,
+        initial_candidate,
+        render_values,
+    )
+    used_suffixes = {candidate.suffix}
+    for attempt in range(4):
         try:
             return create_callback(candidate)
         except ObjectStorageProviderError as exc:
             if exc.error_code != "BUCKET_NAME_CONFLICT":
                 raise
-            last_conflict = exc
-    raise last_conflict
+            if attempt == 3:
+                raise
+            candidate = _generate_fresh_candidate(render_values, used_suffixes)
+            used_suffixes.add(candidate.suffix)
 
 
 def remaining_business_name_length(template, context, suffix):

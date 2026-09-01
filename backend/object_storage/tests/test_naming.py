@@ -74,11 +74,86 @@ def test_candidate_generation_returns_suffix_for_conflict_retry(monkeypatch):
     assert (second.name, second.suffix) == ("hyperops-billing-bbbbbbbb", "bbbbbbbb")
 
 
-def test_create_bucket_with_unique_name_retries_three_fresh_suffixes(monkeypatch):
+def test_create_bucket_uses_exact_preview_candidate_first():
+    from object_storage.services import naming
+
+    attempted = []
+    context = {
+        "template": "{prefix}-{business_name}-{suffix}",
+        "prefix": "hyperops",
+        "user": "unused",
+        "business_name": "billing",
+        "project": "unused",
+        "environment": "unused",
+        "purpose": "unused",
+    }
+    preview = naming.BucketNameCandidate(
+        name="hyperops-billing-preview1",
+        suffix="preview1",
+    )
+
+    result = naming.create_bucket_with_unique_name(
+        create_callback=lambda candidate: attempted.append(candidate) or "created",
+        initial_candidate=preview,
+        **context,
+    )
+
+    assert result == "created"
+    assert attempted == [preview]
+
+    tampered = naming.BucketNameCandidate(
+        name="other-users-preview1",
+        suffix="preview1",
+    )
+    with pytest.raises(naming.BucketNamingError, match="INITIAL_CANDIDATE_MISMATCH"):
+        naming.create_bucket_with_unique_name(
+            create_callback=lambda _candidate: None,
+            initial_candidate=tampered,
+            **context,
+        )
+
+
+def test_three_conflicts_then_fourth_attempt_succeeds_with_fresh_suffixes(monkeypatch):
     from object_storage.services import naming
     from object_storage.services.provider_errors import ObjectStorageProviderError
 
-    generated = iter(("aaaaaaaa", "bbbbbbbb", "cccccccc"))
+    generated = iter(("preview1", "retry001", "retry002", "retry003"))
+    attempted = []
+    monkeypatch.setattr(naming, "generate_suffix", lambda: next(generated))
+
+    def create(candidate):
+        attempted.append(candidate)
+        if len(attempted) < 4:
+            raise ObjectStorageProviderError("BUCKET_NAME_CONFLICT")
+        return candidate.name
+
+    result = naming.create_bucket_with_unique_name(
+        create_callback=create,
+        initial_suffix="preview1",
+        template="{business_name}-{suffix}",
+        prefix="unused",
+        user="unused",
+        business_name="billing",
+        project="unused",
+        environment="unused",
+        purpose="unused",
+    )
+
+    assert result == "billing-retry003"
+    assert [candidate.suffix for candidate in attempted] == [
+        "preview1",
+        "retry001",
+        "retry002",
+        "retry003",
+    ]
+    assert len({candidate.suffix for candidate in attempted}) == 4
+
+
+def test_four_name_conflicts_raise_last_stable_provider_error(monkeypatch):
+    from object_storage.services import naming
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    generated = iter(("retry001", "retry002", "retry003"))
     attempted = []
     monkeypatch.setattr(naming, "generate_suffix", lambda: next(generated))
 
@@ -92,8 +167,9 @@ def test_create_bucket_with_unique_name_retries_three_fresh_suffixes(monkeypatch
     with pytest.raises(ObjectStorageProviderError) as captured:
         naming.create_bucket_with_unique_name(
             create_callback=conflict,
-            template="{prefix}-{business_name}-{suffix}",
-            prefix="hyperops",
+            initial_suffix="preview1",
+            template="{business_name}-{suffix}",
+            prefix="unused",
             user="unused",
             business_name="billing",
             project="unused",
@@ -101,39 +177,38 @@ def test_create_bucket_with_unique_name_retries_three_fresh_suffixes(monkeypatch
             purpose="unused",
         )
 
-    assert [candidate.suffix for candidate in attempted] == [
-        "aaaaaaaa",
-        "bbbbbbbb",
-        "cccccccc",
-    ]
+    assert len(attempted) == 4
     assert captured.value.error_code == "BUCKET_NAME_CONFLICT"
-    assert captured.value.request_id == "request-3"
+    assert captured.value.request_id == "request-4"
 
 
-def test_create_bucket_with_unique_name_returns_successful_callback_result(monkeypatch):
+def test_non_conflict_provider_error_is_not_retried(monkeypatch):
     from object_storage.services import naming
     from object_storage.services.provider_errors import ObjectStorageProviderError
 
-    generated = iter(("aaaaaaaa", "bbbbbbbb"))
-    monkeypatch.setattr(naming, "generate_suffix", lambda: next(generated))
-
-    def create(candidate):
-        if candidate.suffix == "aaaaaaaa":
-            raise ObjectStorageProviderError("BUCKET_NAME_CONFLICT")
-        return {"created_name": candidate.name}
-
-    result = naming.create_bucket_with_unique_name(
-        create_callback=create,
-        template="{business_name}-{suffix}",
-        prefix="unused",
-        user="unused",
-        business_name="billing",
-        project="unused",
-        environment="unused",
-        purpose="unused",
+    generated = []
+    monkeypatch.setattr(
+        naming,
+        "generate_suffix",
+        lambda: generated.append(True) or "retry001",
     )
 
-    assert result == {"created_name": "billing-bbbbbbbb"}
+    with pytest.raises(ObjectStorageProviderError, match="PROVIDER_PERMISSION_DENIED"):
+        naming.create_bucket_with_unique_name(
+            create_callback=lambda _candidate: (_ for _ in ()).throw(
+                ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
+            ),
+            initial_suffix="preview1",
+            template="{business_name}-{suffix}",
+            prefix="unused",
+            user="unused",
+            business_name="billing",
+            project="unused",
+            environment="unused",
+            purpose="unused",
+        )
+
+    assert generated == []
 
 
 def test_remaining_business_name_length_uses_fixed_rendered_context():
