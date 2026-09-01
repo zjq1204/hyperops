@@ -69,19 +69,16 @@ def sanitize_audit_metadata(metadata):
 
 def record_audit_event(
     *,
-    tenant=None,
     action,
     target_type,
     target_id,
     result,
     actor=None,
-    application=None,
     reason="",
     ip_address=None,
     request_id="",
     safe_metadata=None,
 ):
-    del tenant, application
     return AuditEvent.objects.create(
         actor=actor,
         action=action,

@@ -57,7 +57,15 @@ def user_factory(db, django_user_model):
         number = next(sequence)
         values = {"username": f"storage-user-{number}"}
         values.update(overrides)
-        return django_user_model.objects.create_user(**values)
+        user = django_user_model.objects.create_user(**values)
+        from accounts.models import Role
+
+        role, _created = Role.objects.get_or_create(
+            name="Object storage workspace user",
+            defaults={"visible_features": ["object_storage"]},
+        )
+        user.platform_roles.add(role)
+        return user
 
     return create
 

@@ -182,6 +182,8 @@ class AdminMutationAPIView(RejectTenantScopeMixin, RequireIdempotencyKeyMixin, A
 
 
 class NoStoreAdminMutationAPIView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def finalize_response(self, request, response, *args, **kwargs):
         return _no_store(super().finalize_response(request, response, *args, **kwargs))
 
@@ -220,6 +222,8 @@ class PlatformSettingsView(AdminMutationAPIView):
         config.refresh_from_db()
         _record_mutation(request, action, "PlatformObjectStorageConfig", config.pk)
         return Response(PlatformObjectStorageConfigAdminSerializer(config).data)
+
+    put = patch
 
 
 class PlatformFeishuSettingsView(AdminMutationAPIView):

@@ -19,9 +19,9 @@ from object_storage.models import (
     StorageResourcePool,
     UserBucketQuota,
 )
-from object_storage.services.tenant import sync_feishu_access_group
 from object_storage.services.platform import (
     replace_management_credentials,
+    sync_platform_feishu_access_group,
     update_resource_pool,
 )
 
@@ -104,28 +104,31 @@ class PlatformFeishuConfigAdminSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         instance = self.instance
-        if attrs.get("enabled") and (
-            instance is None
-            or instance.validation_status != PlatformFeishuConfig.ValidationStatus.VALID
-        ):
-            raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
-        if attrs.get("enabled"):
-            active = StorageResourcePool.objects.filter(
-                provider=attrs.get(
-                    "provider",
-                    (
-                        self.instance.provider
-                        if self.instance
-                        else StorageResourcePool.Provider.ALIYUN
-                    ),
-                ),
-                enabled=True,
+        enabled = attrs.get("enabled", instance.enabled if instance else False)
+        if enabled:
+            app_id = attrs.get("app_id", instance.app_id if instance else "")
+            secret = attrs.get(
+                "app_secret",
+                instance.app_secret_encrypted if instance else "",
             )
-            if self.instance:
-                active = active.exclude(pk=self.instance.pk)
-            if active.exists():
+            access_group = attrs.get(
+                "access_group", instance.access_group if instance else None
+            )
+            if not app_id:
+                raise serializers.ValidationError({"app_id": "APP_ID_REQUIRED"})
+            if not secret:
+                raise serializers.ValidationError({"app_secret": "APP_SECRET_REQUIRED"})
+            if access_group is None:
                 raise serializers.ValidationError(
-                    {"enabled": "ACTIVE_POOL_ALREADY_EXISTS"}
+                    {"access_group": "ACCESS_GROUP_REQUIRED"}
+                )
+            if (
+                instance is None
+                or instance.validation_status
+                != PlatformFeishuConfig.ValidationStatus.VALID
+            ):
+                raise serializers.ValidationError(
+                    {"enabled": "FEISHU_CONFIG_NOT_VALIDATED"}
                 )
         return attrs
 
@@ -148,7 +151,9 @@ class PlatformFeishuConfigAdminSerializer(serializers.ModelSerializer):
             setattr(instance, field, value)
         instance.save()
         if previous_group_id != instance.access_group_id:
-            sync_feishu_access_group(instance, previous_group_id=previous_group_id)
+            sync_platform_feishu_access_group(
+                instance, previous_group_id=previous_group_id
+            )
         return instance
 
 

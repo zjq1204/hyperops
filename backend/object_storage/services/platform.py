@@ -19,6 +19,23 @@ from object_storage.models import (
     StorageResourcePool,
 )
 
+
+def sync_platform_feishu_access_group(config, *, previous_group_id=None):
+    """Apply the singleton Feishu group to existing Feishu identities."""
+    from django.contrib.auth.models import Group
+
+    from object_storage.models import FeishuIdentity
+
+    user_ids = list(FeishuIdentity.objects.values_list("user_id", flat=True))
+    if previous_group_id and previous_group_id != config.access_group_id:
+        previous_group = Group.objects.filter(pk=previous_group_id).first()
+        if previous_group is not None:
+            previous_group.user_set.remove(*user_ids)
+    if config.access_group_id and user_ids:
+        config.access_group.user_set.add(*user_ids)
+    return config.access_group
+
+
 DEFAULT_SINGLETON_KEY = "default"
 OBJECT_STORAGE_CONFIG_FIELDS = frozenset(
     {

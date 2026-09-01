@@ -14,7 +14,7 @@ from object_storage.services.feishu_sync import (
     confirm_sync,
     create_sync_preview,
 )
-from object_storage.views_auth import TENANT_SCOPE_KEYS
+from object_storage.views_auth import LEGACY_SCOPE_KEYS
 
 
 def _no_store(response):
@@ -34,10 +34,10 @@ def _error(error_code, status_code):
     return _no_store(Response({"error_code": error_code}, status=status_code))
 
 
-def _has_tenant_scope_params(request):
+def _has_legacy_scope_params(request):
     return bool(
-        TENANT_SCOPE_KEYS.intersection(request.query_params)
-        or TENANT_SCOPE_KEYS.intersection(request.data)
+        LEGACY_SCOPE_KEYS.intersection(request.query_params)
+        or LEGACY_SCOPE_KEYS.intersection(request.data)
     )
 
 
@@ -55,9 +55,10 @@ def _record_failure(request, error_code):
 
 class FeishuSyncPreviewView(RequireIdempotencyKeyMixin, APIView):
     permission_classes = [HasObjectStorageAdminAccess]
+    idempotency_sensitive = True
 
     def post(self, request):
-        if _has_tenant_scope_params(request):
+        if _has_legacy_scope_params(request):
             return _error("TENANT_SCOPE_UNSUPPORTED", status.HTTP_400_BAD_REQUEST)
         config = _config()
         if config is None:
@@ -79,9 +80,10 @@ class FeishuSyncPreviewView(RequireIdempotencyKeyMixin, APIView):
 
 class FeishuSyncConfirmView(RequireIdempotencyKeyMixin, APIView):
     permission_classes = [HasObjectStorageAdminAccess]
+    idempotency_sensitive = True
 
     def post(self, request):
-        if _has_tenant_scope_params(request):
+        if _has_legacy_scope_params(request):
             return _error("TENANT_SCOPE_UNSUPPORTED", status.HTTP_400_BAD_REQUEST)
         idempotency_key = str(request.data.get("idempotency_key") or "").strip()
         if not idempotency_key:

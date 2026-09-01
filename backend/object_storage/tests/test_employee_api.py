@@ -197,38 +197,87 @@ def test_single_key_actions_are_owner_scoped_and_require_idempotency(
 
 
 def test_delivery_token_and_consume_are_no_store(
-    employee_context, application_batch_factory, monkeypatch
+    employee_context,
+    application_batch_factory,
+    cloud_identity_factory,
+    access_key_factory,
 ):
-    client, user, _pool, _config = employee_context
-    batch = application_batch_factory(applicant=user)
-    monkeypatch.setattr(
-        "object_storage.views_employee.get_ephemeral_delivery_token",
-        lambda **kwargs: "one-time-token",
+    from object_storage.models import ApiIdempotencyRecord, DeliveryTicket
+    from object_storage.crypto import encrypt_secret
+    from object_storage.services.credentials import digest_delivery_token
+    from django.core.cache import cache
+    from django.utils import timezone
+    from datetime import timedelta
+
+    client, user, pool, config = employee_context
+    identity = cloud_identity_factory(user=user, resource_pool=pool)
+    key = access_key_factory(cloud_identity=identity)
+    key.access_key_id_encrypted = encrypt_secret("LTAI-delivered")
+    key.secret_access_key_encrypted = encrypt_secret("delivered-secret")
+    key.save(update_fields=("access_key_id_encrypted", "secret_access_key_encrypted"))
+    batch = application_batch_factory(applicant=user, issued_access_key=key)
+    raw_token = "one-time-token"
+    ticket = DeliveryTicket.objects.create(
+        application_batch=batch,
+        access_key=key,
+        user=user,
+        token_digest=digest_delivery_token(raw_token),
+        expires_at=timezone.now() + timedelta(hours=1),
     )
-    monkeypatch.setattr(
-        "object_storage.views_employee.consume_employee_delivery_token",
-        lambda **kwargs: {
-            "access_key_id": "LTAI-delivered",
-            "secret_access_key": "delivered-secret",
-            "last_four": "ered",
-        },
+    cache.set(f"object-storage:delivery-token:v3:{ticket.pk}", raw_token, 3600)
+    newer_batch = application_batch_factory(applicant=user, issued_access_key=key)
+    DeliveryTicket.objects.create(
+        application_batch=newer_batch,
+        access_key=key,
+        user=user,
+        token_digest=digest_delivery_token("different-token"),
+        expires_at=timezone.now() + timedelta(hours=1),
     )
 
-    token = client.get(
+    old_token_endpoint = client.get(
         f"/api/v1/object-storage/workspace/applications/{batch.id}/delivery-token/"
     )
     consumed = client.post(
-        "/api/v1/object-storage/workspace/credentials/deliver/",
+        f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
         {"token": "one-time-token"},
         content_type="application/json",
         HTTP_IDEMPOTENCY_KEY="consume-token-1",
     )
 
-    assert token.status_code == 200
+    assert old_token_endpoint.status_code == 404
     assert consumed.status_code == 200
-    assert token["Cache-Control"] == "no-store"
     assert consumed["Cache-Control"] == "no-store"
-    assert _payload(token)["token"] == "one-time-token"
+    assert _payload(consumed)["access_key_id"]
+    assert _payload(consumed)["secret_access_key"]
+    assert not ApiIdempotencyRecord.objects.filter(
+        idempotency_key="consume-token-1"
+    ).exists()
+    assert config.singleton_key == "default"
+
+
+def test_delivery_rejects_cross_user_key_and_legacy_no_id_endpoint(
+    employee_context, user_factory, cloud_identity_factory, access_key_factory
+):
+    client, user, pool, _config = employee_context
+    other = user_factory()
+    identity = cloud_identity_factory(user=other, resource_pool=pool)
+    key = access_key_factory(cloud_identity=identity)
+
+    response = client.post(
+        "/api/v1/object-storage/workspace/credentials/deliver/",
+        {"token": "token"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="legacy-delivery-endpoint",
+    )
+    cross_user = client.post(
+        f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
+        {"token": "token"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="cross-user-delivery",
+    )
+
+    assert response.status_code == 404
+    assert cross_user.status_code == 404
 
 
 def test_single_key_rotation_creates_one_time_delivery_batch(

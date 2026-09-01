@@ -21,6 +21,42 @@ class TimestampedModel(models.Model):
         abstract = True
 
 
+class ApiIdempotencyRecord(TimestampedModel):
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "In progress"
+        COMPLETED = "completed", "Completed"
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="object_storage_api_idempotency_records",
+    )
+    scope = models.CharField(max_length=512)
+    idempotency_key = models.CharField(max_length=128)
+    payload_digest = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.IN_PROGRESS,
+    )
+    response_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    response_body = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["actor", "scope", "idempotency_key"],
+                name="storage_api_idempotency_actor_scope_key",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["actor", "status", "created_at"],
+                name="os_api_idempotency_actor_idx",
+            )
+        ]
+
+
 def default_feishu_visible_features():
     """Keep the callable referenced by historical migration 0003 importable."""
     return ["workspace_dashboard", "object_storage"]
@@ -894,6 +930,7 @@ class AuditEvent(models.Model):
 
 
 OBJECT_STORAGE_BUSINESS_MODELS = (
+    ApiIdempotencyRecord,
     PlatformFeishuConfig,
     PlatformObjectStorageConfig,
     UserBucketQuota,

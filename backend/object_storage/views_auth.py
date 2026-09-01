@@ -17,7 +17,7 @@ from object_storage.services.identity import (
     provision_feishu_identity,
 )
 
-TENANT_SCOPE_KEYS = frozenset({"tenant", "tenant_id", "tenant_code"})
+LEGACY_SCOPE_KEYS = frozenset({"tenant", "tenant_id", "tenant_code"})
 
 
 def _no_store(response):
@@ -34,10 +34,10 @@ def _error(detail, error_code, status_code):
     )
 
 
-def _has_tenant_scope_params(request):
+def _has_legacy_scope_params(request):
     return bool(
-        TENANT_SCOPE_KEYS.intersection(request.query_params)
-        or TENANT_SCOPE_KEYS.intersection(request.data)
+        LEGACY_SCOPE_KEYS.intersection(request.query_params)
+        or LEGACY_SCOPE_KEYS.intersection(request.data)
     )
 
 
@@ -46,7 +46,7 @@ class FeishuLoginStartView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if _has_tenant_scope_params(request):
+        if _has_legacy_scope_params(request):
             return _error(
                 "Tenant selection is not supported",
                 "TENANT_SCOPE_UNSUPPORTED",
@@ -77,7 +77,7 @@ class FeishuCallbackView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        if _has_tenant_scope_params(request):
+        if _has_legacy_scope_params(request):
             return _error(
                 "Tenant selection is not supported",
                 "TENANT_SCOPE_UNSUPPORTED",

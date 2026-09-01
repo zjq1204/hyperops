@@ -1,16 +1,21 @@
+import hashlib
+import json
 from types import SimpleNamespace
 
+from django.db import IntegrityError, transaction
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.access import get_effective_feature_keys, get_effective_roles
 from object_storage.models import (
+    ApiIdempotencyRecord,
     CloudIdentity,
     PlatformFeishuConfig,
     StorageResourcePool,
 )
-
-TENANT_SCOPE_KEYS = frozenset({"tenant", "tenant_id", "tenant_code", "enterprise"})
+from object_storage.views_auth import LEGACY_SCOPE_KEYS
 
 
 class ObjectStorageNotConfigured(PermissionDenied):
@@ -27,6 +32,18 @@ class TenantScopeUnsupported(APIException):
     status_code = 400
     default_detail = "Tenant-scoped object storage APIs are not supported"
     default_code = "TENANT_SCOPE_UNSUPPORTED"
+
+
+class IdempotencyKeyReused(APIException):
+    status_code = 409
+    default_detail = "Idempotency key was already used with another payload"
+    default_code = "IDEMPOTENCY_KEY_REUSED"
+
+
+class IdempotencyInProgress(APIException):
+    status_code = 409
+    default_detail = "An operation with this idempotency key is in progress"
+    default_code = "IDEMPOTENCY_IN_PROGRESS"
 
 
 def has_object_storage_admin_access(user):
@@ -54,11 +71,13 @@ class HasObjectStorageAdminAccess(BasePermission):
 
 
 class HasPlatformObjectStorageAccess(BasePermission):
-    """Gate employee APIs on one validated platform pool and user state."""
+    """Gate employee APIs on a configured platform and user feature."""
 
     def has_permission(self, request, view):
         user = request.user
         if not user or not user.is_authenticated:
+            return False
+        if "object_storage" not in get_effective_feature_keys(user):
             return False
         feishu_ready = PlatformFeishuConfig.objects.filter(
             singleton_key="default",
@@ -87,14 +106,18 @@ class HasPlatformObjectStorageAccess(BasePermission):
 
 class RejectTenantScopeMixin:
     def initial(self, request, *args, **kwargs):
-        if TENANT_SCOPE_KEYS.intersection(
+        if LEGACY_SCOPE_KEYS.intersection(
             request.query_params
-        ) or TENANT_SCOPE_KEYS.intersection(request.data):
+        ) or LEGACY_SCOPE_KEYS.intersection(request.data):
             raise TenantScopeUnsupported()
         return super().initial(request, *args, **kwargs)
 
 
 class RequireIdempotencyKeyMixin:
+    """Require and atomically replay non-sensitive mutation responses."""
+
+    idempotency_sensitive = False
+
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         if request.method not in ("GET", "HEAD", "OPTIONS"):
@@ -104,3 +127,90 @@ class RequireIdempotencyKeyMixin:
             if len(key) > 128:
                 raise ValidationError({"idempotency_key": "IDEMPOTENCY_KEY_INVALID"})
             request.idempotency_key = key
+
+    @staticmethod
+    def _payload_digest(request):
+        return hashlib.sha256(request._request.body or b"").hexdigest()
+
+    def _idempotency_scope(self, request):
+        return f"{request.method}:{request.path}"
+
+    def _lookup_or_create_idempotency(self, request, payload_digest):
+        scope = self._idempotency_scope(request)
+        try:
+            with transaction.atomic():
+                record = (
+                    ApiIdempotencyRecord.objects.select_for_update()
+                    .filter(
+                        actor=request.user,
+                        scope=scope,
+                        idempotency_key=request.idempotency_key,
+                    )
+                    .first()
+                )
+                if record is None:
+                    record = ApiIdempotencyRecord.objects.create(
+                        actor=request.user,
+                        scope=scope,
+                        idempotency_key=request.idempotency_key,
+                        payload_digest=payload_digest,
+                    )
+                    record._new_idempotency_record = True
+        except IntegrityError:
+            record = ApiIdempotencyRecord.objects.get(
+                actor=request.user,
+                scope=scope,
+                idempotency_key=request.idempotency_key,
+            )
+        if record.payload_digest != payload_digest:
+            raise IdempotencyKeyReused()
+        if not getattr(record, "_new_idempotency_record", False):
+            if record.status == ApiIdempotencyRecord.Status.COMPLETED:
+                return record
+            raise IdempotencyInProgress()
+        return record
+
+    def _complete_idempotency(self, request, response):
+        record = getattr(request, "_object_storage_idempotency_record", None)
+        if record is None or self.idempotency_sensitive:
+            return
+        body = json.loads(json.dumps(response.data, default=str))
+        ApiIdempotencyRecord.objects.filter(pk=record.pk).update(
+            status=ApiIdempotencyRecord.Status.COMPLETED,
+            response_status=response.status_code,
+            response_body=body,
+        )
+
+    def dispatch(self, request, *args, **kwargs):
+        request = self.initialize_request(request, *args, **kwargs)
+        self.request = request
+        self.headers = self.default_response_headers
+        try:
+            payload_digest = None
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                payload_digest = self._payload_digest(request)
+            self.initial(request, *args, **kwargs)
+            if request.method.lower() in self.http_method_names:
+                handler = getattr(
+                    self, request.method.lower(), self.http_method_not_allowed
+                )
+            else:
+                handler = self.http_method_not_allowed
+            if payload_digest is not None and not self.idempotency_sensitive:
+                record = self._lookup_or_create_idempotency(request, payload_digest)
+                if record.status == ApiIdempotencyRecord.Status.COMPLETED:
+                    response = Response(
+                        record.response_body,
+                        status=record.response_status,
+                    )
+                else:
+                    request._object_storage_idempotency_record = record
+                    response = handler(request, *args, **kwargs)
+                    self._complete_idempotency(request, response)
+            else:
+                response = handler(request, *args, **kwargs)
+        except Exception as exc:
+            response = self.handle_exception(exc)
+            self._complete_idempotency(request, response)
+        self.response = self.finalize_response(request, response, *args, **kwargs)
+        return self.response

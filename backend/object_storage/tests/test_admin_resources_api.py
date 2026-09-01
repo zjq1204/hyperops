@@ -167,6 +167,47 @@ def test_admin_reveal_requires_reason_is_no_store_and_audited(
     assert "secret" not in str(event.safe_metadata).lower()
 
 
+def test_admin_key_action_replays_same_payload_and_rejects_reuse(
+    admin_client, cloud_identity_factory, monkeypatch
+):
+    client, _admin = admin_client
+    identity = cloud_identity_factory()
+    key = _key(identity)
+    calls = []
+
+    def operation(**kwargs):
+        calls.append(kwargs)
+        return key
+
+    monkeypatch.setattr(
+        "object_storage.views_admin.disable_access_key_action", operation
+    )
+    url = f"/api/v1/object-storage/management/access-keys/{key.id}/disable/"
+    first = client.post(
+        url,
+        {"reason": "first reason"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="admin-action-replay",
+    )
+    replay = client.post(
+        url,
+        {"reason": "first reason"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="admin-action-replay",
+    )
+    reused = client.post(
+        url,
+        {"reason": "different reason"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="admin-action-replay",
+    )
+
+    assert first.status_code == 200
+    assert replay.json() == first.json()
+    assert reused.status_code == 409
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("action", ["release", "recover", "delete", "retry-delete"])
 def test_admin_bucket_lifecycle_actions_are_separate(
     admin_client, bucket_factory, monkeypatch, action

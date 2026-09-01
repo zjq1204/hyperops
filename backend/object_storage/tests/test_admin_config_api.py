@@ -105,6 +105,44 @@ def test_platform_feishu_settings_encrypt_secret_and_preserve_group_intent(
     assert identity.user.groups.filter(pk=group.id).exists()
 
 
+def test_feishu_enable_requires_validated_complete_platform_config(admin_client):
+    from django.contrib.auth.models import Group
+    from object_storage.models import PlatformFeishuConfig
+
+    client, _admin = admin_client
+    group = Group.objects.create(name="Validated Feishu Users")
+    incomplete = client.patch(
+        "/api/v1/object-storage/management/feishu-settings/",
+        {
+            "enabled": True,
+            "app_id": "cli_unvalidated",
+            "app_secret": "secret",
+            "access_group": group.id,
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="feishu-enable-incomplete",
+    )
+    config = PlatformFeishuConfig.objects.get(singleton_key="default")
+    config.app_id = "cli_validated"
+    config.app_secret_encrypted = "encrypted-secret"
+    config.access_group = group
+    config.validation_status = PlatformFeishuConfig.ValidationStatus.VALID
+    config.save()
+    enabled = client.patch(
+        "/api/v1/object-storage/management/feishu-settings/",
+        {"enabled": True},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="feishu-enable-complete",
+    )
+
+    assert incomplete.status_code == 400
+    assert _payload(incomplete)["field_errors"]["enabled"] == [
+        "FEISHU_CONFIG_NOT_VALIDATED"
+    ]
+    assert enabled.status_code == 200
+    assert _payload(enabled)["enabled"] is True
+
+
 def test_resource_pool_connection_validation_never_returns_provider_exception(
     admin_client, storage_resource_pool_factory, monkeypatch
 ):

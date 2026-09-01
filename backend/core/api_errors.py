@@ -146,6 +146,8 @@ def _exception_error_code(exc, status_code: int) -> str:
         "OBJECT_STORAGE_NOT_CONFIGURED",
         "OBJECT_STORAGE_SUSPENDED",
         "TENANT_SCOPE_UNSUPPORTED",
+        "IDEMPOTENCY_KEY_REUSED",
+        "IDEMPOTENCY_IN_PROGRESS",
     }:
         return explicit_code
     if isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
@@ -170,6 +172,8 @@ def _exception_detail(error_code: str) -> str:
         "OBJECT_STORAGE_NOT_CONFIGURED": "对象存储尚未配置",
         "OBJECT_STORAGE_SUSPENDED": "对象存储访问已暂停",
         "TENANT_SCOPE_UNSUPPORTED": "不支持企业级对象存储范围参数",
+        "IDEMPOTENCY_KEY_REUSED": "幂等键已用于其他请求内容",
+        "IDEMPOTENCY_IN_PROGRESS": "相同幂等键的操作正在处理中",
         "NOT_FOUND": "请求的资源不存在或已被删除",
         "VALIDATION_ERROR": "请检查填写内容",
         "RATE_LIMITED": "操作过于频繁，请稍后重试",

@@ -48,7 +48,6 @@ from object_storage.services.credentials import (
     digest_delivery_token,
     disable_access_key,
     enable_access_key,
-    get_ephemeral_delivery_token,
     revoke_access_key,
     rotate_access_key_for_actor,
 )
@@ -152,19 +151,6 @@ def revoke_access_key_action(*, access_key, actor, reason=""):
         actor=actor,
         provider=_provider(access_key),
         reason=reason,
-    )
-
-
-def consume_employee_delivery_token(*, raw_token, user):
-    ticket = get_object_or_404(
-        DeliveryTicket.objects.select_related("application_batch"),
-        user=user,
-        token_digest=digest_delivery_token(raw_token),
-    )
-    return consume_delivery_token(
-        raw_token=raw_token,
-        user=user,
-        application_batch=ticket.application_batch,
     )
 
 
@@ -490,33 +476,29 @@ class EmployeeCredentialRevokeView(EmployeeCredentialActionView):
     action = "revoke"
 
 
-class EmployeeDeliveryTokenView(RejectTenantScopeMixin, APIView):
-    permission_classes = [HasPlatformObjectStorageAccess]
-
-    def get(self, request, application_id):
-        batch = get_object_or_404(
-            ApplicationBatch,
-            pk=application_id,
-            applicant=request.user,
-        )
-        try:
-            token = get_ephemeral_delivery_token(
-                application_batch=batch,
-                user=request.user,
-            )
-        except CredentialDeliveryError as error:
-            return _no_store(_error(_service_error(error), status.HTTP_410_GONE))
-        return _no_store(Response({"token": token}))
-
-
 class EmployeeCredentialDeliveryView(NoStoreEmployeeMutationAPIView):
-    def post(self, request):
+    idempotency_sensitive = True
+
+    def post(self, request, key_id):
         serializer = DeliveryTokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        key = get_object_or_404(
+            AccessKey.objects.select_related("cloud_identity"),
+            pk=key_id,
+            cloud_identity__user=request.user,
+        )
+        ticket = DeliveryTicket.objects.filter(
+            access_key=key,
+            user=request.user,
+            token_digest=digest_delivery_token(serializer.validated_data["token"]),
+        ).first()
+        if ticket is None:
+            return _error("DELIVERY_TOKEN_INVALID", status.HTTP_404_NOT_FOUND)
         try:
-            secret = consume_employee_delivery_token(
+            secret = consume_delivery_token(
                 raw_token=serializer.validated_data["token"],
                 user=request.user,
+                application_batch=ticket.application_batch,
             )
         except CredentialDeliveryError as error:
             return _error(_service_error(error), status.HTTP_400_BAD_REQUEST)

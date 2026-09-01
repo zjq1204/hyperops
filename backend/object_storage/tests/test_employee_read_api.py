@@ -209,3 +209,15 @@ def test_unconfigured_and_suspended_states_have_stable_codes(
     assert _payload(missing)["error_code"] == "OBJECT_STORAGE_NOT_CONFIGURED"
     assert blocked.status_code == 403
     assert _payload(blocked)["error_code"] == "OBJECT_STORAGE_SUSPENDED"
+
+
+def test_configured_platform_without_employee_feature_is_denied(
+    client, ready_platform, user_factory
+):
+    user = user_factory()
+    user.platform_roles.clear()
+    client.force_login(user)
+
+    response = client.get("/api/v1/object-storage/workspace/overview/")
+
+    assert response.status_code == 403

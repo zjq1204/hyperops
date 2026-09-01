@@ -62,7 +62,6 @@ from object_storage.views_employee import (
     EmployeeCredentialListView,
     EmployeeCredentialRevokeView,
     EmployeeCredentialRotateView,
-    EmployeeDeliveryTokenView,
     EmployeeOverviewView,
 )
 from object_storage.views_feishu_admin import (
@@ -123,24 +122,19 @@ urlpatterns = [
         name="workspace_application_item_cancel",
     ),
     path(
-        "workspace/applications/<int:application_id>/delivery-token/",
-        EmployeeDeliveryTokenView.as_view(),
-        name="workspace_application_delivery_token",
-    ),
-    path(
         "workspace/credentials/",
         EmployeeCredentialListView.as_view(),
         name="workspace_credentials",
     ),
     path(
-        "workspace/credentials/deliver/",
-        EmployeeCredentialDeliveryView.as_view(),
-        name="workspace_credential_delivery",
-    ),
-    path(
         "workspace/credentials/<int:key_id>/",
         EmployeeCredentialDetailView.as_view(),
         name="workspace_credential_detail",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/deliver/",
+        EmployeeCredentialDeliveryView.as_view(),
+        name="workspace_credential_delivery",
     ),
     path(
         "workspace/credentials/<int:key_id>/disable/",
