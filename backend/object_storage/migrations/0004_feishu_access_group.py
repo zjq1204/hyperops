@@ -44,7 +44,7 @@ def bind_existing_configs_to_groups(apps, schema_editor):
 
 def restore_legacy_access_profile(apps, schema_editor):
     FeishuAppConfig = apps.get_model("object_storage", "FeishuAppConfig")
-    Group = apps.get_model("auth", "Group")
+    StorageMembership = apps.get_model("object_storage", "StorageMembership")
     Role = apps.get_model("accounts", "Role")
     legacy_role = Role.objects.filter(
         name="Object Storage User",
@@ -59,11 +59,13 @@ def restore_legacy_access_profile(apps, schema_editor):
         config.visible_features = role.visible_features or DEFAULT_VISIBLE_FEATURES
         config.preferred_platform = role.preferred_platform or ""
         config.save(update_fields=("visible_features", "preferred_platform"))
-        if legacy_role is not None and config.access_group_id:
-            group = Group.objects.filter(pk=config.access_group_id).first()
-            if group is not None:
-                member_user_ids = list(group.user_set.values_list("pk", flat=True))
-                legacy_role.users.add(*member_user_ids)
+        if legacy_role is not None:
+            member_user_ids = list(
+                StorageMembership.objects.filter(
+                    tenant_id=config.tenant_id
+                ).values_list("user_id", flat=True)
+            )
+            legacy_role.users.add(*member_user_ids)
 
 
 class Migration(migrations.Migration):

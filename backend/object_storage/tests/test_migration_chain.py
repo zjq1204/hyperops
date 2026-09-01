@@ -28,12 +28,14 @@ def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
         [("object_storage", "0003_feishu_access_profile")]
     ).apps
     User = old_apps.get_model("auth", "User")
+    Group = old_apps.get_model("auth", "Group")
     Role = old_apps.get_model("accounts", "Role")
     StorageTenant = old_apps.get_model("object_storage", "StorageTenant")
     StorageMembership = old_apps.get_model("object_storage", "StorageMembership")
     FeishuAppConfig = old_apps.get_model("object_storage", "FeishuAppConfig")
 
     user = User.objects.create_user(username="legacy-migration-user")
+    extra_group_user = User.objects.create_user(username="extra-group-user")
     legacy_role, _created = Role.objects.get_or_create(
         name="Object Storage User",
         defaults={
@@ -46,6 +48,8 @@ def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
     )
     legacy_role.users.add(user)
     tenant = StorageTenant.objects.create(code="legacy-migration", name="Legacy")
+    group = Group.objects.create(name="Feishu users · tenant-{}".format(tenant.pk))
+    group.user_set.add(extra_group_user)
     StorageMembership.objects.create(
         tenant=tenant,
         user=user,
@@ -88,6 +92,7 @@ def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
     assert restored_config.preferred_platform == "object_storage"
     assert restored_config.visible_features == ["workspace_dashboard"]
     assert restored_role.users.filter(pk=user.pk).exists()
+    assert not restored_role.users.filter(pk=extra_group_user.pk).exists()
 
     executor = MigrationExecutor(connection)
     executor.migrate([("object_storage", "0005_platform_model")])
