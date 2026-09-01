@@ -1,13 +1,14 @@
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.db import models
 from django.db.models import Q
 
 
-class StorageAuditEventImmutableError(RuntimeError):
+class AuditEventImmutableError(RuntimeError):
     """Raised when an immutable object-storage audit event is changed."""
 
 
-class StorageApplicationEventImmutableError(RuntimeError):
+class ApplicationEventImmutableError(RuntimeError):
     """Raised when an immutable application event is changed."""
 
 
@@ -19,57 +20,31 @@ class TimestampedModel(models.Model):
         abstract = True
 
 
-class StorageTenant(TimestampedModel):
-    code = models.SlugField(max_length=80, unique=True)
-    name = models.CharField(max_length=160)
-    enabled = models.BooleanField(default=True)
-    bucket_naming_template = models.CharField(
-        max_length=255,
-        default="{tenant}-{user}-{project}-{environment}-{suffix}",
-    )
-    naming_template_version = models.PositiveIntegerField(default=1)
-    default_bucket_quota = models.PositiveSmallIntegerField(default=5)
-    delivery_lifetime_seconds = models.PositiveIntegerField(default=86400)
-    audit_retention_days = models.PositiveSmallIntegerField(default=30)
-
-    class Meta:
-        ordering = ["name", "id"]
-        constraints = [
-            models.CheckConstraint(
-                condition=Q(default_bucket_quota__gte=1),
-                name="storage_tenant_quota_positive",
-            ),
-            models.CheckConstraint(
-                condition=Q(
-                    delivery_lifetime_seconds__gte=600,
-                    delivery_lifetime_seconds__lte=604800,
-                ),
-                name="storage_tenant_delivery_lifetime_range",
-            ),
-            models.CheckConstraint(
-                condition=Q(audit_retention_days=30),
-                name="storage_tenant_audit_retention_phase_one",
-            ),
-        ]
-
-    def __str__(self):
-        return self.name
+def default_feishu_visible_features():
+    """Keep the callable referenced by historical migration 0003 importable."""
+    return ["workspace_dashboard", "object_storage"]
 
 
-class FeishuAppConfig(TimestampedModel):
+class PlatformFeishuConfig(TimestampedModel):
     class ValidationStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         VALID = "valid", "Valid"
         INVALID = "invalid", "Invalid"
 
-    tenant = models.OneToOneField(
-        StorageTenant,
-        on_delete=models.CASCADE,
-        related_name="feishu_app_config",
+    singleton_key = models.CharField(max_length=32, unique=True, default="default")
+    app_id = models.CharField(max_length=160, blank=True, default="")
+    app_secret_encrypted = models.TextField(blank=True, default="")
+    oauth_callback_url = models.URLField(max_length=512, blank=True, default="")
+    access_group = models.ForeignKey(
+        Group,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="platform_feishu_configs",
+        help_text=(
+            "Local group whose roles are granted to users signing in through " "Feishu."
+        ),
     )
-    app_id = models.CharField(max_length=160)
-    app_secret_encrypted = models.TextField()
-    oauth_callback_url = models.URLField(max_length=512)
     validation_status = models.CharField(
         max_length=16,
         choices=ValidationStatus.choices,
@@ -80,52 +55,57 @@ class FeishuAppConfig(TimestampedModel):
     enabled = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ["tenant_id"]
-
-    def __str__(self):
-        return f"Feishu app for {self.tenant}"
-
-
-class StorageMembership(TimestampedModel):
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="memberships",
-    )
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="object_storage_membership",
-    )
-    feishu_open_id = models.CharField(max_length=255)
-    feishu_union_id = models.CharField(max_length=255, blank=True, default="")
-    display_name = models.CharField(max_length=160)
-    department_snapshot = models.JSONField(default=list, blank=True)
-    profile_snapshot = models.JSONField(default=dict, blank=True)
-    is_active = models.BooleanField(default=True)
-    deactivated_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["tenant_id", "display_name", "id"]
+        ordering = ["singleton_key"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "feishu_open_id"],
-                name="storage_member_tenant_open_id_unique",
+            models.CheckConstraint(
+                condition=Q(singleton_key="default"),
+                name="storage_feishu_singleton_key",
             )
         ]
-        indexes = [
-            models.Index(
-                fields=["tenant", "is_active"],
-                name="os_member_tenant_active_idx",
+
+    def __str__(self):
+        return "Platform Feishu configuration"
+
+
+class PlatformObjectStorageConfig(TimestampedModel):
+    singleton_key = models.CharField(max_length=32, unique=True, default="default")
+    naming_template = models.CharField(
+        max_length=255,
+        default="hyperops-{user}-{business_name}-{environment}-{suffix}",
+    )
+    naming_template_version = models.PositiveIntegerField(default=1)
+    default_bucket_quota = models.PositiveSmallIntegerField(default=5)
+    delivery_lifetime_seconds = models.PositiveIntegerField(default=86400)
+    audit_retention_days = models.PositiveSmallIntegerField(default=30)
+    pause_new_applications = models.BooleanField(default=True)
+    pause_key_operations = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["singleton_key"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(singleton_key="default"),
+                name="storage_object_singleton_key",
             ),
-            models.Index(
-                fields=["tenant", "feishu_union_id"],
-                name="os_member_tenant_union_idx",
+            models.CheckConstraint(
+                condition=Q(default_bucket_quota__gte=1),
+                name="storage_platform_quota_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    delivery_lifetime_seconds__gte=600,
+                    delivery_lifetime_seconds__lte=604800,
+                ),
+                name="storage_platform_delivery_lifetime_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(audit_retention_days=30),
+                name="storage_platform_audit_retention_phase_one",
             ),
         ]
 
     def __str__(self):
-        return f"{self.display_name} ({self.tenant.code})"
+        return "Platform object storage configuration"
 
 
 class StorageResourcePool(TimestampedModel):
@@ -137,8 +117,8 @@ class StorageResourcePool(TimestampedModel):
         VALID = "valid", "Valid"
         INVALID = "invalid", "Invalid"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
+    config = models.ForeignKey(
+        PlatformObjectStorageConfig,
         on_delete=models.PROTECT,
         related_name="resource_pools",
     )
@@ -163,41 +143,63 @@ class StorageResourcePool(TimestampedModel):
     enabled = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ["tenant_id", "provider", "id"]
+        ordering = ["provider", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "provider"],
+                fields=["provider"],
                 condition=Q(enabled=True),
                 name="storage_pool_one_enabled_provider",
             )
         ]
         indexes = [
             models.Index(
-                fields=["tenant", "provider", "enabled"],
-                name="os_pool_tenant_provider_idx",
+                fields=["provider", "enabled"],
+                name="os_pool_provider_enabled_idx",
             )
         ]
 
     def __str__(self):
-        return f"{self.tenant.code}:{self.provider}:{self.region}"
+        return f"{self.provider}:{self.region}"
 
 
-class StorageCloudIdentity(TimestampedModel):
+class FeishuIdentity(TimestampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="feishu_identity",
+    )
+    open_id = models.CharField(max_length=255, unique=True)
+    union_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    display_name = models.CharField(max_length=160)
+    department_snapshot = models.JSONField(default=list, blank=True)
+    profile_snapshot = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["display_name", "id"]
+        indexes = [
+            models.Index(
+                fields=["is_active", "display_name"],
+                name="os_feishu_active_name_idx",
+            )
+        ]
+
+    def __str__(self):
+        return self.display_name
+
+
+class CloudIdentity(TimestampedModel):
     class State(models.TextChoices):
         PROVISIONING = "provisioning", "Provisioning"
         ACTIVE = "active", "Active"
         SUSPENDED = "suspended", "Suspended"
         ERROR = "error", "Error"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name="cloud_identities",
-    )
-    membership = models.ForeignKey(
-        StorageMembership,
-        on_delete=models.PROTECT,
-        related_name="cloud_identities",
+        related_name="object_storage_cloud_identity",
     )
     resource_pool = models.ForeignKey(
         StorageResourcePool,
@@ -214,12 +216,8 @@ class StorageCloudIdentity(TimestampedModel):
     last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["tenant_id", "membership_id", "id"]
+        ordering = ["user_id", "id"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "membership", "resource_pool"],
-                name="storage_identity_member_pool_unique",
-            ),
             models.UniqueConstraint(
                 fields=["resource_pool", "ram_user_name"],
                 name="storage_identity_pool_ram_name_unique",
@@ -227,8 +225,8 @@ class StorageCloudIdentity(TimestampedModel):
         ]
         indexes = [
             models.Index(
-                fields=["tenant", "membership", "state"],
-                name="os_identity_member_state_idx",
+                fields=["user", "state"],
+                name="os_identity_user_state_idx",
             )
         ]
 
@@ -236,7 +234,7 @@ class StorageCloudIdentity(TimestampedModel):
         return self.ram_user_name
 
 
-class StorageBucket(TimestampedModel):
+class Bucket(TimestampedModel):
     class Environment(models.TextChoices):
         DEVELOPMENT = "development", "Development"
         TEST = "test", "Test"
@@ -247,36 +245,39 @@ class StorageBucket(TimestampedModel):
         CREATING = "creating", "Creating"
         ACTIVE = "active", "Active"
         RELEASING = "releasing", "Releasing"
+        PENDING_DELETE = "pending_delete", "Pending delete"
+        DELETE_BLOCKED = "delete_blocked", "Delete blocked"
         RELEASED = "released", "Released"
         FAILED = "failed", "Failed"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name="buckets",
+        related_name="object_storage_buckets",
     )
     resource_pool = models.ForeignKey(
         StorageResourcePool,
         on_delete=models.PROTECT,
         related_name="buckets",
     )
-    owner = models.ForeignKey(
-        StorageMembership,
-        on_delete=models.PROTECT,
-        related_name="buckets",
-    )
     cloud_identity = models.ForeignKey(
-        StorageCloudIdentity,
+        CloudIdentity,
         on_delete=models.PROTECT,
         related_name="buckets",
     )
+    business_name = models.CharField(max_length=80)
     name = models.CharField(max_length=63)
-    project = models.CharField(max_length=80)
-    environment = models.CharField(max_length=20, choices=Environment.choices)
+    project = models.CharField(max_length=80, blank=True, default="")
+    environment = models.CharField(
+        max_length=20,
+        choices=Environment.choices,
+        default=Environment.DEVELOPMENT,
+    )
     purpose = models.CharField(max_length=255)
     notes = models.TextField(blank=True, default="")
     region = models.CharField(max_length=80)
     template_version = models.PositiveIntegerField(default=1)
+    config_snapshot = models.JSONField(default=dict, blank=True)
     cloud_resource_id = models.CharField(max_length=255, blank=True, default="")
     cloud_marker = models.CharField(max_length=255, blank=True, default="")
     state = models.CharField(
@@ -284,10 +285,11 @@ class StorageBucket(TimestampedModel):
         choices=State.choices,
         default=State.REQUESTED,
     )
+    pending_delete_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["tenant_id", "owner_id", "name"]
+        ordering = ["owner_id", "name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["resource_pool", "name"],
@@ -296,12 +298,16 @@ class StorageBucket(TimestampedModel):
         ]
         indexes = [
             models.Index(
-                fields=["tenant", "owner", "state"],
+                fields=["owner", "state"],
                 name="os_bucket_owner_state_idx",
             ),
             models.Index(
                 fields=["resource_pool", "state"],
                 name="os_bucket_pool_state_idx",
+            ),
+            models.Index(
+                fields=["state", "pending_delete_at"],
+                name="os_bucket_pending_delete_idx",
             ),
         ]
 
@@ -309,7 +315,7 @@ class StorageBucket(TimestampedModel):
         return self.name
 
 
-class StorageAccessKey(TimestampedModel):
+class AccessKey(TimestampedModel):
     class CloudState(models.TextChoices):
         ACTIVE = "active", "Active"
         INACTIVE = "inactive", "Inactive"
@@ -324,13 +330,8 @@ class StorageAccessKey(TimestampedModel):
         RETIRED = "retired", "Retired"
         ERROR = "error", "Error"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="access_keys",
-    )
     cloud_identity = models.ForeignKey(
-        StorageCloudIdentity,
+        CloudIdentity,
         on_delete=models.PROTECT,
         related_name="access_keys",
     )
@@ -344,7 +345,7 @@ class StorageAccessKey(TimestampedModel):
         default=CloudState.ACTIVE,
     )
     local_state = models.CharField(
-        max_length=20,
+        max_length=24,
         choices=LocalState.choices,
         default=LocalState.ISSUING,
     )
@@ -353,78 +354,50 @@ class StorageAccessKey(TimestampedModel):
     deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["tenant_id", "cloud_identity_id", "-created_at"]
+        ordering = ["cloud_identity_id", "-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "access_key_fingerprint"],
-                name="storage_key_tenant_fingerprint_unique",
+                fields=["cloud_identity", "access_key_fingerprint"],
+                name="storage_access_key_fingerprint_unique",
             )
         ]
         indexes = [
             models.Index(
-                fields=["tenant", "cloud_identity", "local_state"],
+                fields=["cloud_identity", "local_state"],
                 name="os_key_identity_state_idx",
             )
         ]
 
     def __str__(self):
-        return f"AccessKey ending {self.access_key_last_four}"
+        return f"****{self.access_key_last_four}"
 
 
-class StorageApplication(TimestampedModel):
-    class ActionType(models.TextChoices):
-        FIRST_BUCKET_AND_CREDENTIAL = (
-            "first_bucket_and_credential",
-            "First bucket and credential",
-        )
-        ADD_BUCKET = "add_bucket", "Add bucket"
-        ROTATE_CREDENTIAL = "rotate_credential", "Rotate credential"
-        RELEASE_BUCKET = "release_bucket", "Release bucket"
-        SUSPEND_MEMBERSHIP = "suspend_membership", "Suspend membership"
-        REACTIVATE_MEMBERSHIP = "reactivate_membership", "Reactivate membership"
-
+class ApplicationBatch(TimestampedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         RUNNING = "running", "Running"
-        DELIVERY_READY = "delivery_ready", "Delivery ready"
         SUCCEEDED = "succeeded", "Succeeded"
+        PARTIALLY_SUCCEEDED = "partially_succeeded", "Partially succeeded"
         FAILED = "failed", "Failed"
-        MANUAL_REQUIRED = "manual_required", "Manual required"
         CANCELLED = "cancelled", "Cancelled"
+        MANUAL_REQUIRED = "manual_required", "Manual required"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="applications",
-    )
     applicant = models.ForeignKey(
-        StorageMembership,
+        settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name="applications",
-    )
-    action_type = models.CharField(max_length=40, choices=ActionType.choices)
-    target_bucket = models.ForeignKey(
-        StorageBucket,
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="applications",
-    )
-    target_access_key = models.ForeignKey(
-        StorageAccessKey,
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="applications",
+        related_name="object_storage_application_batches",
     )
     idempotency_key = models.CharField(max_length=128)
-    request_fields = models.JSONField(default=dict, blank=True)
     status = models.CharField(
         max_length=24,
         choices=Status.choices,
         default=Status.PENDING,
     )
     current_stage = models.CharField(max_length=48, blank=True, default="")
+    item_count = models.PositiveSmallIntegerField(default=0)
+    pending_count = models.PositiveSmallIntegerField(default=0)
+    success_count = models.PositiveSmallIntegerField(default=0)
+    failed_count = models.PositiveSmallIntegerField(default=0)
     error_code = models.CharField(max_length=64, blank=True, default="")
     error_summary = models.CharField(max_length=255, blank=True, default="")
     started_at = models.DateTimeField(null=True, blank=True)
@@ -434,92 +407,142 @@ class StorageApplication(TimestampedModel):
         ordering = ["-created_at", "-id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "applicant", "idempotency_key"],
-                name="storage_application_idempotency_unique",
+                fields=["applicant", "idempotency_key"],
+                name="storage_batch_applicant_idempotency_unique",
             )
         ]
         indexes = [
             models.Index(
-                fields=["tenant", "applicant", "status", "-created_at"],
-                name="os_app_applicant_status_idx",
+                fields=["applicant", "status", "-created_at"],
+                name="os_batch_applicant_status_idx",
             ),
             models.Index(
-                fields=["tenant", "status", "-created_at"],
-                name="os_app_tenant_status_idx",
+                fields=["status", "-created_at"],
+                name="os_batch_status_time_idx",
             ),
         ]
 
     def __str__(self):
-        return f"{self.action_type}:{self.pk or 'new'}"
+        return f"Application batch {self.pk or 'new'}"
 
 
-class StorageApplicationAttempt(models.Model):
+class ApplicationItem(TimestampedModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CREATING = "creating", "Creating"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+        RELEASING = "releasing", "Releasing"
+        PENDING_DELETE = "pending_delete", "Pending delete"
+        DELETE_BLOCKED = "delete_blocked", "Delete blocked"
+
+    batch = models.ForeignKey(
+        ApplicationBatch,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    business_name = models.CharField(max_length=80)
+    project = models.CharField(max_length=80, blank=True, default="")
+    environment = models.CharField(
+        max_length=20,
+        choices=Bucket.Environment.choices,
+        default=Bucket.Environment.DEVELOPMENT,
+    )
+    purpose = models.CharField(max_length=255)
+    notes = models.TextField(blank=True, default="")
+    rendered_bucket_name = models.CharField(max_length=63)
+    status = models.CharField(
+        max_length=24,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    current_stage = models.CharField(max_length=48, blank=True, default="")
+    retry_count = models.PositiveSmallIntegerField(default=0)
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    error_summary = models.CharField(max_length=255, blank=True, default="")
+    bucket = models.ForeignKey(
+        Bucket,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="application_items",
+    )
+
+    class Meta:
+        ordering = ["batch_id", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "rendered_bucket_name"],
+                name="storage_item_batch_bucket_name_unique",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["batch", "status"],
+                name="os_item_batch_status_idx",
+            )
+        ]
+
+    def __str__(self):
+        return self.rendered_bucket_name
+
+
+class ApplicationAttempt(models.Model):
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="application_attempts",
-    )
-    application = models.ForeignKey(
-        StorageApplication,
+    application_item = models.ForeignKey(
+        ApplicationItem,
         on_delete=models.CASCADE,
         related_name="attempts",
     )
     attempt_number = models.PositiveSmallIntegerField()
-    celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    task_id = models.CharField(max_length=255, blank=True, default="")
     status = models.CharField(
         max_length=16,
         choices=Status.choices,
         default=Status.RUNNING,
     )
-    provider_request_id = models.CharField(max_length=255, blank=True, default="")
-    error_code = models.CharField(max_length=64, blank=True, default="")
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    provider_request_id = models.CharField(max_length=255, blank=True, default="")
+    error_code = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
-        ordering = ["application_id", "attempt_number"]
+        ordering = ["application_item_id", "attempt_number"]
         constraints = [
             models.UniqueConstraint(
-                fields=["application", "attempt_number"],
+                fields=["application_item", "attempt_number"],
                 name="storage_attempt_number_unique",
             )
         ]
         indexes = [
             models.Index(
-                fields=["tenant", "status", "-started_at"],
-                name="os_attempt_tenant_status_idx",
+                fields=["status", "-started_at"],
+                name="os_attempt_status_time_idx",
             )
         ]
 
     def __str__(self):
-        return f"{self.application_id}:{self.attempt_number}"
+        return f"{self.application_item_id}:{self.attempt_number}"
 
 
-class StorageApplicationEventQuerySet(models.QuerySet):
+class ApplicationEventQuerySet(models.QuerySet):
     def update(self, **kwargs):
-        raise StorageApplicationEventImmutableError(
-            "Application events cannot be updated"
-        )
+        raise ApplicationEventImmutableError("Application events cannot be updated")
 
 
-class StorageApplicationEvent(models.Model):
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="application_events",
-    )
-    application = models.ForeignKey(
-        StorageApplication,
+class ApplicationEvent(models.Model):
+    application_item = models.ForeignKey(
+        ApplicationItem,
         on_delete=models.CASCADE,
         related_name="events",
     )
     attempt = models.ForeignKey(
-        StorageApplicationAttempt,
+        ApplicationAttempt,
         null=True,
         blank=True,
         on_delete=models.CASCADE,
@@ -531,54 +554,47 @@ class StorageApplicationEvent(models.Model):
     safe_metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = StorageApplicationEventQuerySet.as_manager()
+    objects = ApplicationEventQuerySet.as_manager()
 
     class Meta:
-        ordering = ["application_id", "created_at", "id"]
+        ordering = ["application_item_id", "created_at", "id"]
         indexes = [
             models.Index(
-                fields=["tenant", "application", "created_at"],
-                name="os_event_application_time_idx",
+                fields=["application_item", "created_at"],
+                name="os_event_item_time_idx",
             )
         ]
 
     def __str__(self):
-        return f"{self.application_id}:{self.stage}"
+        return f"{self.application_item_id}:{self.stage}"
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
-            raise StorageApplicationEventImmutableError(
-                "Application events cannot be updated"
-            )
+            raise ApplicationEventImmutableError("Application events cannot be updated")
         return super().save(*args, **kwargs)
 
 
-class StorageDeliveryTicket(models.Model):
+class DeliveryTicket(models.Model):
     class Status(models.TextChoices):
         READY = "ready", "Ready"
         CONSUMED = "consumed", "Consumed"
         EXPIRED = "expired", "Expired"
         REVOKED = "revoked", "Revoked"
 
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="delivery_tickets",
-    )
-    application = models.OneToOneField(
-        StorageApplication,
+    application_batch = models.OneToOneField(
+        ApplicationBatch,
         on_delete=models.CASCADE,
         related_name="delivery_ticket",
     )
     access_key = models.ForeignKey(
-        StorageAccessKey,
+        AccessKey,
         on_delete=models.PROTECT,
         related_name="delivery_tickets",
     )
-    membership = models.ForeignKey(
-        StorageMembership,
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name="delivery_tickets",
+        related_name="object_storage_delivery_tickets",
     )
     token_digest = models.CharField(max_length=128, unique=True)
     expires_at = models.DateTimeField()
@@ -595,8 +611,8 @@ class StorageDeliveryTicket(models.Model):
         ordering = ["-created_at", "-id"]
         indexes = [
             models.Index(
-                fields=["tenant", "membership", "status", "expires_at"],
-                name="os_ticket_member_status_idx",
+                fields=["user", "status", "expires_at"],
+                name="os_ticket_user_status_idx",
             )
         ]
 
@@ -604,17 +620,12 @@ class StorageDeliveryTicket(models.Model):
         return f"Delivery ticket {self.pk or 'new'}"
 
 
-class StorageAuditEventQuerySet(models.QuerySet):
+class AuditEventQuerySet(models.QuerySet):
     def update(self, **kwargs):
-        raise StorageAuditEventImmutableError("Audit events cannot be updated")
+        raise AuditEventImmutableError("Audit events cannot be updated")
 
 
-class StorageAuditEvent(models.Model):
-    tenant = models.ForeignKey(
-        StorageTenant,
-        on_delete=models.PROTECT,
-        related_name="audit_events",
-    )
+class AuditEvent(models.Model):
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -622,13 +633,8 @@ class StorageAuditEvent(models.Model):
         on_delete=models.SET_NULL,
         related_name="object_storage_audit_events",
     )
-    application = models.ForeignKey(
-        StorageApplication,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="audit_events",
-    )
+    actor_id_snapshot = models.PositiveBigIntegerField(null=True, blank=True)
+    actor_name_snapshot = models.CharField(max_length=160, blank=True, default="")
     action = models.CharField(max_length=120)
     target_type = models.CharField(max_length=120)
     target_id = models.CharField(max_length=255)
@@ -639,24 +645,26 @@ class StorageAuditEvent(models.Model):
     safe_metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = StorageAuditEventQuerySet.as_manager()
+    objects = AuditEventQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at", "-id"]
         indexes = [
+            models.Index(fields=["-created_at"], name="os_audit_time_idx"),
             models.Index(
-                fields=["tenant", "-created_at"],
-                name="os_audit_tenant_time_idx",
-            ),
-            models.Index(
-                fields=["tenant", "action", "-created_at"],
-                name="os_audit_tenant_action_idx",
+                fields=["action", "-created_at"],
+                name="os_audit_action_time_idx",
             ),
         ]
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
-            raise StorageAuditEventImmutableError("Audit events cannot be updated")
+            raise AuditEventImmutableError("Audit events cannot be updated")
+        if self.actor_id is not None:
+            self.actor_id_snapshot = self.actor_id
+            self.actor_name_snapshot = (
+                self.actor.get_full_name() or self.actor.get_username()
+            )
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -664,15 +672,17 @@ class StorageAuditEvent(models.Model):
 
 
 OBJECT_STORAGE_BUSINESS_MODELS = (
-    FeishuAppConfig,
-    StorageMembership,
+    PlatformFeishuConfig,
+    PlatformObjectStorageConfig,
     StorageResourcePool,
-    StorageCloudIdentity,
-    StorageBucket,
-    StorageAccessKey,
-    StorageApplication,
-    StorageApplicationAttempt,
-    StorageApplicationEvent,
-    StorageDeliveryTicket,
-    StorageAuditEvent,
+    FeishuIdentity,
+    CloudIdentity,
+    Bucket,
+    AccessKey,
+    ApplicationBatch,
+    ApplicationItem,
+    ApplicationAttempt,
+    ApplicationEvent,
+    DeliveryTicket,
+    AuditEvent,
 )

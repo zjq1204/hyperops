@@ -16,11 +16,11 @@ def stable_object_storage_secret(settings):
 
 
 @pytest.fixture
-def member_client(client, storage_membership_factory, storage_resource_pool_factory):
-    membership = storage_membership_factory()
-    storage_resource_pool_factory(tenant=membership.tenant, enabled=True)
-    client.force_login(membership.user)
-    return client, membership
+def member_client(client, user_factory, storage_resource_pool_factory):
+    user = user_factory()
+    storage_resource_pool_factory(enabled=True)
+    client.force_login(user)
+    return client, user
 
 
 @pytest.fixture
@@ -34,10 +34,9 @@ def superuser_client(client, django_user_model):
 
 
 def _create_key(identity, number):
-    from object_storage.models import StorageAccessKey
+    from object_storage.models import AccessKey
 
-    return StorageAccessKey.objects.create(
-        tenant=identity.tenant,
+    return AccessKey.objects.create(
         cloud_identity=identity,
         access_key_id_encrypted=encrypt_secret(f"LTAI-security-{number}"),
         secret_access_key_encrypted=encrypt_secret(f"security-secret-{number}"),
@@ -48,21 +47,20 @@ def _create_key(identity, number):
 
 def test_employee_object_storage_views_are_owner_scoped(
     member_client,
-    storage_cloud_identity_factory,
-    storage_bucket_factory,
-    storage_membership_factory,
+    cloud_identity_factory,
+    bucket_factory,
+    user_factory,
 ):
-    client, membership = member_client
-    own_identity = storage_cloud_identity_factory(membership=membership)
-    own_bucket = storage_bucket_factory(cloud_identity=own_identity)
+    client, user = member_client
+    own_identity = cloud_identity_factory(user=user)
+    own_bucket = bucket_factory(cloud_identity=own_identity)
     own_key = _create_key(own_identity, 1)
 
-    other_member = storage_membership_factory(tenant=membership.tenant)
-    other_identity = storage_cloud_identity_factory(
-        membership=other_member,
+    other_identity = cloud_identity_factory(
+        user=user_factory(),
         resource_pool=own_identity.resource_pool,
     )
-    other_bucket = storage_bucket_factory(cloud_identity=other_identity)
+    other_bucket = bucket_factory(cloud_identity=other_identity)
     other_key = _create_key(other_identity, 2)
 
     overview = client.get("/api/v1/object-storage/workspace/overview/")
@@ -88,24 +86,21 @@ def test_employee_object_storage_views_are_owner_scoped(
 
 
 def test_encrypted_credentials_and_audit_metadata_do_not_store_plaintext(
-    superuser_client, storage_cloud_identity_factory
+    superuser_client, cloud_identity_factory
 ):
-    from object_storage.models import StorageAuditEvent
+    from object_storage.models import AuditEvent
 
     client, admin = superuser_client
-    identity = storage_cloud_identity_factory()
+    identity = cloud_identity_factory()
     key = _create_key(identity, 7)
     access_key = "LTAI-security-7"
     secret_key = "security-secret-7"
 
-    response = client.get(
-        f"/api/v1/object-storage/management/access-keys/?tenant_id={identity.tenant_id}"
-    )
-    audit = StorageAuditEvent.objects.create(
-        tenant=identity.tenant,
+    response = client.get("/api/v1/object-storage/management/access-keys/")
+    audit = AuditEvent.objects.create(
         actor=admin,
         action="storage.security.regression",
-        target_type="StorageAccessKey",
+        target_type="AccessKey",
         target_id=key.id,
         result="succeeded",
         safe_metadata={"last_four": key.access_key_last_four},

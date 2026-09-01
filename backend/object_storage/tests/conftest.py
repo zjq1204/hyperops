@@ -14,58 +14,36 @@ def object_storage_test_cache(settings):
 
 
 @pytest.fixture
-def storage_tenant_factory(db):
-    from object_storage.models import StorageTenant
-
+def user_factory(db, django_user_model):
     sequence = itertools.count(1)
 
     def create(**overrides):
         number = next(sequence)
-        values = {
-            "code": f"tenant-{number}",
-            "name": f"Tenant {number}",
-        }
+        values = {"username": f"storage-user-{number}"}
         values.update(overrides)
-        return StorageTenant.objects.create(**values)
+        return django_user_model.objects.create_user(**values)
 
     return create
 
 
 @pytest.fixture
-def storage_membership_factory(db, django_user_model, storage_tenant_factory):
-    from object_storage.models import StorageMembership
+def platform_object_storage_config(db):
+    from object_storage.models import PlatformObjectStorageConfig
 
-    sequence = itertools.count(1)
-
-    def create(**overrides):
-        number = next(sequence)
-        tenant = overrides.pop("tenant", None) or storage_tenant_factory()
-        user = overrides.pop("user", None) or django_user_model.objects.create_user(
-            username=f"storage-user-{number}"
-        )
-        values = {
-            "tenant": tenant,
-            "user": user,
-            "feishu_open_id": f"open-id-{number}",
-            "display_name": f"Storage User {number}",
-        }
-        values.update(overrides)
-        return StorageMembership.objects.create(**values)
-
-    return create
+    return PlatformObjectStorageConfig.objects.create()
 
 
 @pytest.fixture
-def storage_resource_pool_factory(db, storage_tenant_factory):
+def storage_resource_pool_factory(db, platform_object_storage_config):
     from object_storage.models import StorageResourcePool
 
     sequence = itertools.count(1)
 
     def create(**overrides):
         number = next(sequence)
-        tenant = overrides.pop("tenant", None) or storage_tenant_factory()
+        config = overrides.pop("config", platform_object_storage_config)
         values = {
-            "tenant": tenant,
+            "config": config,
             "cloud_account_id": f"cloud-account-{number}",
             "region": "cn-hangzhou",
             "management_access_key_encrypted": f"encrypted-ak-{number}",
@@ -80,56 +58,124 @@ def storage_resource_pool_factory(db, storage_tenant_factory):
 
 
 @pytest.fixture
-def storage_cloud_identity_factory(
-    db, storage_membership_factory, storage_resource_pool_factory
-):
-    from object_storage.models import StorageCloudIdentity
+def feishu_identity_factory(db, user_factory):
+    from object_storage.models import FeishuIdentity
 
     sequence = itertools.count(1)
 
     def create(**overrides):
         number = next(sequence)
-        membership = overrides.pop("membership", None) or storage_membership_factory()
-        pool = overrides.pop("resource_pool", None)
-        if pool is None:
-            pool = storage_resource_pool_factory(tenant=membership.tenant)
+        user = overrides.pop("user", None) or user_factory()
         values = {
-            "tenant": membership.tenant,
-            "membership": membership,
-            "resource_pool": pool,
-            "ram_user_id": f"ram-id-{number}",
-            "ram_user_name": f"ram-user-{number}",
+            "user": user,
+            "open_id": f"open-id-{number}",
+            "display_name": f"Storage User {number}",
         }
         values.update(overrides)
-        return StorageCloudIdentity.objects.create(**values)
+        return FeishuIdentity.objects.create(**values)
 
     return create
 
 
 @pytest.fixture
-def storage_bucket_factory(db, storage_cloud_identity_factory):
-    from object_storage.models import StorageBucket
+def cloud_identity_factory(db, user_factory, storage_resource_pool_factory):
+    from object_storage.models import CloudIdentity
 
     sequence = itertools.count(1)
 
     def create(**overrides):
         number = next(sequence)
-        identity = (
-            overrides.pop("cloud_identity", None) or storage_cloud_identity_factory()
-        )
+        user = overrides.pop("user", None) or user_factory()
+        resource_pool = overrides.pop("resource_pool", None)
+        if resource_pool is None:
+            resource_pool = storage_resource_pool_factory()
         values = {
-            "tenant": identity.tenant,
+            "user": user,
+            "resource_pool": resource_pool,
+            "ram_user_id": f"ram-id-{number}",
+            "ram_user_name": f"ram-user-{number}",
+        }
+        values.update(overrides)
+        return CloudIdentity.objects.create(**values)
+
+    return create
+
+
+@pytest.fixture
+def bucket_factory(db, cloud_identity_factory):
+    from object_storage.models import Bucket
+
+    sequence = itertools.count(1)
+
+    def create(**overrides):
+        number = next(sequence)
+        identity = overrides.pop("cloud_identity", None) or cloud_identity_factory()
+        values = {
+            "owner": identity.user,
             "resource_pool": identity.resource_pool,
-            "owner": identity.membership,
             "cloud_identity": identity,
-            "name": f"tenant-user-project-{number}",
+            "business_name": f"Business {number}",
+            "name": f"hyperops-user-project-{number}",
             "project": "project",
-            "environment": "test",
+            "environment": Bucket.Environment.TEST,
             "purpose": "integration testing",
             "region": identity.resource_pool.region,
             "cloud_resource_id": f"oss-resource-{number}",
         }
         values.update(overrides)
-        return StorageBucket.objects.create(**values)
+        return Bucket.objects.create(**values)
+
+    return create
+
+
+@pytest.fixture
+def access_key_factory(db, cloud_identity_factory):
+    from object_storage.models import AccessKey
+
+    sequence = itertools.count(1)
+
+    def create(**overrides):
+        number = next(sequence)
+        identity = overrides.pop("cloud_identity", None) or cloud_identity_factory()
+        values = {
+            "cloud_identity": identity,
+            "access_key_id_encrypted": f"encrypted-user-ak-{number}",
+            "secret_access_key_encrypted": f"encrypted-user-sk-{number}",
+            "access_key_fingerprint": f"user-fingerprint-{number}",
+            "access_key_last_four": f"{number:04d}",
+        }
+        values.update(overrides)
+        return AccessKey.objects.create(**values)
+
+    return create
+
+
+@pytest.fixture
+def application_batch_factory(db, user_factory):
+    from object_storage.models import ApplicationBatch, ApplicationItem
+
+    sequence = itertools.count(1)
+
+    def create(item_count=0, **overrides):
+        number = next(sequence)
+        applicant = overrides.pop("applicant", None) or user_factory()
+        values = {
+            "applicant": applicant,
+            "idempotency_key": f"application-{number}",
+            "item_count": item_count,
+            "pending_count": item_count,
+        }
+        values.update(overrides)
+        batch = ApplicationBatch.objects.create(**values)
+        for item_number in range(1, item_count + 1):
+            ApplicationItem.objects.create(
+                batch=batch,
+                business_name=f"Business {item_number}",
+                project="project",
+                environment="test",
+                purpose="integration testing",
+                rendered_bucket_name=f"hyperops-batch-{number}-{item_number}",
+            )
+        return batch
 
     return create

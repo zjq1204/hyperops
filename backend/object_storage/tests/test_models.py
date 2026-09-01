@@ -1,246 +1,272 @@
-import json
-from io import StringIO
-
 import pytest
 from django.db import IntegrityError, transaction
+from django.db.models import CASCADE, PROTECT, SET_NULL
+from django.db.models.deletion import ProtectedError
 
 pytestmark = pytest.mark.django_db
 
 
-def test_storage_tenant_uses_approved_phase_one_defaults(storage_tenant_factory):
-    tenant = storage_tenant_factory()
+def test_platform_settings_are_singletons_and_use_phase_one_defaults(db):
+    from object_storage.models import (
+        PlatformFeishuConfig,
+        PlatformObjectStorageConfig,
+    )
 
-    assert tenant.default_bucket_quota == 5
-    assert tenant.delivery_lifetime_seconds == 86400
-    assert tenant.audit_retention_days == 30
-    assert tenant.naming_template_version == 1
+    feishu = PlatformFeishuConfig.objects.create()
+    storage = PlatformObjectStorageConfig.objects.create()
 
-
-def test_storage_membership_is_unique_by_tenant_and_feishu_open_id(
-    storage_membership_factory,
-):
-    membership = storage_membership_factory()
-
-    with pytest.raises(IntegrityError), transaction.atomic():
-        storage_membership_factory(
-            tenant=membership.tenant,
-            feishu_open_id=membership.feishu_open_id,
-        )
-
-
-def test_django_user_can_have_only_one_storage_membership(
-    storage_membership_factory, storage_tenant_factory
-):
-    membership = storage_membership_factory()
+    assert feishu.singleton_key == "default"
+    assert storage.singleton_key == "default"
+    assert storage.default_bucket_quota == 5
+    assert storage.delivery_lifetime_seconds == 86400
+    assert storage.audit_retention_days == 30
+    assert storage.naming_template_version == 1
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        storage_membership_factory(
-            tenant=storage_tenant_factory(),
-            user=membership.user,
-        )
+        PlatformFeishuConfig.objects.create()
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PlatformObjectStorageConfig.objects.create()
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PlatformFeishuConfig.objects.create(singleton_key="other")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PlatformObjectStorageConfig.objects.create(singleton_key="other")
 
 
-def test_storage_pool_has_one_active_aliyun_pool_per_tenant(
+def test_platform_storage_settings_enforce_approved_ranges(db):
+    from object_storage.models import PlatformObjectStorageConfig
+
+    invalid_values = (
+        {"default_bucket_quota": 0},
+        {"delivery_lifetime_seconds": 599},
+        {"delivery_lifetime_seconds": 604801},
+        {"audit_retention_days": 29},
+    )
+    for values in invalid_values:
+        with pytest.raises(IntegrityError), transaction.atomic():
+            PlatformObjectStorageConfig.objects.create(**values)
+
+
+def test_resource_pool_belongs_to_platform_storage_config(
+    storage_resource_pool_factory, platform_object_storage_config
+):
+    pool = storage_resource_pool_factory()
+
+    assert pool.config_id == platform_object_storage_config.id
+    assert pool._meta.get_field("config").remote_field.on_delete is PROTECT
+
+
+def test_only_one_aliyun_resource_pool_can_be_enabled(
     storage_resource_pool_factory,
 ):
-    pool = storage_resource_pool_factory(enabled=True)
+    storage_resource_pool_factory(enabled=True)
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        storage_resource_pool_factory(tenant=pool.tenant, enabled=True)
+        storage_resource_pool_factory(enabled=True)
 
-    disabled_pool = storage_resource_pool_factory(tenant=pool.tenant, enabled=False)
-    assert disabled_pool.pk is not None
+    assert storage_resource_pool_factory(enabled=False).pk is not None
 
 
-def test_bucket_is_unique_by_resource_pool_and_name(storage_bucket_factory):
-    bucket = storage_bucket_factory()
+def test_feishu_identity_maps_open_id_and_user_once(
+    feishu_identity_factory, user_factory
+):
+    identity = feishu_identity_factory()
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        storage_bucket_factory(
+        feishu_identity_factory(user=user_factory(), open_id=identity.open_id)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        feishu_identity_factory(user=identity.user)
+
+
+def test_user_has_only_one_cloud_identity_in_phase_one(
+    cloud_identity_factory, storage_resource_pool_factory
+):
+    identity = cloud_identity_factory()
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        cloud_identity_factory(
+            user=identity.user,
+            resource_pool=storage_resource_pool_factory(),
+        )
+
+
+def test_ram_user_name_is_unique_within_resource_pool(
+    cloud_identity_factory, user_factory
+):
+    identity = cloud_identity_factory()
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        cloud_identity_factory(
+            user=user_factory(),
+            resource_pool=identity.resource_pool,
+            ram_user_name=identity.ram_user_name,
+        )
+
+
+def test_bucket_is_unique_by_resource_pool_and_final_name(bucket_factory):
+    bucket = bucket_factory()
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        bucket_factory(
             cloud_identity=bucket.cloud_identity,
             name=bucket.name,
         )
 
 
-def test_one_membership_has_one_cloud_identity_per_pool(
-    storage_cloud_identity_factory,
-):
-    identity = storage_cloud_identity_factory()
+def test_bucket_directly_references_owner_pool_and_identity(bucket_factory):
+    bucket = bucket_factory()
+
+    assert bucket.owner_id == bucket.cloud_identity.user_id
+    assert bucket.resource_pool_id == bucket.cloud_identity.resource_pool_id
+    for field_name in ("owner", "resource_pool", "cloud_identity"):
+        assert BucketField(bucket, field_name).on_delete is PROTECT
+
+
+def BucketField(bucket, field_name):
+    return bucket._meta.get_field(field_name).remote_field
+
+
+def test_access_key_belongs_to_cloud_identity_and_protects_it(access_key_factory):
+    key = access_key_factory()
+
+    assert key._meta.get_field("cloud_identity").remote_field.on_delete is PROTECT
+    with pytest.raises(ProtectedError):
+        key.cloud_identity.delete()
+
+
+def test_application_batch_is_idempotent_per_applicant(application_batch_factory):
+    batch = application_batch_factory()
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        storage_cloud_identity_factory(
-            membership=identity.membership,
-            resource_pool=identity.resource_pool,
+        application_batch_factory(
+            applicant=batch.applicant,
+            idempotency_key=batch.idempotency_key,
         )
 
 
-def test_application_idempotency_key_is_unique_per_applicant_and_tenant(
-    storage_membership_factory,
-):
-    from object_storage.models import StorageApplication
+def test_application_batch_has_independent_items(application_batch_factory):
+    from object_storage.models import ApplicationItem
 
-    membership = storage_membership_factory()
-    values = {
-        "tenant": membership.tenant,
-        "applicant": membership,
-        "action_type": StorageApplication.ActionType.FIRST_BUCKET_AND_CREDENTIAL,
-        "idempotency_key": "request-123",
-    }
-    StorageApplication.objects.create(**values)
+    batch = application_batch_factory(item_count=2)
+    first, second = batch.items.order_by("id")
+    first.status = ApplicationItem.Status.SUCCEEDED
+    first.save(update_fields=("status",))
+    second.status = ApplicationItem.Status.FAILED
+    second.save(update_fields=("status",))
 
-    with pytest.raises(IntegrityError), transaction.atomic():
-        StorageApplication.objects.create(**values)
+    assert batch.items.count() == 2
+    assert list(batch.items.order_by("id").values_list("status", flat=True)) == [
+        ApplicationItem.Status.SUCCEEDED,
+        ApplicationItem.Status.FAILED,
+    ]
 
 
-def test_audit_event_is_immutable(storage_tenant_factory, django_user_model):
+def test_application_attempt_event_and_delivery_ticket_have_no_tenant_field():
     from object_storage.models import (
-        StorageAuditEvent,
-        StorageAuditEventImmutableError,
+        ApplicationAttempt,
+        ApplicationEvent,
+        AuditEvent,
+        DeliveryTicket,
     )
 
-    tenant = storage_tenant_factory()
-    actor = django_user_model.objects.create_user(username="audit-actor")
-    event = StorageAuditEvent.objects.create(
-        tenant=tenant,
-        actor=actor,
-        action="storage.application.created",
-        target_type="StorageApplication",
-        target_id="42",
-        result="accepted",
-    )
-
-    event.result = "changed"
-    with pytest.raises(StorageAuditEventImmutableError):
-        event.save()
-    with pytest.raises(StorageAuditEventImmutableError):
-        StorageAuditEvent.objects.filter(pk=event.pk).update(result="changed")
+    for model in (ApplicationAttempt, ApplicationEvent, DeliveryTicket, AuditEvent):
+        assert "tenant" not in {field.name for field in model._meta.fields}
 
 
-def test_application_event_is_immutable(storage_membership_factory):
+def test_application_event_is_immutable(application_batch_factory):
     from object_storage.models import (
-        StorageApplication,
-        StorageApplicationEvent,
-        StorageApplicationEventImmutableError,
+        ApplicationEvent,
+        ApplicationEventImmutableError,
     )
 
-    membership = storage_membership_factory()
-    application = StorageApplication.objects.create(
-        tenant=membership.tenant,
-        applicant=membership,
-        action_type=StorageApplication.ActionType.ADD_BUCKET,
-        idempotency_key="event-immutability",
-    )
-    event = StorageApplicationEvent.objects.create(
-        tenant=membership.tenant,
-        application=application,
+    item = application_batch_factory(item_count=1).items.get()
+    event = ApplicationEvent.objects.create(
+        application_item=item,
         stage="BUCKET_CREATING",
         result="running",
     )
 
     event.result = "changed"
-    with pytest.raises(StorageApplicationEventImmutableError):
+    with pytest.raises(ApplicationEventImmutableError):
         event.save()
-    with pytest.raises(StorageApplicationEventImmutableError):
-        StorageApplicationEvent.objects.filter(pk=event.pk).update(result="changed")
+    with pytest.raises(ApplicationEventImmutableError):
+        ApplicationEvent.objects.filter(pk=event.pk).update(result="changed")
 
 
-def test_every_business_model_has_an_explicit_tenant_field():
+def test_audit_event_is_immutable_and_snapshots_actor(django_user_model):
+    from object_storage.models import AuditEvent, AuditEventImmutableError
+
+    actor = django_user_model.objects.create_user(
+        username="audit-actor",
+        first_name="Audit",
+        last_name="Actor",
+    )
+    event = AuditEvent.objects.create(
+        actor=actor,
+        action="storage.application.created",
+        target_type="ApplicationBatch",
+        target_id="42",
+        result="accepted",
+    )
+
+    assert event.actor_id_snapshot == actor.id
+    assert event.actor_name_snapshot == actor.get_full_name()
+    assert event._meta.get_field("actor").remote_field.on_delete is SET_NULL
+    event.result = "changed"
+    with pytest.raises(AuditEventImmutableError):
+        event.save()
+    with pytest.raises(AuditEventImmutableError):
+        AuditEvent.objects.filter(pk=event.pk).update(result="changed")
+
+
+def test_user_with_cloud_resources_cannot_be_deleted(bucket_factory):
+    bucket = bucket_factory()
+
+    with pytest.raises(ProtectedError):
+        bucket.owner.delete()
+
+
+def test_feishu_identity_is_removed_with_resource_free_user(feishu_identity_factory):
+    identity = feishu_identity_factory()
+    user = identity.user
+
+    assert identity._meta.get_field("user").remote_field.on_delete is CASCADE
+    user.delete()
+
+    assert not type(identity).objects.filter(pk=identity.pk).exists()
+
+
+def test_runtime_models_have_no_tenant_or_membership_fields():
     from object_storage.models import OBJECT_STORAGE_BUSINESS_MODELS
 
     for model in OBJECT_STORAGE_BUSINESS_MODELS:
-        assert model._meta.get_field("tenant").name == "tenant"
+        field_names = {field.name for field in model._meta.fields}
+        assert "tenant" not in field_names
+        assert "membership" not in field_names
+
+
+def test_old_tenant_runtime_models_are_removed():
+    from object_storage import models
+
+    assert not hasattr(models, "StorageTenant")
+    assert not hasattr(models, "StorageMembership")
+    assert not hasattr(models, "FeishuAppConfig")
 
 
 def test_secret_models_expose_only_encrypted_secret_fields():
     from object_storage.models import (
-        FeishuAppConfig,
-        StorageAccessKey,
+        AccessKey,
+        PlatformFeishuConfig,
         StorageResourcePool,
     )
 
+    models = (PlatformFeishuConfig, StorageResourcePool, AccessKey)
     field_names = {
-        model.__name__: {field.name for field in model._meta.fields}
-        for model in (FeishuAppConfig, StorageResourcePool, StorageAccessKey)
+        model.__name__: {field.name for field in model._meta.fields} for model in models
     }
 
-    assert "app_secret_encrypted" in field_names["FeishuAppConfig"]
+    assert "app_secret_encrypted" in field_names["PlatformFeishuConfig"]
     assert "management_secret_key_encrypted" in field_names["StorageResourcePool"]
-    assert "secret_access_key_encrypted" in field_names["StorageAccessKey"]
-    assert "app_secret" not in field_names["FeishuAppConfig"]
+    assert "secret_access_key_encrypted" in field_names["AccessKey"]
+    assert "app_secret" not in field_names["PlatformFeishuConfig"]
     assert "management_secret_key" not in field_names["StorageResourcePool"]
-    assert "secret_access_key" not in field_names["StorageAccessKey"]
-
-
-def test_reencrypt_command_targets_all_real_secret_model_fields(
-    monkeypatch,
-    storage_cloud_identity_factory,
-):
-    from object_storage.crypto import (
-        _decrypt_secret_with_root,
-        _encrypt_secret_with_root,
-    )
-    from object_storage.management.commands.reencrypt_object_storage_secrets import (
-        Command,
-    )
-    from object_storage.models import FeishuAppConfig, StorageAccessKey
-
-    old_root = "old-model-integration-root"
-    new_root = "new-model-integration-root"
-    identity = storage_cloud_identity_factory()
-    pool = identity.resource_pool
-    pool.management_access_key_encrypted = _encrypt_secret_with_root(
-        "manager-ak", old_root
-    )
-    pool.management_secret_key_encrypted = _encrypt_secret_with_root(
-        "manager-sk", old_root
-    )
-    pool.save(
-        update_fields=(
-            "management_access_key_encrypted",
-            "management_secret_key_encrypted",
-        )
-    )
-    app_config = FeishuAppConfig.objects.create(
-        tenant=identity.tenant,
-        app_id="cli_test_app",
-        app_secret_encrypted=_encrypt_secret_with_root("feishu-sk", old_root),
-        oauth_callback_url="https://hyperops.example.com/callback",
-    )
-    access_key = StorageAccessKey.objects.create(
-        tenant=identity.tenant,
-        cloud_identity=identity,
-        access_key_id_encrypted=_encrypt_secret_with_root("employee-ak", old_root),
-        secret_access_key_encrypted=_encrypt_secret_with_root("employee-sk", old_root),
-        access_key_fingerprint="employee-key-fingerprint",
-        access_key_last_four="1234",
-    )
-    answers = iter([old_root, new_root])
-    monkeypatch.setattr("getpass.getpass", lambda prompt: next(answers))
-    output = StringIO()
-
-    Command(stdout=output).handle(confirm=True, batch_size=2)
-
-    app_config.refresh_from_db()
-    pool.refresh_from_db()
-    access_key.refresh_from_db()
-    assert json.loads(output.getvalue())["updated_fields"] == 5
-    assert (
-        _decrypt_secret_with_root(app_config.app_secret_encrypted, new_root)
-        == "feishu-sk"
-    )
-    assert (
-        _decrypt_secret_with_root(pool.management_access_key_encrypted, new_root)
-        == "manager-ak"
-    )
-    assert (
-        _decrypt_secret_with_root(pool.management_secret_key_encrypted, new_root)
-        == "manager-sk"
-    )
-    assert (
-        _decrypt_secret_with_root(access_key.access_key_id_encrypted, new_root)
-        == "employee-ak"
-    )
-    assert (
-        _decrypt_secret_with_root(access_key.secret_access_key_encrypted, new_root)
-        == "employee-sk"
-    )
+    assert "secret_access_key" not in field_names["AccessKey"]
