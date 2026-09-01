@@ -491,7 +491,61 @@ def test_confirm_token_is_single_use_and_idempotency_is_required(
 
     assert first.status_code == 200
     assert replay.status_code == 400
-    assert _payload(replay)["error_code"] == "FEISHU_CONFIRMATION_INVALID"
+    assert _payload(replay)["error_code"] == "TOKEN_ALREADY_CONSUMED"
+
+
+def test_consumed_token_is_still_rejected_after_31_seconds(
+    client, feishu_config, platform_admin, monkeypatch
+):
+    from django.core.cache.backends import base
+
+    client.force_login(platform_admin)
+    preview = _preview(client, monkeypatch, identities=[])
+    token = _payload(preview)["confirmation_token"]
+    first = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {"confirmation_token": token, "idempotency_key": "first-key"},
+        content_type="application/json",
+    )
+    current_time = base.time.time()
+    monkeypatch.setattr(base.time, "time", lambda: current_time + 31)
+
+    replay = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {"confirmation_token": token, "idempotency_key": "second-key"},
+        content_type="application/json",
+    )
+
+    assert first.status_code == 200
+    assert replay.status_code == 400
+    assert _payload(replay)["error_code"] == "TOKEN_ALREADY_CONSUMED"
+
+
+def test_unconsumed_token_is_expired_after_confirmation_ttl(
+    client, feishu_config, platform_admin, monkeypatch
+):
+    from django.core.cache.backends import base
+
+    from object_storage.services.feishu_sync import CONFIRMATION_TTL_SECONDS
+
+    client.force_login(platform_admin)
+    preview = _preview(client, monkeypatch, identities=[])
+    token = _payload(preview)["confirmation_token"]
+    current_time = base.time.time()
+    monkeypatch.setattr(
+        base.time,
+        "time",
+        lambda: current_time + CONFIRMATION_TTL_SECONDS + 1,
+    )
+
+    response = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {"confirmation_token": token, "idempotency_key": "expired-token"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert _payload(response)["error_code"] == "FEISHU_CONFIRMATION_EXPIRED"
 
 
 def test_new_remote_confirm_does_not_create_local_users(

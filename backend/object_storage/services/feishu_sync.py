@@ -227,10 +227,9 @@ def _consume_confirmation(token):
     if not token:
         return None
     key = _cache_key("confirmation", token)
-    if not cache.add(f"{key}:consume", True, timeout=30):
+    if not cache.add(f"{key}:consume", True, timeout=CONFIRMATION_TTL_SECONDS):
         return None
-    payload = cache.get(key)
-    return payload
+    return cache.get(key)
 
 
 def confirm_sync(*, token, idempotency_key, actor_id):
@@ -238,16 +237,18 @@ def confirm_sync(*, token, idempotency_key, actor_id):
     result_key = _cache_key("idempotency", f"{actor_id}:{idempotency_key}")
     previous = cache.get(result_key)
     if previous is not None:
-        if confirmation is None or previous["snapshot_hash"] != confirmation.get(
-            "snapshot_hash", ""
-        ):
+        if confirmation is None:
+            raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_EXPIRED")
+        if previous["snapshot_hash"] != confirmation.get("snapshot_hash", ""):
             raise FeishuSyncConfirmationError("IDEMPOTENCY_KEY_REUSED")
         return previous["result"]
-    if confirmation is None or confirmation.get("actor_id") != actor_id:
+    if confirmation is None:
+        raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_EXPIRED")
+    if confirmation.get("actor_id") != actor_id:
         raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_INVALID")
     consumed = _consume_confirmation(token)
     if consumed is None:
-        raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_INVALID")
+        raise FeishuSyncConfirmationError("TOKEN_ALREADY_CONSUMED")
 
     remote_by_open_id = {
         item["open_id"]: _identity_from_payload(item)
