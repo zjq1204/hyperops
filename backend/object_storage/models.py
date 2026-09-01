@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, router, transaction
 from django.db.models import Q
 
 
@@ -327,6 +327,37 @@ QUOTA_CONSUMING_STATES = (
 )
 
 
+class AccessKeyUnsafeBulkMutationError(RuntimeError):
+    """Raised when a bulk write would bypass access-key slot enforcement."""
+
+
+class AccessKeyQuerySet(models.QuerySet):
+    GUARDED_UPDATE_FIELDS = frozenset(
+        {
+            "cloud_identity",
+            "cloud_identity_id",
+            "cloud_state",
+            "local_state",
+            "deleted_at",
+        }
+    )
+
+    def bulk_create(self, objs, *args, **kwargs):
+        objs = list(objs)
+        if any(obj.occupies_provider_slot for obj in objs):
+            raise AccessKeyUnsafeBulkMutationError(
+                "ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE"
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def update(self, **kwargs):
+        if self.GUARDED_UPDATE_FIELDS.intersection(kwargs):
+            raise AccessKeyUnsafeBulkMutationError(
+                "ACCESS_KEY_STATE_UPDATE_REQUIRES_SAVE"
+            )
+        return super().update(**kwargs)
+
+
 class AccessKey(TimestampedModel):
     class CloudState(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -378,6 +409,8 @@ class AccessKey(TimestampedModel):
     deactivated_at = models.DateTimeField(null=True, blank=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
+    objects = AccessKeyQuerySet.as_manager()
+
     class Meta:
         ordering = ["cloud_identity_id", "-created_at"]
         constraints = [
@@ -404,12 +437,13 @@ class AccessKey(TimestampedModel):
             and self.deleted_at is None
         )
 
-    def _validate_provider_slot_limit(self):
+    def _validate_provider_slot_limit(self, using):
         if not self.occupies_provider_slot or self.cloud_identity_id is None:
             return
         occupied_slots = (
             type(self)
-            .objects.filter(
+            .objects.using(using)
+            .filter(
                 cloud_identity_id=self.cloud_identity_id,
                 cloud_state__in=self.PROVIDER_SLOT_CLOUD_STATES,
                 local_state__in=self.PROVIDER_SLOT_LOCAL_STATES,
@@ -422,8 +456,19 @@ class AccessKey(TimestampedModel):
             raise ValidationError({"cloud_identity": "ACCESS_KEY_LIMIT_EXCEEDED"})
 
     def save(self, *args, **kwargs):
-        self._validate_provider_slot_limit()
-        return super().save(*args, **kwargs)
+        if not self.occupies_provider_slot or self.cloud_identity_id is None:
+            return super().save(*args, **kwargs)
+
+        using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            (
+                CloudIdentity.objects.using(using)
+                .select_for_update()
+                .only("pk")
+                .get(pk=self.cloud_identity_id)
+            )
+            self._validate_provider_slot_limit(using)
+            return super().save(*args, **kwargs)
 
 
 class ApplicationBatch(TimestampedModel):

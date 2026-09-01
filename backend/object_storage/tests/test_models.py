@@ -157,6 +157,71 @@ def test_access_key_rejects_third_provider_slot(
         access_key_factory(cloud_identity=identity)
 
 
+@pytest.mark.django_db(transaction=True)
+def test_access_key_save_locks_cloud_identity_inside_atomic_transaction(
+    access_key_factory, cloud_identity_factory, monkeypatch
+):
+    from django.db.models.query import QuerySet
+
+    from object_storage.models import CloudIdentity
+
+    locked_models = []
+    lock_atomic_states = []
+    original_select_for_update = QuerySet.select_for_update
+
+    def tracked_select_for_update(queryset, *args, **kwargs):
+        locked_models.append(queryset.model)
+        lock_atomic_states.append(
+            transaction.get_connection(queryset.db).in_atomic_block
+        )
+        return original_select_for_update(queryset, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", tracked_select_for_update)
+
+    # SQLite ignores row locks; PostgreSQL enforces this exercised lock path.
+    access_key_factory(cloud_identity=cloud_identity_factory())
+
+    assert CloudIdentity in locked_models
+    assert lock_atomic_states == [True]
+
+
+def test_access_key_bulk_create_cannot_bypass_provider_slot_limit(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+
+    identity = cloud_identity_factory()
+    key = AccessKey(
+        cloud_identity=identity,
+        access_key_id_encrypted="bulk-encrypted-ak",
+        secret_access_key_encrypted="bulk-encrypted-sk",
+        access_key_fingerprint="bulk-fingerprint",
+        access_key_last_four="9999",
+    )
+
+    with pytest.raises(RuntimeError, match="ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE"):
+        AccessKey.objects.bulk_create([key])
+
+
+def test_access_key_queryset_update_cannot_restore_released_slot(
+    access_key_factory, cloud_identity_factory
+):
+    from object_storage.models import AccessKey
+
+    key = access_key_factory(
+        cloud_identity=cloud_identity_factory(),
+        local_state=AccessKey.LocalState.RETIRED,
+    )
+
+    with pytest.raises(RuntimeError, match="ACCESS_KEY_STATE_UPDATE_REQUIRES_SAVE"):
+        AccessKey.objects.filter(pk=key.pk).update(
+            local_state=AccessKey.LocalState.ACTIVE
+        )
+
+    key.refresh_from_db()
+    assert key.local_state == AccessKey.LocalState.RETIRED
+
+
 def test_inactive_key_occupies_slot_but_deleted_or_retired_key_does_not(
     access_key_factory, cloud_identity_factory
 ):
