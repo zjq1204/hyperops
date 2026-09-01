@@ -122,6 +122,18 @@ def test_platform_storage_settings_enforce_approved_ranges(db):
             PlatformObjectStorageConfig.objects.create(**values)
 
 
+def test_platform_default_bucket_acl_is_database_constrained_to_private(db):
+    from object_storage.models import PlatformObjectStorageConfig
+
+    config, _created = PlatformObjectStorageConfig.objects.get_or_create(
+        singleton_key="default"
+    )
+    config.default_bucket_acl = "public_read"
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        config.save(update_fields=("default_bucket_acl", "updated_at"))
+
+
 def test_user_bucket_quota_is_one_to_one_positive_and_protected(user_factory):
     from object_storage.models import UserBucketQuota
 

@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from object_storage.models import AccessKey, Bucket, CloudIdentity
+from object_storage.permissions import has_object_storage_admin_access
 from object_storage.providers.base import BucketConfiguration
 from object_storage.services.audit import record_audit_event
 from object_storage.services.policy import BucketQuotaExceeded, check_bucket_capacity
@@ -30,7 +31,7 @@ class BucketConfigurationError(LifecycleError):
 
 
 def _is_admin(actor):
-    return bool(actor and (actor.is_superuser or actor.is_staff))
+    return has_object_storage_admin_access(actor)
 
 
 def _provider(bucket):

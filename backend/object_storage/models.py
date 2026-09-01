@@ -111,6 +111,10 @@ class PlatformObjectStorageConfig(TimestampedModel):
                 ),
                 name="storage_platform_audit_retention_range",
             ),
+            models.CheckConstraint(
+                condition=Q(default_bucket_acl="private"),
+                name="storage_platform_default_acl_private",
+            ),
         ]
 
     def __str__(self):

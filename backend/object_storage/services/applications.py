@@ -20,6 +20,7 @@ from object_storage.models import (
     PlatformObjectStorageConfig,
 )
 from object_storage.providers.aliyun import build_aliyun_provider
+from object_storage.providers.base import BucketConfiguration
 from object_storage.services.audit import record_audit_event
 from object_storage.services.credentials import (
     CredentialDeliveryError,
@@ -37,7 +38,10 @@ from object_storage.services.naming import (
     render_bucket_name,
 )
 from object_storage.services.policy import BucketQuotaExceeded, reserve_bucket_capacity
-from object_storage.services.platform import default_bucket_configuration_snapshot
+from object_storage.services.platform import (
+    default_bucket_configuration_snapshot,
+    ensure_key_operations_allowed,
+)
 from object_storage.services.provider_errors import (
     ObjectStorageProviderError,
     is_temporary_provider_error,
@@ -260,7 +264,6 @@ def _create_reserved_batch(
                 "bucket_configuration": default_bucket_configuration_snapshot(config),
             },
             desired_config_snapshot=default_bucket_configuration_snapshot(config),
-            applied_config_snapshot=default_bucket_configuration_snapshot(config),
             cloud_marker=f"hyperops:bucket:item:{item.pk}",
             state=Bucket.State.REQUESTED,
         )
@@ -822,6 +825,8 @@ def _valid_local_key(batch, identity, provider, owner_token):
 
 def _persist_batch_access_key(batch, identity, provider, owner_token):
     _assert_application_claim(batch.pk, owner_token)
+    ensure_key_operations_allowed()
+    _assert_application_claim(batch.pk, owner_token)
     issued = provider.create_access_key(identity)
     try:
         _assert_application_claim(batch.pk, owner_token)
@@ -934,6 +939,32 @@ def _bucket_render_values(item, bucket):
     }
 
 
+def _desired_bucket_configuration(bucket):
+    try:
+        return BucketConfiguration.from_snapshot(bucket.desired_config_snapshot)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ObjectStorageProviderError("BUCKET_CONFIGURATION_INVALID") from error
+
+
+def _reconcile_existing_bucket_configuration(
+    item,
+    bucket,
+    provider,
+    configuration,
+    owner_token,
+):
+    return _call_provider_with_claim(
+        item.batch_id,
+        owner_token,
+        lambda: provider.update_bucket_configuration(
+            bucket,
+            configuration,
+            allow_public_read=False,
+        ),
+        item_ids=(item.pk,),
+    )
+
+
 def _ensure_bucket(item, provider, owner_token):
     with transaction.atomic():
         _batch, items = _lock_application_claim(
@@ -948,6 +979,7 @@ def _ensure_bucket(item, provider, owner_token):
             .get(pk=locked_item.bucket_id)
         )
         active = bucket.state == Bucket.State.ACTIVE
+        applied = bucket.applied_config_snapshot == bucket.desired_config_snapshot
         if not active and bucket.state not in {
             Bucket.State.REQUESTED,
             Bucket.State.CREATING,
@@ -969,6 +1001,39 @@ def _ensure_bucket(item, provider, owner_token):
         )
         if not exists or not owned:
             raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
+        if applied:
+            return bucket
+
+    configuration = _desired_bucket_configuration(bucket)
+
+    if active:
+        _reconcile_existing_bucket_configuration(
+            item,
+            bucket,
+            provider,
+            configuration,
+            owner_token,
+        )
+        with transaction.atomic():
+            _lock_application_claim(
+                item.batch_id,
+                owner_token,
+                item_ids=(item.pk,),
+            )
+            bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+            bucket.applied_config_snapshot = bucket.desired_config_snapshot
+            bucket.config_error_code = ""
+            bucket.config_error_summary = ""
+            bucket.last_synced_at = timezone.now()
+            bucket.save(
+                update_fields=(
+                    "applied_config_snapshot",
+                    "config_error_code",
+                    "config_error_summary",
+                    "last_synced_at",
+                    "updated_at",
+                )
+            )
         return bucket
 
     initial = BucketNameCandidate(
@@ -1002,20 +1067,30 @@ def _ensure_bucket(item, provider, owner_token):
         return _call_provider_with_claim(
             item.batch_id,
             owner_token,
-            lambda: provider.create_owned_bucket(bucket),
+            lambda: provider.create_owned_bucket(bucket, configuration),
             item_ids=(item.pk,),
         )
 
     try:
-        create_bucket_with_unique_name(
+        mutation = create_bucket_with_unique_name(
             create_callback=create,
             initial_candidate=initial,
             **_bucket_render_values(item, bucket),
         )
+        if not getattr(mutation, "created", False):
+            _reconcile_existing_bucket_configuration(
+                item,
+                bucket,
+                provider,
+                configuration,
+                owner_token,
+            )
     except StaleApplicationClaim:
         raise
     except Exception as error:
-        if is_retryable_provider_error(error):
+        temporary = is_retryable_provider_error(error)
+        exists = owned = False
+        try:
             exists, owned = _owned(
                 _call_provider_with_claim(
                     item.batch_id,
@@ -1024,28 +1099,29 @@ def _ensure_bucket(item, provider, owner_token):
                     item_ids=(item.pk,),
                 )
             )
-            if not (exists and owned):
-                with transaction.atomic():
-                    _lock_application_claim(
-                        item.batch_id,
-                        owner_token,
-                        item_ids=(item.pk,),
-                    )
-                    locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
-                    locked_bucket.state = Bucket.State.WAITING_RETRY
-                    locked_bucket.save(update_fields=("state", "updated_at"))
-                raise
-        else:
-            with transaction.atomic():
-                _lock_application_claim(
-                    item.batch_id,
-                    owner_token,
-                    item_ids=(item.pk,),
-                )
-                locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
-                locked_bucket.state = Bucket.State.FAILED
-                locked_bucket.save(update_fields=("state", "updated_at"))
+        except StaleApplicationClaim:
             raise
+        except Exception:
+            pass
+        with transaction.atomic():
+            _lock_application_claim(
+                item.batch_id,
+                owner_token,
+                item_ids=(item.pk,),
+            )
+            locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+            locked_bucket.state = (
+                Bucket.State.WAITING_RETRY if temporary else Bucket.State.FAILED
+            )
+            update_fields = ["state", "updated_at"]
+            if exists and owned:
+                locked_bucket.config_error_code = _error_code(
+                    error, "BUCKET_CONFIGURATION_UPDATE_FAILED"
+                )
+                locked_bucket.config_error_summary = locked_bucket.config_error_code
+                update_fields.extend(("config_error_code", "config_error_summary"))
+            locked_bucket.save(update_fields=tuple(update_fields))
+        raise
     with transaction.atomic():
         _lock_application_claim(
             item.batch_id,
@@ -1054,8 +1130,20 @@ def _ensure_bucket(item, provider, owner_token):
         )
         bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
         bucket.state = Bucket.State.ACTIVE
+        bucket.applied_config_snapshot = bucket.desired_config_snapshot
+        bucket.config_error_code = ""
+        bucket.config_error_summary = ""
         bucket.last_synced_at = timezone.now()
-        bucket.save(update_fields=("state", "last_synced_at", "updated_at"))
+        bucket.save(
+            update_fields=(
+                "state",
+                "applied_config_snapshot",
+                "config_error_code",
+                "config_error_summary",
+                "last_synced_at",
+                "updated_at",
+            )
+        )
     return bucket
 
 

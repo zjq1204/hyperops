@@ -72,6 +72,114 @@ def _admin(user_factory):
     return user_factory(is_staff=True, is_superuser=True)
 
 
+def _feature_admin(user_factory):
+    from accounts.models import Role
+
+    user = user_factory()
+    role = Role.objects.create(
+        name=f"Object storage admin {user.pk}",
+        visible_features=["admin_object_storage"],
+    )
+    role.users.add(user)
+    return user
+
+
+def test_staff_without_object_storage_feature_cannot_administer_bucket(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        BucketConfigurationError,
+        update_bucket_configuration,
+    )
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    staff = user_factory(is_staff=True)
+
+    with pytest.raises(BucketConfigurationError, match="ADMIN_REQUIRED"):
+        update_bucket_configuration(
+            bucket=bucket,
+            actor=staff,
+            desired={"acl": "private"},
+            provider=LifecycleProvider(),
+            enqueue=False,
+        )
+
+
+def test_object_storage_feature_allows_bucket_administration(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import update_bucket_configuration
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    actor = _feature_admin(user_factory)
+
+    updated = update_bucket_configuration(
+        bucket=bucket,
+        actor=actor,
+        desired={"acl": "private"},
+        provider=LifecycleProvider(),
+        enqueue=False,
+    )
+
+    assert updated.applied_config_snapshot["acl"] == "private"
+
+
+def test_staff_without_object_storage_feature_cannot_administer_another_users_key(
+    access_key_factory, user_factory, monkeypatch
+):
+    from object_storage.services import credentials
+    from object_storage.services.credentials import CredentialRotationError
+
+    key = access_key_factory()
+    staff = user_factory(is_staff=True)
+    monkeypatch.setattr(
+        credentials,
+        "provider_access_key",
+        lambda selected: SimpleNamespace(
+            pk=selected.pk,
+            cloud_identity=selected.cloud_identity,
+            access_key_id=selected.pk,
+        ),
+    )
+
+    with pytest.raises(CredentialRotationError, match="ACCESS_KEY_OWNERSHIP_REQUIRED"):
+        credentials.disable_access_key(
+            access_key=key,
+            actor=staff,
+            provider=LifecycleProvider(),
+        )
+
+
+def test_object_storage_feature_allows_single_key_administration(
+    access_key_factory, user_factory, monkeypatch
+):
+    from object_storage.models import AccessKey
+    from object_storage.services import credentials
+
+    key = access_key_factory()
+    actor = _feature_admin(user_factory)
+    monkeypatch.setattr(
+        credentials,
+        "provider_access_key",
+        lambda selected: SimpleNamespace(
+            pk=selected.pk,
+            cloud_identity=selected.cloud_identity,
+            access_key_id=selected.pk,
+        ),
+    )
+
+    credentials.disable_access_key(
+        access_key=key,
+        actor=actor,
+        provider=LifecycleProvider(),
+    )
+
+    key.refresh_from_db()
+    assert key.local_state == AccessKey.LocalState.DISABLED
+
+
 def test_release_requires_exact_bucket_name_and_confirmation(
     bucket_factory, user_factory
 ):
@@ -400,7 +508,7 @@ def test_bucket_configuration_keeps_applied_snapshot_when_provider_fails(
 def test_confirmed_admin_public_read_update_reaches_provider_authorized(
     bucket_factory, user_factory
 ):
-    from object_storage.models import Bucket
+    from object_storage.models import AuditEvent, Bucket
     from object_storage.services.lifecycle import update_bucket_configuration
 
     bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
@@ -420,6 +528,12 @@ def test_confirmed_admin_public_read_update_reaches_provider_authorized(
     bucket.refresh_from_db()
     assert bucket.applied_config_snapshot["acl"] == "public_read"
     assert provider.configuration_options == [{"allow_public_read": True}]
+    audit = AuditEvent.objects.get(
+        action="storage.bucket.configuration.updated",
+        target_id=str(bucket.pk),
+    )
+    assert audit.reason == "approved public documentation"
+    assert audit.actor_id is not None
 
 
 def test_aliyun_configuration_uses_sdk_versioning_and_lifecycle_models(monkeypatch):

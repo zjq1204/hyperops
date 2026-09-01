@@ -254,6 +254,86 @@ def test_create_bucket_is_private_and_returns_sanitized_mutation():
     assert "sdk_body" not in repr(result)
 
 
+def test_create_bucket_applies_complete_desired_configuration():
+    from object_storage.providers.base import BucketConfiguration
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="hyperops-user-archive-abcd1234",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:84",
+    )
+    configuration = BucketConfiguration(
+        acl="private",
+        storage_class="IA",
+        encryption="KMS",
+        versioning=True,
+        lifecycle={"rules": []},
+    )
+
+    provider.create_owned_bucket(bucket, configuration)
+
+    assert oss.created == {
+        "bucket_name": bucket.name,
+        "region": "cn-hangzhou",
+        "acl": "private",
+        "storage_class": "IA",
+        "server_side_encryption": "KMS",
+        "marker": bucket.cloud_marker,
+    }
+    assert oss.updated_configuration[0] == bucket.name
+    applied = oss.updated_configuration[1]
+    assert applied.acl == configuration.acl
+    assert applied.encryption == configuration.encryption
+    assert applied.versioning is True
+    assert applied.lifecycle == configuration.lifecycle
+
+
+def test_create_bucket_does_not_reapply_creation_only_storage_class():
+    from object_storage.providers.base import BucketConfiguration
+
+    provider, _ram, _oss = _provider()
+    bucket = SimpleNamespace(
+        name="hyperops-user-archive-efgh5678",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:85",
+    )
+    configuration = BucketConfiguration(storage_class="IA", versioning=True)
+    reconciled = []
+    provider.update_bucket_configuration = (
+        lambda selected, applied, **_kwargs: reconciled.append((selected, applied))
+    )
+
+    provider.create_owned_bucket(bucket, configuration)
+
+    assert reconciled[0][0] is bucket
+    assert reconciled[0][1].storage_class == "Standard"
+    assert reconciled[0][1].versioning is True
+
+
+def test_create_bucket_rejects_public_read_before_cloud_mutation():
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="hyperops-user-public-abcd1234",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:86",
+    )
+
+    with pytest.raises(
+        ObjectStorageProviderError,
+        match="PUBLIC_READ_REQUIRES_ADMIN_AUTHORIZATION",
+    ):
+        provider.create_owned_bucket(
+            bucket,
+            BucketConfiguration(acl="public_read"),
+        )
+
+    assert oss.created is None
+
+
 def test_bucket_business_operations_return_sanitized_dataclasses():
     provider, _ram, oss = _provider()
     bucket = SimpleNamespace(

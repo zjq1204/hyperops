@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import replace
 
 from object_storage.crypto import decrypt_secret
 from object_storage.providers.base import (
@@ -125,6 +126,8 @@ class AliyunObjectStorageProvider:
         configuration = configuration or BucketConfiguration.from_snapshot(
             getattr(bucket, "config_snapshot", {}).get("bucket_configuration", {})
         )
+        if configuration.acl != "private":
+            raise ObjectStorageProviderError("PUBLIC_READ_REQUIRES_ADMIN_AUTHORIZATION")
         result = self._call(
             self.oss_gateway.create_bucket,
             bucket_name=bucket.name,
@@ -133,6 +136,10 @@ class AliyunObjectStorageProvider:
             storage_class=configuration.storage_class,
             server_side_encryption=configuration.encryption,
             marker=bucket.cloud_marker,
+        )
+        self.update_bucket_configuration(
+            bucket,
+            replace(configuration, storage_class="Standard"),
         )
         return BucketMutation(
             created=bool(result.get("created")),
@@ -616,8 +623,12 @@ class AliyunOssGateway:
         if region != self.region:
             raise ValueError("Configured OSS region mismatch")
         bucket = self._bucket(bucket_name)
+        permissions = {
+            "private": oss2.BUCKET_ACL_PRIVATE,
+            "public_read": oss2.BUCKET_ACL_PUBLIC_READ,
+        }
         result = bucket.create_bucket(
-            permission=oss2.BUCKET_ACL_PRIVATE,
+            permission=permissions[acl],
             input=oss2.models.BucketCreateConfig(storage_class),
         )
         bucket.put_bucket_encryption(

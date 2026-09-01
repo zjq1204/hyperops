@@ -91,6 +91,8 @@ def get_object_storage_config():
 
 def default_bucket_configuration_snapshot(config=None):
     config = config or get_object_storage_config()
+    if config.default_bucket_acl != "private":
+        raise PlatformConfigurationError("INVALID_PLATFORM_CONFIG")
     return {
         "acl": config.default_bucket_acl,
         "storage_class": config.default_storage_class,
@@ -215,7 +217,7 @@ def _validate_storage_field_values(updates):
                 and 1 <= value <= 3650
             )
         elif field == "default_bucket_acl":
-            valid = value in {"private", "public_read"}
+            valid = value == "private"
         elif field in {"default_storage_class", "default_encryption"}:
             valid = isinstance(value, str) and bool(value)
         elif field == "default_lifecycle":

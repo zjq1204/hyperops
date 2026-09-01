@@ -13,6 +13,8 @@ class FakeProvider:
         self.buckets = {}
         self.create_errors = {}
         self.policy_errors = []
+        self.configuration_errors = []
+        self.configurations = []
         self.deleted_keys = []
         self.deleted_principals = []
 
@@ -73,13 +75,27 @@ class FakeProvider:
             request_id="request-find-bucket",
         )
 
-    def create_owned_bucket(self, bucket):
+    def create_owned_bucket(self, bucket, configuration=None):
         self.calls.append(("create_bucket", bucket.name))
         error = self.create_errors.get(bucket.business_name)
         if error is not None:
             raise error
         self.buckets[bucket.name] = bucket.cloud_marker
+        self.update_bucket_configuration(bucket, configuration)
         return SimpleNamespace(created=True, request_id="request-create-bucket")
+
+    def update_bucket_configuration(
+        self,
+        bucket,
+        configuration,
+        *,
+        allow_public_read=False,
+    ):
+        self.calls.append(("configure_bucket", bucket.name))
+        if self.configuration_errors:
+            raise self.configuration_errors.pop(0)
+        self.configurations.append((bucket.name, configuration, allow_public_read))
+        return SimpleNamespace(request_id="request-configure-bucket")
 
     def reconcile_object_policy(self, identity, buckets):
         names = tuple(sorted(bucket.name for bucket in buckets))
@@ -106,12 +122,15 @@ def batch_context(
     user_factory,
     storage_resource_pool_factory,
     platform_object_storage_config,
+    monkeypatch,
 ):
+    from object_storage.services import applications
     from object_storage.services.applications import create_application_batch
     from object_storage.services.naming import render_bucket_name
 
     user = user_factory(username="batch-user")
     pool = storage_resource_pool_factory(enabled=True)
+    monkeypatch.setattr(applications, "ensure_key_operations_allowed", lambda: None)
 
     def create(*, names=("Billing",), idempotency_key="batch-application"):
         items = []
@@ -197,12 +216,99 @@ def test_first_batch_creates_principal_key_buckets_policy_and_delivery(
         "create_key",
         "find_bucket",
         "create_bucket",
+        "configure_bucket",
         "find_bucket",
         "create_bucket",
+        "configure_bucket",
         "find_bucket",
         "find_bucket",
         "policy",
     ]
+
+
+def test_queued_application_rechecks_key_pause_before_cloud_key_creation(
+    batch_context, monkeypatch
+):
+    from object_storage.models import AccessKey, ApplicationBatch
+    from object_storage.services import applications
+    from object_storage.services.platform import PlatformConfigurationError
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+    monkeypatch.setattr(
+        applications,
+        "ensure_key_operations_allowed",
+        lambda: (_ for _ in ()).throw(
+            PlatformConfigurationError("KEY_OPERATIONS_PAUSED")
+        ),
+        raising=False,
+    )
+
+    applications.execute_application_batch(batch.pk)
+
+    batch.refresh_from_db()
+    assert batch.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert batch.error_code == "KEY_OPERATIONS_PAUSED"
+    assert not AccessKey.objects.exists()
+    assert "create_key" not in [call[0] for call in provider.calls]
+
+
+def test_new_bucket_stores_only_desired_configuration_before_cloud_apply(
+    batch_context,
+):
+    _user, _pool, create = batch_context
+
+    bucket = create().items.get().bucket
+
+    assert bucket.desired_config_snapshot == {
+        "acl": "private",
+        "storage_class": "Standard",
+        "encryption": "AES256",
+        "versioning": False,
+        "lifecycle": {},
+    }
+    assert bucket.applied_config_snapshot == {}
+
+
+def test_bucket_configuration_partial_failure_is_reconciled_on_owned_retry(
+    batch_context, monkeypatch
+):
+    from object_storage.models import ApplicationItem, Bucket
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    provider.configuration_errors.append(
+        ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
+    )
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    with pytest.raises(ObjectStorageProviderError, match="PROVIDER_TIMEOUT"):
+        applications.execute_application_batch(batch.pk, execution_key="configure:0")
+
+    bucket = batch.items.get().bucket
+    bucket.refresh_from_db()
+    assert bucket.name in provider.buckets
+    assert bucket.state == Bucket.State.WAITING_RETRY
+    assert bucket.desired_config_snapshot["acl"] == "private"
+    assert bucket.applied_config_snapshot == {}
+    assert bucket.config_error_code == "PROVIDER_TIMEOUT"
+    assert batch.items.get().status == ApplicationItem.Status.WAITING_RETRY
+    assert sum(call[0] == "create_bucket" for call in provider.calls) == 1
+
+    provider.calls.clear()
+    applications.execute_application_batch(batch.pk, execution_key="configure:1")
+
+    bucket.refresh_from_db()
+    assert bucket.state == Bucket.State.ACTIVE
+    assert bucket.applied_config_snapshot == bucket.desired_config_snapshot
+    assert bucket.config_error_code == ""
+    assert "create_bucket" not in [call[0] for call in provider.calls]
+    assert "configure_bucket" in [call[0] for call in provider.calls]
 
 
 def test_permanent_item_failure_does_not_block_successful_sibling(
@@ -656,8 +762,8 @@ def test_stale_worker_cannot_write_success_policy_or_delivery_after_claim_switch
     original_create_bucket = provider.create_owned_bucket
     switched_claim = {}
 
-    def create_bucket_and_switch_claim(bucket):
-        result = original_create_bucket(bucket)
+    def create_bucket_and_switch_claim(bucket, configuration):
+        result = original_create_bucket(bucket, configuration)
         ApplicationBatch.objects.filter(pk=batch.pk).update(
             run_lease_until=timezone.now() - timedelta(seconds=1)
         )

@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from object_storage.crypto import decrypt_secret, encrypt_secret
 from object_storage.models import AccessKey, DeliveryTicket, PlatformObjectStorageConfig
+from object_storage.permissions import has_object_storage_admin_access
 from object_storage.services.audit import record_audit_event
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,8 @@ def _key_actor_allowed(access_key, actor):
     return bool(
         actor
         and (
-            actor.is_superuser
-            or actor.is_staff
-            or actor.pk == access_key.cloud_identity.user_id
+            actor.pk == access_key.cloud_identity.user_id
+            or has_object_storage_admin_access(actor)
         )
     )
 
@@ -145,7 +145,7 @@ def rotate_access_key_for_actor(
     *, identity, actor, provider, selected_access_key_id=None, reason=""
 ):
     if not actor or not (
-        actor.is_superuser or actor.is_staff or actor.pk == identity.user_id
+        actor.pk == identity.user_id or has_object_storage_admin_access(actor)
     ):
         raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
     result = rotate_access_key(
@@ -166,7 +166,7 @@ def rotate_access_key_for_actor(
 
 def create_access_key_for_actor(*, identity, actor, provider, reason=""):
     if not actor or not (
-        actor.is_superuser or actor.is_staff or actor.pk == identity.user_id
+        actor.pk == identity.user_id or has_object_storage_admin_access(actor)
     ):
         raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
     from object_storage.services.platform import ensure_key_operations_allowed
@@ -489,11 +489,7 @@ def rotate_access_key(
     *, identity, provider, selected_access_key_id=None, actor=None, reason=""
 ):
     if actor is not None:
-        if (
-            not actor.is_superuser
-            and not actor.is_staff
-            and actor.pk != identity.user_id
-        ):
+        if actor.pk != identity.user_id and not has_object_storage_admin_access(actor):
             raise CredentialRotationError("ACCESS_KEY_OWNERSHIP_REQUIRED")
         from object_storage.services.platform import ensure_key_operations_allowed
 

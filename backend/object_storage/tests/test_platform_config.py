@@ -117,6 +117,20 @@ def test_validate_and_save_platform_config_rejects_fields_outside_allowlist(db):
         )
 
 
+def test_platform_default_acl_rejects_public_read(db):
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        get_object_storage_config,
+        validate_and_save_platform_config,
+    )
+
+    with pytest.raises(PlatformConfigurationError, match="INVALID_PLATFORM_CONFIG"):
+        validate_and_save_platform_config(
+            object_storage_config=get_object_storage_config(),
+            object_storage_fields={"default_bucket_acl": "public_read"},
+        )
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
