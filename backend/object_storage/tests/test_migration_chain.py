@@ -5,6 +5,7 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
 pytestmark = pytest.mark.django_db(transaction=True)
+CURRENT_LEAF = ("object_storage", "0014_resource_operation_fences")
 
 
 def test_0003_uses_a_migration_local_default_callable():
@@ -21,7 +22,7 @@ def test_0003_uses_a_migration_local_default_callable():
     assert visible_features.default is migration.default_visible_features
 
 
-def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
+def _assert_0004_reverse_restores_legacy_role_users():
     executor = MigrationExecutor(connection)
     executor.migrate([("object_storage", "0003_feishu_access_profile")])
     old_apps = executor.loader.project_state(
@@ -94,8 +95,13 @@ def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
     assert restored_role.users.filter(pk=user.pk).exists()
     assert not restored_role.users.filter(pk=extra_group_user.pk).exists()
 
-    executor = MigrationExecutor(connection)
-    executor.migrate([("object_storage", "0005_platform_model")])
+
+def test_0004_reverse_restores_legacy_role_users_before_forwarding_to_0005():
+    try:
+        _assert_0004_reverse_restores_legacy_role_users()
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate([CURRENT_LEAF])
 
 
 def test_0013_backfills_bucket_configuration_state_without_losing_uncertainty():
@@ -210,4 +216,4 @@ def test_0013_backfills_bucket_configuration_state_without_losing_uncertainty():
         assert rollback_row.config_error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
     finally:
         executor = MigrationExecutor(connection)
-        executor.migrate([("object_storage", "0013_bucket_configuration_state")])
+        executor.migrate([CURRENT_LEAF])

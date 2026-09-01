@@ -338,6 +338,13 @@ class Bucket(TimestampedModel):
         choices=ConfigurationState.choices,
         default=ConfigurationState.APPLIED,
     )
+    configuration_generation = models.PositiveBigIntegerField(default=0)
+    configuration_operation_token = models.CharField(
+        max_length=64, blank=True, default=""
+    )
+    action_generation = models.PositiveBigIntegerField(default=0)
+    action_owner_token = models.CharField(max_length=64, blank=True, default="")
+    action_type = models.CharField(max_length=32, blank=True, default="")
     deletion_error_code = models.CharField(max_length=64, blank=True, default="")
     deletion_error_summary = models.CharField(max_length=255, blank=True, default="")
 
@@ -389,6 +396,9 @@ class AccessKeyQuerySet(models.QuerySet):
             "cloud_state",
             "local_state",
             "deleted_at",
+            "operation_generation",
+            "operation_token",
+            "operation_type",
         }
     )
 
@@ -455,6 +465,9 @@ class AccessKey(TimestampedModel):
     last_synced_at = models.DateTimeField(null=True, blank=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    operation_generation = models.PositiveBigIntegerField(default=0)
+    operation_token = models.CharField(max_length=64, blank=True, default="")
+    operation_type = models.CharField(max_length=32, blank=True, default="")
 
     objects = AccessKeyQuerySet.as_manager()
 

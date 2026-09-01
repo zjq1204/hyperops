@@ -386,6 +386,40 @@ def test_non_temporary_initial_configuration_failure_remains_recoverable(
     assert "policy" in [call[0] for call in provider.calls]
 
 
+def test_initial_configuration_rollback_unknown_requires_manual_action_and_quota(
+    batch_context, monkeypatch
+):
+    from object_storage.models import ApplicationBatch, ApplicationItem, Bucket
+    from object_storage.services import applications
+    from object_storage.services.policy import count_quota_consuming_buckets
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    provider.configuration_errors.append(
+        ObjectStorageProviderError("BUCKET_CONFIGURATION_ROLLBACK_FAILED")
+    )
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    result = applications.execute_application_batch(
+        batch.pk,
+        execution_key="rollback-unknown",
+    )
+
+    bucket = result.items.get().bucket
+    bucket.refresh_from_db()
+    result.refresh_from_db()
+    item = result.items.get()
+    assert bucket.state == Bucket.State.WAITING_RETRY
+    assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
+    assert bucket.config_error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+    assert item.status == ApplicationItem.Status.MANUAL_REQUIRED
+    assert item.error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+    assert result.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert count_quota_consuming_buckets(user) == 1
+
+
 def test_permanent_item_failure_does_not_block_successful_sibling(
     batch_context, monkeypatch
 ):
@@ -768,6 +802,101 @@ def test_claim_recovery_moves_unstarted_items_to_waiting_retry(
     assert item.status == ApplicationItem.Status.WAITING_RETRY
     assert item.bucket.state == Bucket.State.WAITING_RETRY
     assert item.events.filter(stage="CLAIM_RECOVERY", result="recovered").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_claim_recovery_provider_check_runs_outside_atomic(batch_context):
+    from datetime import timedelta
+
+    from django.db import transaction
+    from django.utils import timezone
+
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    batch, claimed, _owner_token = applications._claim_batch(
+        batch.pk,
+        "expired-atomic-check",
+    )
+    assert claimed is True
+    batch.run_lease_until = timezone.now() - timedelta(seconds=1)
+    batch.save(update_fields=("run_lease_until",))
+    item = batch.items.get()
+    assert item.bucket_id is not None
+    assert item.status == "pending"
+
+    class AtomicCheckingProvider(FakeProvider):
+        atomic_states = []
+
+        def find_owned_bucket(self, bucket):
+            self.atomic_states.append(transaction.get_connection().in_atomic_block)
+            return super().find_owned_bucket(bucket)
+
+    provider = AtomicCheckingProvider()
+    recovered, generation = applications.recover_expired_application_claim(
+        batch.pk,
+        now=timezone.now(),
+        provider=provider,
+    )
+    assert generation == recovered.claim_version
+    assert "find_bucket" in [call[0] for call in provider.calls]
+    assert provider.atomic_states == [False]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cancel_provider_cleanup_runs_outside_atomic(batch_context, monkeypatch):
+    from django.db import transaction
+
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    _user, _pool, create = batch_context
+    batch = create(names=("Denied",))
+
+    class AtomicCheckingProvider(FakeProvider):
+        atomic_states = []
+
+        def _outside_atomic(self):
+            self.atomic_states.append(transaction.get_connection().in_atomic_block)
+
+        def find_owned_bucket(self, bucket):
+            self._outside_atomic()
+            return super().find_owned_bucket(bucket)
+
+        def list_access_keys(self, identity):
+            self._outside_atomic()
+            return super().list_access_keys(identity)
+
+        def delete_access_key(self, key):
+            self._outside_atomic()
+            return super().delete_access_key(key)
+
+        def delete_personal_principal(self, identity):
+            self._outside_atomic()
+            return super().delete_personal_principal(identity)
+
+    setup_provider = FakeProvider()
+    setup_provider.create_errors["Denied"] = ObjectStorageProviderError(
+        "PROVIDER_PERMISSION_DENIED"
+    )
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda _pool: setup_provider
+    )
+    applications.execute_application_batch(batch.pk)
+
+    provider = AtomicCheckingProvider()
+    provider.principal_exists = setup_provider.principal_exists
+    provider.cloud_keys = list(setup_provider.cloud_keys)
+    provider.buckets = dict(setup_provider.buckets)
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+    applications.cancel_application_batch(batch.pk)
+    call_names = [call[0] for call in provider.calls]
+    assert "find_bucket" in call_names
+    assert "list_keys" in call_names
+    assert "delete_key" in call_names
+    assert "delete_principal" in call_names
+    assert provider.atomic_states == [False, False, False, False]
 
 
 def test_claim_recovery_marks_terminal_state_without_delivery_manual(

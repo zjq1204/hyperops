@@ -282,6 +282,50 @@ def test_empty_release_detaches_policy_enters_pending_and_frees_quota(
     assert provider.calls == []
 
 
+def test_interleaved_duplicate_release_reuses_claim_and_clears_it_once(
+    bucket_factory, user_factory, monkeypatch
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import release_bucket
+
+    owner = user_factory()
+    bucket = bucket_factory(owner=owner, state=Bucket.State.ACTIVE)
+    scheduled = []
+    monkeypatch.setattr(
+        "object_storage.tasks.release_bucket_task.delay",
+        lambda bucket_id, **kwargs: scheduled.append((bucket_id, kwargs)),
+    )
+
+    class InterleavingProvider(LifecycleProvider):
+        def inspect_bucket_emptiness(self, selected):
+            release_bucket(
+                bucket=selected,
+                actor=owner,
+                bucket_name=selected.name,
+                confirmed=True,
+                enqueue=True,
+            )
+            return super().inspect_bucket_emptiness(selected)
+
+    release_bucket(
+        bucket=bucket,
+        actor=owner,
+        bucket_name=bucket.name,
+        confirmed=True,
+        provider=InterleavingProvider(),
+        enqueue=False,
+    )
+
+    bucket.refresh_from_db()
+    assert len(scheduled) == 1
+    assert scheduled[0][1]["action_generation"] == 1
+    assert scheduled[0][1]["owner_token"]
+    assert bucket.state == Bucket.State.PENDING_DELETION
+    assert bucket.action_generation == 1
+    assert bucket.action_owner_token == ""
+    assert bucket.action_type == ""
+
+
 def test_recover_rechecks_quota_and_reauthorizes_without_enabling_keys(
     bucket_factory, user_factory, platform_object_storage_config
 ):
@@ -319,6 +363,50 @@ def test_recover_rechecks_quota_and_reauthorizes_without_enabling_keys(
     assert bucket.pending_delete_at is None
     assert key.local_state == AccessKey.LocalState.DISABLED
     assert ("policy", bucket.cloud_identity_id, (bucket.name,)) in provider.calls
+
+
+def test_immediate_delete_fences_interleaved_recover_writeback(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import delete_bucket, recover_bucket
+
+    owner = user_factory()
+    admin = _admin(user_factory)
+    bucket = bucket_factory(
+        owner=owner,
+        state=Bucket.State.PENDING_DELETION,
+        pending_delete_at=timezone.now() + timedelta(days=1),
+    )
+    delete_provider = LifecycleProvider()
+
+    class RecoverProvider(LifecycleProvider):
+        def reconcile_object_policy(self, identity, buckets):
+            delete_bucket(
+                bucket=Bucket.objects.get(pk=bucket.pk),
+                actor=admin,
+                reason="supersede recovery",
+                bucket_name=bucket.name,
+                confirmed=True,
+                immediate=True,
+                provider=delete_provider,
+            )
+            return super().reconcile_object_policy(identity, buckets)
+
+    recover_bucket(
+        bucket=bucket,
+        actor=owner,
+        bucket_name=bucket.name,
+        confirmed=True,
+        provider=RecoverProvider(),
+    )
+
+    bucket.refresh_from_db()
+    assert bucket.state == Bucket.State.RELEASED
+    assert bucket.action_generation == 2
+    assert bucket.action_owner_token == ""
+    assert bucket.action_type == ""
+    assert ("delete", bucket.name) in delete_provider.calls
 
 
 def test_recover_rejects_when_quota_is_full(
@@ -636,6 +724,74 @@ def test_pending_and_retryable_bucket_configuration_can_be_retried(
     assert bucket.config_state == Bucket.ConfigurationState.APPLIED
 
 
+@pytest.mark.parametrize("old_result", ["success", "failure"])
+def test_stale_bucket_configuration_task_cannot_overwrite_new_generation(
+    bucket_factory, user_factory, monkeypatch, old_result
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        BucketConfigurationError,
+        _apply_bucket_configuration,
+        update_bucket_configuration,
+    )
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    bucket.applied_config_snapshot = {"acl": "private"}
+    bucket.save(update_fields=("applied_config_snapshot", "updated_at"))
+    actor = _feature_admin(user_factory)
+    scheduled = []
+    monkeypatch.setattr(
+        "object_storage.tasks.update_bucket_configuration_task.delay",
+        lambda bucket_id, **kwargs: scheduled.append((bucket_id, kwargs)),
+    )
+    update_bucket_configuration(
+        bucket=bucket,
+        actor=actor,
+        desired={"acl": "private", "versioning": True},
+    )
+    old_generation = scheduled[0][1]["configuration_generation"]
+    old_token = scheduled[0][1]["operation_token"]
+
+    class InterleavingProvider(LifecycleProvider):
+        def update_bucket_configuration(self, selected, configuration, **kwargs):
+            update_bucket_configuration(
+                bucket=selected,
+                actor=actor,
+                desired={"acl": "private", "encryption": "KMS"},
+            )
+            if old_result == "failure":
+                raise ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
+            return SimpleNamespace(request_id="old-config-request")
+
+    if old_result == "failure":
+        with pytest.raises(BucketConfigurationError):
+            _apply_bucket_configuration(
+                bucket.pk,
+                configuration_generation=old_generation,
+                operation_token=old_token,
+                provider=InterleavingProvider(),
+                actor=actor,
+            )
+    else:
+        _apply_bucket_configuration(
+            bucket.pk,
+            configuration_generation=old_generation,
+            operation_token=old_token,
+            provider=InterleavingProvider(),
+            actor=actor,
+        )
+
+    bucket.refresh_from_db()
+    assert len(scheduled) == 2
+    assert bucket.configuration_generation == old_generation + 1
+    assert bucket.configuration_operation_token == scheduled[1][1]["operation_token"]
+    assert bucket.desired_config_snapshot["encryption"] == "KMS"
+    assert bucket.config_state == Bucket.ConfigurationState.PENDING
+    assert bucket.applied_config_snapshot == {"acl": "private"}
+    assert bucket.config_error_code == ""
+
+
 def test_confirmed_admin_public_read_update_reaches_provider_authorized(
     bucket_factory, user_factory
 ):
@@ -768,6 +924,80 @@ def test_admin_manages_one_key_without_touching_another(
     assert not any(
         call[1] == second.pk for call in provider.calls if call[0] == "disable-key"
     )
+
+
+@pytest.mark.parametrize("stale_action", ["disable", "enable"])
+def test_stale_key_action_cannot_overwrite_interleaved_revoke(
+    access_key_factory, user_factory, monkeypatch, stale_action
+):
+    from object_storage.models import AccessKey
+    from object_storage.services import credentials
+
+    monkeypatch.setattr(
+        "object_storage.services.platform.ensure_key_operations_allowed",
+        lambda: None,
+    )
+
+    key = access_key_factory(
+        local_state=(
+            AccessKey.LocalState.DISABLED
+            if stale_action == "enable"
+            else AccessKey.LocalState.ACTIVE
+        ),
+        cloud_state=(
+            AccessKey.CloudState.INACTIVE
+            if stale_action == "enable"
+            else AccessKey.CloudState.ACTIVE
+        ),
+    )
+    actor = key.cloud_identity.user
+    monkeypatch.setattr(
+        credentials,
+        "provider_access_key",
+        lambda selected: SimpleNamespace(
+            pk=selected.pk,
+            cloud_identity=selected.cloud_identity,
+            access_key_id=selected.pk,
+        ),
+    )
+
+    class InterleavingProvider(LifecycleProvider):
+        def _revoke_during_stale_action(self, selected):
+            credentials.revoke_access_key(
+                access_key=AccessKey.objects.get(pk=selected.pk),
+                actor=actor,
+                provider=self,
+            )
+
+        def deactivate_access_key(self, selected):
+            self.calls.append(("disable-key", selected.pk))
+            self._revoke_during_stale_action(selected)
+
+        def activate_access_key(self, selected):
+            self.calls.append(("enable-key", selected.pk))
+            self._revoke_during_stale_action(selected)
+
+    provider = InterleavingProvider()
+    if stale_action == "disable":
+        credentials.disable_access_key(
+            access_key=key,
+            actor=actor,
+            provider=provider,
+        )
+    else:
+        credentials.enable_access_key(
+            access_key=key,
+            actor=actor,
+            provider=provider,
+        )
+
+    key.refresh_from_db()
+    assert key.cloud_state == AccessKey.CloudState.DELETED
+    assert key.local_state == AccessKey.LocalState.RETIRED
+    assert key.deleted_at is not None
+    assert key.operation_generation == 2
+    assert key.operation_token == ""
+    assert key.operation_type == ""
 
 
 def test_suspension_disables_all_keys_but_preserves_identity_and_buckets(

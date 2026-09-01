@@ -5,6 +5,7 @@ from django.db.models import CASCADE, PROTECT, SET_NULL
 from django.db.models.deletion import ProtectedError
 
 pytestmark = pytest.mark.django_db
+CURRENT_LEAF = ("object_storage", "0014_resource_operation_fences")
 
 
 def test_platform_migration_depends_on_linear_feishu_migration_chain():
@@ -44,7 +45,7 @@ def test_batch_safety_migration_extends_batch_workflow_migration():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_platform_migration_assigns_existing_pool_to_default_config():
+def _assert_platform_migration_assigns_existing_pool_to_default_config():
     from django.db.migrations.executor import MigrationExecutor
 
     executor = MigrationExecutor(connection)
@@ -78,8 +79,16 @@ def test_platform_migration_assigns_existing_pool_to_default_config():
     config = PlatformObjectStorageConfig.objects.get(singleton_key="default")
     assert MigratedPool.objects.get(pk=pool.pk).config_id == config.pk
 
-    executor = MigrationExecutor(connection)
-    executor.migrate([("object_storage", "0013_bucket_configuration_state")])
+
+@pytest.mark.django_db(transaction=True)
+def test_platform_migration_assigns_existing_pool_to_default_config():
+    from django.db.migrations.executor import MigrationExecutor
+
+    try:
+        _assert_platform_migration_assigns_existing_pool_to_default_config()
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate([CURRENT_LEAF])
 
 
 def test_platform_settings_are_singletons_and_use_phase_one_defaults(db):
@@ -391,6 +400,25 @@ def test_access_key_queryset_update_cannot_restore_released_slot(
 
     key.refresh_from_db()
     assert key.local_state == AccessKey.LocalState.RETIRED
+
+
+def test_access_key_queryset_update_cannot_bypass_operation_claim(
+    access_key_factory,
+):
+    from object_storage.models import AccessKey
+
+    key = access_key_factory()
+
+    with pytest.raises(RuntimeError, match="ACCESS_KEY_STATE_UPDATE_REQUIRES_SAVE"):
+        AccessKey.objects.filter(pk=key.pk).update(
+            operation_generation=key.operation_generation + 1,
+            operation_token="bypassed-token",
+            operation_type="revoke",
+        )
+
+    key.refresh_from_db()
+    assert key.operation_generation == 0
+    assert key.operation_token == ""
 
 
 def test_inactive_key_occupies_slot_but_deleted_or_retired_key_does_not(

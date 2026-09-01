@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import secrets
+import uuid
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -59,86 +60,227 @@ def _key_audit(*, actor, action, access_key, result="succeeded", reason=""):
     )
 
 
+def _claim_key_operation(access_key_id, *, actor, operation_type):
+    with transaction.atomic():
+        selected = (
+            AccessKey.objects.select_for_update()
+            .select_related("cloud_identity")
+            .get(pk=access_key_id)
+        )
+        _assert_key_actor(selected, actor)
+        if (
+            selected.deleted_at is not None
+            or selected.local_state == AccessKey.LocalState.RETIRED
+        ):
+            if operation_type == "revoke":
+                return selected, selected.operation_generation, "", False
+            raise CredentialRotationError("ACCESS_KEY_REVOKED")
+        if (
+            operation_type == "disable"
+            and selected.local_state == AccessKey.LocalState.DISABLED
+        ) or (
+            operation_type == "enable"
+            and selected.local_state == AccessKey.LocalState.ACTIVE
+        ):
+            return selected, selected.operation_generation, "", False
+        if selected.operation_token:
+            if selected.operation_type == "revoke":
+                if operation_type == "revoke":
+                    return (
+                        selected,
+                        selected.operation_generation,
+                        selected.operation_token,
+                        False,
+                    )
+                raise CredentialRotationError("ACCESS_KEY_REVOKE_IN_PROGRESS")
+            if selected.operation_type == operation_type:
+                return (
+                    selected,
+                    selected.operation_generation,
+                    selected.operation_token,
+                    False,
+                )
+            if operation_type != "revoke":
+                raise CredentialRotationError("ACCESS_KEY_OPERATION_IN_PROGRESS")
+        selected.operation_generation += 1
+        selected.operation_token = uuid.uuid4().hex
+        selected.operation_type = operation_type
+        selected.save(
+            update_fields=(
+                "operation_generation",
+                "operation_token",
+                "operation_type",
+                "updated_at",
+            )
+        )
+        return (
+            selected,
+            selected.operation_generation,
+            selected.operation_token,
+            True,
+        )
+
+
+def _key_operation_matches(access_key, generation, token, operation_type):
+    return bool(
+        access_key.operation_generation == generation
+        and access_key.operation_token == token
+        and access_key.operation_type == operation_type
+    )
+
+
+def _clear_key_operation(access_key):
+    access_key.operation_token = ""
+    access_key.operation_type = ""
+
+
 def disable_access_key(*, access_key, actor, provider, reason=""):
     """Disable one key; this remains available while key operations are paused."""
 
-    _assert_key_actor(access_key, actor)
-    if (
-        access_key.deleted_at is not None
-        or access_key.local_state == AccessKey.LocalState.RETIRED
-    ):
-        raise CredentialRotationError("ACCESS_KEY_REVOKED")
-    if access_key.local_state == AccessKey.LocalState.DISABLED:
-        return access_key
-    provider.deactivate_access_key(provider_access_key(access_key))
-    access_key.cloud_state = AccessKey.CloudState.INACTIVE
-    access_key.local_state = AccessKey.LocalState.DISABLED
-    access_key.deactivated_at = timezone.now()
-    access_key.save(
-        update_fields=("cloud_state", "local_state", "deactivated_at", "updated_at")
+    selected, generation, token, claimed = _claim_key_operation(
+        access_key.pk, actor=actor, operation_type="disable"
     )
+    if not claimed:
+        return selected
+    try:
+        provider.deactivate_access_key(provider_access_key(selected))
+    except Exception:
+        with transaction.atomic():
+            current = AccessKey.objects.select_for_update().get(pk=selected.pk)
+            if _key_operation_matches(current, generation, token, "disable"):
+                _clear_key_operation(current)
+                current.save(
+                    update_fields=("operation_token", "operation_type", "updated_at")
+                )
+        raise
+    with transaction.atomic():
+        current = AccessKey.objects.select_for_update().get(pk=selected.pk)
+        if not _key_operation_matches(current, generation, token, "disable"):
+            return current
+        current.cloud_state = AccessKey.CloudState.INACTIVE
+        current.local_state = AccessKey.LocalState.DISABLED
+        current.deactivated_at = timezone.now()
+        _clear_key_operation(current)
+        current.save(
+            update_fields=(
+                "cloud_state",
+                "local_state",
+                "deactivated_at",
+                "operation_token",
+                "operation_type",
+                "updated_at",
+            )
+        )
     _key_audit(
         actor=actor,
         action="storage.credential.disabled",
-        access_key=access_key,
+        access_key=current,
         reason=reason,
     )
-    return access_key
+    return current
 
 
 def enable_access_key(*, access_key, actor, provider, reason=""):
     """Enable one key after the platform key-operation gate permits it."""
 
-    _assert_key_actor(access_key, actor)
+    with transaction.atomic():
+        authorized = (
+            AccessKey.objects.select_for_update()
+            .select_related("cloud_identity")
+            .get(pk=access_key.pk)
+        )
+        _assert_key_actor(authorized, actor)
+
     from object_storage.services.platform import ensure_key_operations_allowed
 
     ensure_key_operations_allowed()
-    if (
-        access_key.deleted_at is not None
-        or access_key.local_state == AccessKey.LocalState.RETIRED
-    ):
-        raise CredentialRotationError("ACCESS_KEY_REVOKED")
-    if access_key.local_state == AccessKey.LocalState.ACTIVE:
-        return access_key
-    provider.activate_access_key(provider_access_key(access_key))
-    access_key.cloud_state = AccessKey.CloudState.ACTIVE
-    access_key.local_state = AccessKey.LocalState.ACTIVE
-    access_key.deactivated_at = None
-    access_key.save(
-        update_fields=("cloud_state", "local_state", "deactivated_at", "updated_at")
+    selected, generation, token, claimed = _claim_key_operation(
+        access_key.pk, actor=actor, operation_type="enable"
     )
+    if not claimed:
+        return selected
+    try:
+        provider.activate_access_key(provider_access_key(selected))
+    except Exception:
+        with transaction.atomic():
+            current = AccessKey.objects.select_for_update().get(pk=selected.pk)
+            if _key_operation_matches(current, generation, token, "enable"):
+                _clear_key_operation(current)
+                current.save(
+                    update_fields=("operation_token", "operation_type", "updated_at")
+                )
+        raise
+    with transaction.atomic():
+        current = AccessKey.objects.select_for_update().get(pk=selected.pk)
+        if not _key_operation_matches(current, generation, token, "enable"):
+            return current
+        current.cloud_state = AccessKey.CloudState.ACTIVE
+        current.local_state = AccessKey.LocalState.ACTIVE
+        current.deactivated_at = None
+        _clear_key_operation(current)
+        current.save(
+            update_fields=(
+                "cloud_state",
+                "local_state",
+                "deactivated_at",
+                "operation_token",
+                "operation_type",
+                "updated_at",
+            )
+        )
     _key_audit(
         actor=actor,
         action="storage.credential.enabled",
-        access_key=access_key,
+        access_key=current,
         reason=reason,
     )
-    return access_key
+    return current
 
 
 def revoke_access_key(*, access_key, actor, provider, reason=""):
     """Revoke one key without changing any sibling key."""
 
-    _assert_key_actor(access_key, actor)
-    if (
-        access_key.deleted_at is not None
-        or access_key.local_state == AccessKey.LocalState.RETIRED
-    ):
-        return access_key
-    provider.delete_access_key(provider_access_key(access_key))
-    access_key.cloud_state = AccessKey.CloudState.DELETED
-    access_key.local_state = AccessKey.LocalState.RETIRED
-    access_key.deleted_at = timezone.now()
-    access_key.save(
-        update_fields=("cloud_state", "local_state", "deleted_at", "updated_at")
+    selected, generation, token, claimed = _claim_key_operation(
+        access_key.pk, actor=actor, operation_type="revoke"
     )
+    if not claimed:
+        return selected
+    try:
+        provider.delete_access_key(provider_access_key(selected))
+    except Exception:
+        with transaction.atomic():
+            current = AccessKey.objects.select_for_update().get(pk=selected.pk)
+            if _key_operation_matches(current, generation, token, "revoke"):
+                _clear_key_operation(current)
+                current.save(
+                    update_fields=("operation_token", "operation_type", "updated_at")
+                )
+        raise
+    with transaction.atomic():
+        current = AccessKey.objects.select_for_update().get(pk=selected.pk)
+        if not _key_operation_matches(current, generation, token, "revoke"):
+            return current
+        current.cloud_state = AccessKey.CloudState.DELETED
+        current.local_state = AccessKey.LocalState.RETIRED
+        current.deleted_at = timezone.now()
+        _clear_key_operation(current)
+        current.save(
+            update_fields=(
+                "cloud_state",
+                "local_state",
+                "deleted_at",
+                "operation_token",
+                "operation_type",
+                "updated_at",
+            )
+        )
     _key_audit(
         actor=actor,
         action="storage.credential.revoked",
-        access_key=access_key,
+        access_key=current,
         reason=reason,
     )
-    return access_key
+    return current
 
 
 def rotate_access_key_for_actor(
@@ -513,6 +655,8 @@ def rotate_access_key(
             if candidate.pk != selected_access_key_id:
                 raise CredentialRotationError("ROTATION_SELECTION_INVALID")
             selected = candidate
+            if selected.operation_token:
+                raise CredentialRotationError("KEY_OPERATION_IN_PROGRESS")
             provider_key = provider_access_key(candidate)
         elif selected_access_key_id is not None:
             raise CredentialRotationError("ROTATION_SELECTION_INVALID")

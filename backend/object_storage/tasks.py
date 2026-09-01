@@ -128,13 +128,21 @@ def recover_expired_application_claims():
 
 
 @shared_task(name="object_storage.release_bucket")
-def release_bucket_task(bucket_id, *, actor_id=None, reason=""):
+def release_bucket_task(
+    bucket_id, *, actor_id=None, reason="", action_generation, owner_token
+):
     from django.contrib.auth import get_user_model
 
     from object_storage.services.lifecycle import _release_bucket_cloud
 
     actor = get_user_model().objects.get(pk=actor_id) if actor_id else None
-    bucket = _release_bucket_cloud(bucket_id, actor=actor, reason=reason)
+    bucket = _release_bucket_cloud(
+        bucket_id,
+        action_generation=action_generation,
+        owner_token=owner_token,
+        actor=actor,
+        reason=reason,
+    )
     return {"bucket_id": bucket.pk, "state": bucket.state}
 
 
@@ -167,13 +175,26 @@ def delete_bucket_task(bucket_id):
 
 
 @shared_task(name="object_storage.update_bucket_configuration")
-def update_bucket_configuration_task(bucket_id, *, actor_id=None, reason=""):
+def update_bucket_configuration_task(
+    bucket_id,
+    *,
+    actor_id=None,
+    reason="",
+    configuration_generation,
+    operation_token,
+):
     from django.contrib.auth import get_user_model
 
     from object_storage.services.lifecycle import _apply_bucket_configuration
 
     actor = get_user_model().objects.get(pk=actor_id) if actor_id else None
-    result = _apply_bucket_configuration(bucket_id, actor=actor, reason=reason)
+    result = _apply_bucket_configuration(
+        bucket_id,
+        configuration_generation=configuration_generation,
+        operation_token=operation_token,
+        actor=actor,
+        reason=reason,
+    )
     return {"bucket_id": result.pk, "state": result.state}
 
 

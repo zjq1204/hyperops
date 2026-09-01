@@ -280,6 +280,49 @@ def test_rotation_with_two_keys_requires_explicit_selected_key(
     assert provider.calls == []
 
 
+def test_rotation_rejects_selected_key_with_inflight_operation_claim(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    remaining = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    selected.operation_generation = 1
+    selected.operation_token = "inflight-disable"
+    selected.operation_type = "disable"
+    selected.save(
+        update_fields=(
+            "operation_generation",
+            "operation_token",
+            "operation_type",
+            "updated_at",
+        )
+    )
+    provider = RotationProvider([selected, remaining])
+
+    with pytest.raises(CredentialRotationError, match="KEY_OPERATION_IN_PROGRESS"):
+        rotate_access_key(
+            identity=identity,
+            provider=provider,
+            selected_access_key_id=selected.pk,
+        )
+
+    assert provider.calls == []
+
+
 def test_rotation_delete_then_create_failure_preserves_other_key_and_is_manual(
     cloud_identity_factory,
 ):
