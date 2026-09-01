@@ -197,15 +197,27 @@ class RotationProvider:
         }
         self.calls = []
         self.fail_create = False
+        self.fail_deactivate = False
+        self.fail_delete = False
+        self.fail_activate = False
         self.fingerprint_access_key = fingerprint_access_key
 
     def list_access_keys(self, _identity):
         return SimpleNamespace(items=tuple(self.cloud_keys.values()))
 
     def deactivate_access_key(self, key):
+        if self.fail_deactivate:
+            raise RuntimeError("deactivate failed")
         self.calls.append(("deactivate", key.access_key_id))
 
+    def activate_access_key(self, key):
+        if self.fail_activate:
+            raise RuntimeError("activate failed")
+        self.calls.append(("activate", key.access_key_id))
+
     def delete_access_key(self, key):
+        if self.fail_delete:
+            raise RuntimeError("delete failed")
         self.calls.append(("delete", key.access_key_id))
 
     def create_access_key(self, _identity):
@@ -312,3 +324,113 @@ def test_rotation_delete_then_create_failure_preserves_other_key_and_is_manual(
         ("delete", "LTAI-existing-one"),
         ("create",),
     ]
+
+
+def test_rotation_delete_failure_reactivates_and_preserves_local_active(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    remaining = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    provider = RotationProvider([selected, remaining])
+    provider.cloud_keys[selected.pk].access_key_id = "LTAI-existing-one"
+    provider.cloud_keys[remaining.pk].access_key_id = "LTAI-existing-two"
+    provider.fail_delete = True
+
+    with pytest.raises(RuntimeError, match="delete failed"):
+        rotate_access_key(
+            identity=identity,
+            provider=provider,
+            selected_access_key_id=selected.pk,
+        )
+
+    selected.refresh_from_db()
+    assert selected.cloud_state == AccessKey.CloudState.ACTIVE
+    assert selected.local_state == AccessKey.LocalState.ACTIVE
+    assert provider.calls == [
+        ("deactivate", "LTAI-existing-one"),
+        ("activate", "LTAI-existing-one"),
+    ]
+
+
+def test_rotation_reactivation_failure_marks_key_manual_without_claiming_active(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey, AuditEvent
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    remaining = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    provider = RotationProvider([selected, remaining])
+    provider.cloud_keys[selected.pk].access_key_id = "LTAI-existing-one"
+    provider.cloud_keys[remaining.pk].access_key_id = "LTAI-existing-two"
+    provider.fail_delete = True
+    provider.fail_activate = True
+
+    with pytest.raises(CredentialRotationError, match="KEY_DELETE_FAILED") as error:
+        rotate_access_key(
+            identity=identity,
+            provider=provider,
+            selected_access_key_id=selected.pk,
+        )
+
+    selected.refresh_from_db()
+    assert error.value.manual_required is True
+    assert selected.cloud_state == AccessKey.CloudState.UNKNOWN
+    assert selected.local_state == AccessKey.LocalState.ERROR
+    assert AuditEvent.objects.filter(
+        action="storage.credential.rotation_manual_required",
+        target_id=str(selected.pk),
+    ).exists()
+
+
+def test_rotation_rejects_newer_active_key_when_two_active_keys_exist(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    first = _encrypted_key(identity, access_key_id="LTAI-existing-one")
+    second = _encrypted_key(identity, access_key_id="LTAI-existing-two")
+    provider = RotationProvider([first, second])
+    provider.cloud_keys[first.pk].access_key_id = "LTAI-existing-one"
+    provider.cloud_keys[second.pk].access_key_id = "LTAI-existing-two"
+
+    with pytest.raises(CredentialRotationError, match="ROTATION_SELECTION_INVALID"):
+        rotate_access_key(
+            identity=identity,
+            provider=provider,
+            selected_access_key_id=second.pk,
+        )
+
+    assert provider.calls == []

@@ -352,6 +352,118 @@ def test_full_failure_cancel_deletes_undelivered_key_and_empty_principal(
     assert provider.deleted_principals
 
 
+def test_later_full_failure_cancel_keeps_prior_success_resources_and_principal(
+    batch_context, monkeypatch
+):
+    from object_storage.models import ApplicationBatch, ApplicationItem, Bucket
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    _user, _pool, create = batch_context
+    provider = FakeProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+    first = create(names=("AlreadyWorking",), idempotency_key="first")
+    applications.execute_application_batch(first.pk)
+    previous_bucket = first.items.get().bucket
+    provider.create_errors["DeniedLater"] = ObjectStorageProviderError(
+        "PROVIDER_PERMISSION_DENIED"
+    )
+    second = create(names=("DeniedLater",), idempotency_key="second")
+
+    applications.execute_application_batch(second.pk)
+    applications.cancel_application_batch(second.pk)
+
+    first.refresh_from_db()
+    second.refresh_from_db()
+    previous_bucket.refresh_from_db()
+    assert first.status == ApplicationBatch.Status.SUCCEEDED
+    assert second.status == ApplicationBatch.Status.CANCELLED
+    assert second.items.get().status == ApplicationItem.Status.CANCELLED
+    assert previous_bucket.state == Bucket.State.ACTIVE
+    assert provider.deleted_principals == []
+    assert provider.principal_exists is True
+
+
+def test_cancel_with_cloud_bucket_keeps_item_manual_and_resource(
+    batch_context, monkeypatch
+):
+    from object_storage.models import ApplicationBatch, ApplicationItem, Bucket
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    provider.policy_errors.append(
+        ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
+    )
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    applications.execute_application_batch(batch.pk)
+    cancelled = applications.cancel_application_batch(batch.pk)
+
+    item = cancelled.items.get()
+    item.bucket.refresh_from_db()
+    assert cancelled.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert item.status == ApplicationItem.Status.MANUAL_REQUIRED
+    assert item.bucket.state == Bucket.State.ACTIVE
+    assert provider.deleted_principals == []
+
+
+def test_repeated_execution_for_completed_batch_has_no_new_attempt_or_mutation(
+    batch_context, monkeypatch
+):
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    applications.execute_application_batch(batch.pk, execution_key="same-task:0")
+    attempt_count = batch.items.get().attempts.count()
+    provider.calls.clear()
+    result = applications.execute_application_batch(
+        batch.pk, execution_key="same-task:0"
+    )
+
+    assert result.status == "succeeded"
+    assert batch.items.get().attempts.count() == attempt_count
+    assert provider.calls == []
+
+
+def test_expired_running_lease_fails_closed_without_cloud_mutation(
+    batch_context, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import ApplicationBatch
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    batch.status = ApplicationBatch.Status.RUNNING
+    batch.running_task_id = "possibly-slow-worker"
+    batch.run_lease_until = timezone.now() - timedelta(seconds=1)
+    batch.save(update_fields=("status", "running_task_id", "run_lease_until"))
+    monkeypatch.setattr(
+        applications,
+        "get_provider_for_pool",
+        lambda _pool: (_ for _ in ()).throw(AssertionError("provider not called")),
+    )
+
+    result = applications.execute_application_batch(
+        batch.pk,
+        execution_key="replacement-worker",
+    )
+
+    assert result.status == ApplicationBatch.Status.RUNNING
+    assert result.running_task_id == "possibly-slow-worker"
+    assert not batch.items.get().attempts.exists()
+
+
 def test_provider_retryability_uses_stable_temporary_code_classification():
     from object_storage.services.applications import is_retryable_provider_error
     from object_storage.services.provider_errors import ObjectStorageProviderError

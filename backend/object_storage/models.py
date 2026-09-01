@@ -528,6 +528,18 @@ class ApplicationBatch(TimestampedModel):
         on_delete=models.PROTECT,
         related_name="issued_for_application_batches",
     )
+    cloud_identity = models.ForeignKey(
+        CloudIdentity,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="application_batches",
+    )
+    identity_created_by_batch = models.BooleanField(default=False)
+    principal_created_by_batch = models.BooleanField(default=False)
+    key_created_by_batch = models.BooleanField(default=False)
+    running_task_id = models.CharField(max_length=255, blank=True, default="")
+    run_lease_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

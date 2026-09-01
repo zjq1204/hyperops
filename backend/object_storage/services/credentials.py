@@ -284,6 +284,51 @@ def _reconciled_local_keys(identity, provider):
     return local_keys
 
 
+def _rotation_candidate_from_keys(local_keys):
+    inactive = [
+        key for key in local_keys if key.cloud_state == AccessKey.CloudState.INACTIVE
+    ]
+    return inactive[0] if inactive else local_keys[0]
+
+
+def _compensate_rotation_failure(
+    *, identity, selected, provider, provider_key, error_code, original_error
+):
+    try:
+        provider.activate_access_key(provider_key)
+    except Exception as reactivation_error:
+        selected.cloud_state = AccessKey.CloudState.UNKNOWN
+        selected.local_state = AccessKey.LocalState.ERROR
+        selected.save(update_fields=("cloud_state", "local_state", "updated_at"))
+        record_audit_event(
+            actor=identity.user,
+            action="storage.credential.rotation_manual_required",
+            target_type="AccessKey",
+            target_id=selected.pk,
+            result="manual_required",
+            safe_metadata={
+                "error_code": error_code,
+                "last_four": selected.access_key_last_four,
+            },
+        )
+        raise CredentialRotationError(
+            error_code,
+            manual_required=True,
+        ) from reactivation_error
+    selected.cloud_state = AccessKey.CloudState.ACTIVE
+    selected.local_state = AccessKey.LocalState.ACTIVE
+    selected.deactivated_at = None
+    selected.save(
+        update_fields=(
+            "cloud_state",
+            "local_state",
+            "deactivated_at",
+            "updated_at",
+        )
+    )
+    raise original_error
+
+
 def rotate_access_key(*, identity, provider, selected_access_key_id=None):
     with transaction.atomic():
         local_keys = _reconciled_local_keys(identity, provider)
@@ -300,32 +345,59 @@ def rotate_access_key(*, identity, provider, selected_access_key_id=None):
         if len(local_keys) == 2:
             if selected_access_key_id is None:
                 raise CredentialRotationError("ROTATION_SELECTION_REQUIRED")
-            selected = next(
-                (key for key in local_keys if key.pk == selected_access_key_id),
-                None,
-            )
-            if selected is None:
+            candidate = _rotation_candidate_from_keys(local_keys)
+            if candidate.pk != selected_access_key_id:
                 raise CredentialRotationError("ROTATION_SELECTION_INVALID")
-            provider_key = provider_access_key(selected)
-            provider.deactivate_access_key(provider_key)
-            provider.delete_access_key(provider_key)
-            selected.cloud_state = AccessKey.CloudState.DELETED
-            selected.local_state = AccessKey.LocalState.RETIRED
-            selected.deactivated_at = selected.deactivated_at or timezone.now()
-            selected.deleted_at = timezone.now()
-            selected.save(
-                update_fields=(
-                    "cloud_state",
-                    "local_state",
-                    "deactivated_at",
-                    "deleted_at",
-                    "updated_at",
-                )
-            )
+            selected = candidate
+            provider_key = provider_access_key(candidate)
         elif selected_access_key_id is not None:
             raise CredentialRotationError("ROTATION_SELECTION_INVALID")
 
     if len(local_keys) == 2:
+        try:
+            provider.deactivate_access_key(provider_key)
+        except Exception as error:
+            _compensate_rotation_failure(
+                identity=identity,
+                selected=selected,
+                provider=provider,
+                provider_key=provider_key,
+                error_code="KEY_DEACTIVATE_FAILED",
+                original_error=error,
+            )
+        selected.cloud_state = AccessKey.CloudState.INACTIVE
+        selected.local_state = AccessKey.LocalState.RETIRING
+        selected.deactivated_at = timezone.now()
+        selected.save(
+            update_fields=(
+                "cloud_state",
+                "local_state",
+                "deactivated_at",
+                "updated_at",
+            )
+        )
+        try:
+            provider.delete_access_key(provider_key)
+        except Exception as error:
+            _compensate_rotation_failure(
+                identity=identity,
+                selected=selected,
+                provider=provider,
+                provider_key=provider_key,
+                error_code="KEY_DELETE_FAILED",
+                original_error=error,
+            )
+        selected.cloud_state = AccessKey.CloudState.DELETED
+        selected.local_state = AccessKey.LocalState.RETIRED
+        selected.deleted_at = timezone.now()
+        selected.save(
+            update_fields=(
+                "cloud_state",
+                "local_state",
+                "deleted_at",
+                "updated_at",
+            )
+        )
         try:
             return persist_new_access_key(identity=identity, provider=provider)
         except Exception as error:
@@ -350,10 +422,7 @@ def rotation_candidate(identity):
     )
     if len(keys) < 2:
         return None
-    return next(
-        (key for key in keys if key.cloud_state == AccessKey.CloudState.INACTIVE),
-        keys[0],
-    )
+    return _rotation_candidate_from_keys(keys)
 
 
 def reveal_access_key(*, access_key, actor, reason, request_id="", ip_address=None):

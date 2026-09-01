@@ -33,6 +33,16 @@ def test_batch_workflow_migration_extends_quota_migration():
     assert migration.dependencies == [("object_storage", "0006_user_bucket_quota")]
 
 
+def test_batch_safety_migration_extends_batch_workflow_migration():
+    from importlib import import_module
+
+    migration = import_module(
+        "object_storage.migrations.0008_batch_safety_guards"
+    ).Migration
+
+    assert migration.dependencies == [("object_storage", "0007_batch_workflow")]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_platform_migration_assigns_existing_pool_to_default_config():
     from django.db.migrations.executor import MigrationExecutor
@@ -448,6 +458,9 @@ def test_batch_workflow_models_store_idempotency_and_retry_state(
         ApplicationBatch.Status.PARTIALLY_SUCCEEDED,
         ApplicationBatch.Status.MANUAL_REQUIRED,
     }.issubset(set(ApplicationBatch.Status.values))
+    assert batch.cloud_identity_id is None
+    assert batch.running_task_id == ""
+    assert batch.run_lease_until is None
 
 
 def test_application_attempt_event_and_delivery_ticket_have_no_tenant_field():
