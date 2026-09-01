@@ -1,44 +1,69 @@
 from django.urls import path
 
-from object_storage.views import ObjectStorageOverviewView
+from object_storage.views_admin import (
+    AccessGroupListView,
+    AccessKeyAdminDetailView,
+    AccessKeyAdminListView,
+    AccessKeyDisableView,
+    AccessKeyEnableView,
+    AccessKeyRevealView,
+    AccessKeyRevokeView,
+    AccessKeyRotateView,
+    ApplicationBatchAdminDetailView,
+    ApplicationBatchAdminListView,
+    ApplicationBatchRetryView,
+    AuditEventAdminDetailView,
+    AuditEventAdminListView,
+    BucketActionUncertaintyAcknowledgeView,
+    BucketActionUncertaintyObserveView,
+    BucketAdminDetailView,
+    BucketAdminListView,
+    BucketConfigurationRetryView,
+    BucketConfigurationUncertaintyAcknowledgeView,
+    BucketConfigurationUncertaintyObserveView,
+    BucketConfigurationView,
+    BucketDeleteView,
+    BucketRecoverView,
+    BucketReleaseView,
+    BucketRetryDeleteView,
+    CloudIdentityAdminDetailView,
+    CloudIdentityAdminListView,
+    CredentialUncertaintyAcknowledgeView,
+    CredentialUncertaintyObserveView,
+    PlatformFeishuSettingsView,
+    PlatformFeishuValidationView,
+    PlatformSettingsView,
+    StorageResourcePoolDetailView,
+    StorageResourcePoolListCreateView,
+    StorageResourcePoolValidationView,
+    UserQuotaDetailView,
+    UserQuotaListView,
+    UserResourceReactivateView,
+    UserResourceSuspendView,
+)
 from object_storage.views_auth import (
     FeishuCallbackView,
     FeishuLoginStartView,
     HandoffExchangeView,
 )
-from object_storage.views_admin import (
-    AccessGroupListView,
-    FeishuAppConfigView,
-    FeishuAppValidationView,
-    StorageResourcePoolDetailView,
-    StorageResourcePoolListCreateView,
-    StorageResourcePoolValidationView,
-    StorageAccessKeyAdminListView,
-    StorageApplicationAdminDetailView,
-    StorageApplicationAdminListView,
-    StorageApplicationResolveView,
-    StorageApplicationRetryView,
-    StorageAuditEventAdminListView,
-    StorageBucketAdminListView,
-    StorageCloudIdentityAdminListView,
-    StorageMembershipAdminListView,
-    StorageTenantDetailView,
-    StorageTenantListCreateView,
-)
 from object_storage.views_employee import (
-    EmployeeApplicationCreateView,
     EmployeeApplicationDetailView,
-    EmployeeApplicationRetryView,
+    EmployeeApplicationItemCancelView,
+    EmployeeApplicationItemRetryView,
+    EmployeeApplicationListCreateView,
+    EmployeeBucketDetailView,
     EmployeeBucketListView,
+    EmployeeBucketRecoverView,
     EmployeeBucketReleaseView,
     EmployeeCredentialDeliveryView,
     EmployeeCredentialDetailView,
+    EmployeeCredentialDisableView,
+    EmployeeCredentialEnableView,
+    EmployeeCredentialListView,
+    EmployeeCredentialRevokeView,
+    EmployeeCredentialRotateView,
     EmployeeDeliveryTokenView,
     EmployeeOverviewView,
-    EmployeeRotationPreviewView,
-    ManagementAccessKeyRevealView,
-    ManagementMembershipReactivateView,
-    ManagementMembershipSuspendView,
 )
 from object_storage.views_feishu_admin import (
     FeishuSyncConfirmView,
@@ -47,22 +72,110 @@ from object_storage.views_feishu_admin import (
 
 app_name = "object_storage"
 
+
 urlpatterns = [
-    path("overview/", ObjectStorageOverviewView.as_view(), name="overview"),
     path(
-        "auth/feishu/start/",
-        FeishuLoginStartView.as_view(),
-        name="feishu_login_start",
+        "auth/feishu/start/", FeishuLoginStartView.as_view(), name="feishu_login_start"
+    ),
+    path("auth/feishu/callback/", FeishuCallbackView.as_view(), name="feishu_callback"),
+    path(
+        "auth/handoff/exchange/", HandoffExchangeView.as_view(), name="handoff_exchange"
     ),
     path(
-        "auth/feishu/callback/",
-        FeishuCallbackView.as_view(),
-        name="feishu_callback",
+        "workspace/overview/", EmployeeOverviewView.as_view(), name="workspace_overview"
     ),
     path(
-        "auth/handoff/exchange/",
-        HandoffExchangeView.as_view(),
-        name="handoff_exchange",
+        "workspace/buckets/", EmployeeBucketListView.as_view(), name="workspace_buckets"
+    ),
+    path(
+        "workspace/buckets/<int:bucket_id>/",
+        EmployeeBucketDetailView.as_view(),
+        name="workspace_bucket_detail",
+    ),
+    path(
+        "workspace/buckets/<int:bucket_id>/release/",
+        EmployeeBucketReleaseView.as_view(),
+        name="workspace_bucket_release",
+    ),
+    path(
+        "workspace/buckets/<int:bucket_id>/recover/",
+        EmployeeBucketRecoverView.as_view(),
+        name="workspace_bucket_recover",
+    ),
+    path(
+        "workspace/applications/",
+        EmployeeApplicationListCreateView.as_view(),
+        name="workspace_applications",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/",
+        EmployeeApplicationDetailView.as_view(),
+        name="workspace_application_detail",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/items/<int:item_id>/retry/",
+        EmployeeApplicationItemRetryView.as_view(),
+        name="workspace_application_item_retry",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/items/<int:item_id>/cancel/",
+        EmployeeApplicationItemCancelView.as_view(),
+        name="workspace_application_item_cancel",
+    ),
+    path(
+        "workspace/applications/<int:application_id>/delivery-token/",
+        EmployeeDeliveryTokenView.as_view(),
+        name="workspace_application_delivery_token",
+    ),
+    path(
+        "workspace/credentials/",
+        EmployeeCredentialListView.as_view(),
+        name="workspace_credentials",
+    ),
+    path(
+        "workspace/credentials/deliver/",
+        EmployeeCredentialDeliveryView.as_view(),
+        name="workspace_credential_delivery",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/",
+        EmployeeCredentialDetailView.as_view(),
+        name="workspace_credential_detail",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/disable/",
+        EmployeeCredentialDisableView.as_view(),
+        name="workspace_credential_disable",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/enable/",
+        EmployeeCredentialEnableView.as_view(),
+        name="workspace_credential_enable",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/rotate/",
+        EmployeeCredentialRotateView.as_view(),
+        name="workspace_credential_rotate",
+    ),
+    path(
+        "workspace/credentials/<int:key_id>/revoke/",
+        EmployeeCredentialRevokeView.as_view(),
+        name="workspace_credential_revoke",
+    ),
+    path(
+        "management/settings/",
+        PlatformSettingsView.as_view(),
+        name="management_settings",
+    ),
+    path(
+        "management/feishu-settings/",
+        PlatformFeishuSettingsView.as_view(),
+        name="management_feishu_settings",
+    ),
+    path(
+        "management/feishu-settings/validate/",
+        PlatformFeishuValidationView.as_view(),
+        name="management_feishu_validate",
     ),
     path(
         "management/feishu/sync/preview/",
@@ -75,32 +188,12 @@ urlpatterns = [
         name="management_feishu_sync_confirm",
     ),
     path(
-        "management/tenants/",
-        StorageTenantListCreateView.as_view(),
-        name="management_tenants",
-    ),
-    path(
         "management/access-groups/",
         AccessGroupListView.as_view(),
         name="management_access_groups",
     ),
     path(
-        "management/tenants/<int:tenant_id>/",
-        StorageTenantDetailView.as_view(),
-        name="management_tenant_detail",
-    ),
-    path(
-        "management/tenants/<int:tenant_id>/feishu/",
-        FeishuAppConfigView.as_view(),
-        name="management_feishu_config",
-    ),
-    path(
-        "management/tenants/<int:tenant_id>/feishu/validate/",
-        FeishuAppValidationView.as_view(),
-        name="management_feishu_validate",
-    ),
-    path(
-        "management/tenants/<int:tenant_id>/resource-pools/",
+        "management/resource-pools/",
         StorageResourcePoolListCreateView.as_view(),
         name="management_resource_pools",
     ),
@@ -115,113 +208,161 @@ urlpatterns = [
         name="management_resource_pool_validate",
     ),
     path(
-        "management/access-keys/<int:key_id>/reveal/",
-        ManagementAccessKeyRevealView.as_view(),
-        name="management_access_key_reveal",
+        "management/user-quotas/",
+        UserQuotaListView.as_view(),
+        name="management_user_quotas",
     ),
     path(
-        "management/members/",
-        StorageMembershipAdminListView.as_view(),
-        name="management_members",
+        "management/user-quotas/<int:user_id>/",
+        UserQuotaDetailView.as_view(),
+        name="management_user_quota_detail",
     ),
     path(
         "management/cloud-identities/",
-        StorageCloudIdentityAdminListView.as_view(),
+        CloudIdentityAdminListView.as_view(),
         name="management_cloud_identities",
     ),
     path(
-        "management/buckets/",
-        StorageBucketAdminListView.as_view(),
-        name="management_buckets",
+        "management/cloud-identities/<int:identity_id>/",
+        CloudIdentityAdminDetailView.as_view(),
+        name="management_cloud_identity_detail",
+    ),
+    path(
+        "management/cloud-identities/<int:identity_id>/uncertainty/observe/",
+        CredentialUncertaintyObserveView.as_view(),
+        name="management_credential_uncertainty_observe",
+    ),
+    path(
+        "management/cloud-identities/<int:identity_id>/uncertainty/acknowledge/",
+        CredentialUncertaintyAcknowledgeView.as_view(),
+        name="management_credential_uncertainty_acknowledge",
+    ),
+    path(
+        "management/buckets/", BucketAdminListView.as_view(), name="management_buckets"
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/",
+        BucketAdminDetailView.as_view(),
+        name="management_bucket_detail",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/release/",
+        BucketReleaseView.as_view(),
+        name="management_bucket_release",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/recover/",
+        BucketRecoverView.as_view(),
+        name="management_bucket_recover",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/delete/",
+        BucketDeleteView.as_view(),
+        name="management_bucket_delete",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/retry-delete/",
+        BucketRetryDeleteView.as_view(),
+        name="management_bucket_retry_delete",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/configuration/",
+        BucketConfigurationView.as_view(),
+        name="management_bucket_configuration",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/configuration/retry/",
+        BucketConfigurationRetryView.as_view(),
+        name="management_bucket_configuration_retry",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/uncertainty/observe/",
+        BucketActionUncertaintyObserveView.as_view(),
+        name="management_bucket_uncertainty_observe",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/uncertainty/acknowledge/",
+        BucketActionUncertaintyAcknowledgeView.as_view(),
+        name="management_bucket_uncertainty_acknowledge",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/configuration/uncertainty/observe/",
+        BucketConfigurationUncertaintyObserveView.as_view(),
+        name="management_bucket_configuration_uncertainty_observe",
+    ),
+    path(
+        "management/buckets/<int:bucket_id>/configuration/uncertainty/acknowledge/",
+        BucketConfigurationUncertaintyAcknowledgeView.as_view(),
+        name="management_bucket_configuration_uncertainty_acknowledge",
     ),
     path(
         "management/access-keys/",
-        StorageAccessKeyAdminListView.as_view(),
+        AccessKeyAdminListView.as_view(),
         name="management_access_keys",
     ),
     path(
+        "management/access-keys/<int:key_id>/",
+        AccessKeyAdminDetailView.as_view(),
+        name="management_access_key_detail",
+    ),
+    path(
+        "management/access-keys/<int:key_id>/disable/",
+        AccessKeyDisableView.as_view(),
+        name="management_access_key_disable",
+    ),
+    path(
+        "management/access-keys/<int:key_id>/enable/",
+        AccessKeyEnableView.as_view(),
+        name="management_access_key_enable",
+    ),
+    path(
+        "management/access-keys/<int:key_id>/rotate/",
+        AccessKeyRotateView.as_view(),
+        name="management_access_key_rotate",
+    ),
+    path(
+        "management/access-keys/<int:key_id>/revoke/",
+        AccessKeyRevokeView.as_view(),
+        name="management_access_key_revoke",
+    ),
+    path(
+        "management/access-keys/<int:key_id>/reveal/",
+        AccessKeyRevealView.as_view(),
+        name="management_access_key_reveal",
+    ),
+    path(
         "management/applications/",
-        StorageApplicationAdminListView.as_view(),
+        ApplicationBatchAdminListView.as_view(),
         name="management_applications",
     ),
     path(
         "management/applications/<int:application_id>/",
-        StorageApplicationAdminDetailView.as_view(),
+        ApplicationBatchAdminDetailView.as_view(),
         name="management_application_detail",
     ),
     path(
         "management/applications/<int:application_id>/retry/",
-        StorageApplicationRetryView.as_view(),
+        ApplicationBatchRetryView.as_view(),
         name="management_application_retry",
     ),
     path(
-        "management/applications/<int:application_id>/resolve/",
-        StorageApplicationResolveView.as_view(),
-        name="management_application_resolve",
-    ),
-    path(
         "management/audit-events/",
-        StorageAuditEventAdminListView.as_view(),
+        AuditEventAdminListView.as_view(),
         name="management_audit_events",
     ),
     path(
-        "management/members/<int:membership_id>/suspend/",
-        ManagementMembershipSuspendView.as_view(),
-        name="management_member_suspend",
+        "management/audit-events/<int:event_id>/",
+        AuditEventAdminDetailView.as_view(),
+        name="management_audit_event_detail",
     ),
     path(
-        "management/members/<int:membership_id>/reactivate/",
-        ManagementMembershipReactivateView.as_view(),
-        name="management_member_reactivate",
+        "management/users/<int:user_id>/suspend/",
+        UserResourceSuspendView.as_view(),
+        name="management_user_suspend",
     ),
     path(
-        "workspace/buckets/",
-        EmployeeBucketListView.as_view(),
-        name="workspace_buckets",
-    ),
-    path(
-        "workspace/overview/",
-        EmployeeOverviewView.as_view(),
-        name="workspace_overview",
-    ),
-    path(
-        "workspace/buckets/<int:bucket_id>/release/",
-        EmployeeBucketReleaseView.as_view(),
-        name="workspace_bucket_release",
-    ),
-    path(
-        "workspace/applications/",
-        EmployeeApplicationCreateView.as_view(),
-        name="workspace_applications",
-    ),
-    path(
-        "workspace/applications/<int:application_id>/",
-        EmployeeApplicationDetailView.as_view(),
-        name="workspace_application_detail",
-    ),
-    path(
-        "workspace/applications/<int:application_id>/retry/",
-        EmployeeApplicationRetryView.as_view(),
-        name="workspace_application_retry",
-    ),
-    path(
-        "workspace/applications/<int:application_id>/delivery-token/",
-        EmployeeDeliveryTokenView.as_view(),
-        name="workspace_application_delivery_token",
-    ),
-    path(
-        "workspace/credentials/deliver/",
-        EmployeeCredentialDeliveryView.as_view(),
-        name="workspace_credential_delivery",
-    ),
-    path(
-        "workspace/credentials/rotation-preview/",
-        EmployeeRotationPreviewView.as_view(),
-        name="workspace_credential_rotation_preview",
-    ),
-    path(
-        "workspace/credentials/<int:key_id>/",
-        EmployeeCredentialDetailView.as_view(),
-        name="workspace_credential_detail",
+        "management/users/<int:user_id>/reactivate/",
+        UserResourceReactivateView.as_view(),
+        name="management_user_reactivate",
     ),
 ]

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from django.utils import timezone
 
 from object_storage.crypto import encrypt_secret
 
@@ -13,398 +14,329 @@ def _payload(response):
 
 
 @pytest.fixture(autouse=True)
-def stable_object_storage_secret(settings):
-    settings.SECRET_KEY = "object-storage-employee-tests-stable-secret"
+def stable_secret(settings):
+    settings.SECRET_KEY = "employee-api-contract-stable-secret"
 
 
 @pytest.fixture
-def member_client(client, storage_membership_factory, storage_resource_pool_factory):
-    membership = storage_membership_factory()
-    storage_resource_pool_factory(tenant=membership.tenant, enabled=True)
-    client.force_login(membership.user)
-    return client, membership
+def employee_context(
+    client,
+    user_factory,
+    platform_object_storage_config,
+    storage_resource_pool_factory,
+):
+    from object_storage.models import PlatformFeishuConfig, StorageResourcePool
 
-
-@pytest.fixture
-def superuser_client(client, django_user_model):
-    user = django_user_model.objects.create_superuser(
-        username="object-storage-root", password="secret123"
+    user = user_factory()
+    PlatformFeishuConfig.objects.update_or_create(
+        singleton_key="default",
+        defaults={
+            "enabled": True,
+            "validation_status": PlatformFeishuConfig.ValidationStatus.VALID,
+        },
+    )
+    platform_object_storage_config.pause_new_applications = False
+    platform_object_storage_config.pause_key_operations = False
+    platform_object_storage_config.save()
+    pool = storage_resource_pool_factory(
+        enabled=True,
+        validation_status=StorageResourcePool.ValidationStatus.VALID,
     )
     client.force_login(user)
-    client.defaults["HTTP_IDEMPOTENCY_KEY"] = "employee-admin-test"
-    return client
+    return client, user, pool, platform_object_storage_config
 
 
-def _create_key(identity, number, *, local_state="active", cloud_state="active"):
-    from object_storage.models import StorageAccessKey
+def _key(identity, number=1):
+    from object_storage.models import AccessKey
 
-    return StorageAccessKey.objects.create(
-        tenant=identity.tenant,
+    return AccessKey.objects.create(
         cloud_identity=identity,
-        access_key_id_encrypted=encrypt_secret(f"LTAI-key-{number}"),
-        secret_access_key_encrypted=encrypt_secret(f"secret-{number}"),
-        access_key_fingerprint=f"fingerprint-{number}",
+        access_key_id_encrypted=encrypt_secret(f"LTAI-action-{number}"),
+        secret_access_key_encrypted=encrypt_secret(f"action-secret-{number}"),
+        access_key_fingerprint=f"action-fingerprint-{number}",
         access_key_last_four=f"{number:04d}",
-        local_state=local_state,
-        cloud_state=cloud_state,
+        local_state=AccessKey.LocalState.ACTIVE,
     )
 
 
-def test_employee_can_only_list_owned_buckets(
-    member_client,
-    storage_bucket_factory,
-    storage_cloud_identity_factory,
-    storage_membership_factory,
+def test_batch_create_is_idempotent_and_rejects_frontend_ownership(
+    employee_context, monkeypatch
 ):
-    client, membership = member_client
-    mine_identity = storage_cloud_identity_factory(membership=membership)
-    mine = storage_bucket_factory(cloud_identity=mine_identity)
-    other = storage_membership_factory(tenant=membership.tenant)
-    other_identity = storage_cloud_identity_factory(
-        membership=other,
-        resource_pool=mine_identity.resource_pool,
+    client, user, _pool, _config = employee_context
+    captured = []
+    batch = SimpleNamespace(pk=17)
+
+    def create_batch(**kwargs):
+        captured.append(kwargs)
+        return batch
+
+    monkeypatch.setattr(
+        "object_storage.views_employee.create_application_batch", create_batch
     )
-    other_bucket = storage_bucket_factory(cloud_identity=other_identity)
+    monkeypatch.setattr(
+        "object_storage.views_employee.ApplicationBatchEmployeeSerializer",
+        lambda value: SimpleNamespace(data={"id": value.pk, "status": "pending"}),
+    )
+    body = {
+        "items": [
+            {
+                "business_name": "logs",
+                "purpose": "audit logs",
+                "environment": "test",
+                "initial_suffix": "abcd1234",
+                "rendered_bucket_name": "hyperops-test-logs-abcd1234",
+            }
+        ]
+    }
+    first = client.post(
+        "/api/v1/object-storage/workspace/applications/",
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="batch-create-1",
+    )
+    forbidden_owner = client.post(
+        "/api/v1/object-storage/workspace/applications/",
+        {**body, "applicant_id": user.id + 1},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="batch-create-2",
+    )
 
-    response = client.get("/api/v1/object-storage/workspace/buckets/")
+    assert first.status_code == 202
+    assert captured[0]["user"] == user
+    assert captured[0]["idempotency_key"] == "batch-create-1"
+    assert forbidden_owner.status_code == 400
 
-    assert response.status_code == 200
-    assert [row["id"] for row in _payload(response)] == [mine.id]
-    assert other_bucket.id not in [row["id"] for row in _payload(response)]
 
-
-def test_new_bucket_reuses_existing_key_after_all_old_buckets_are_released(
-    member_client,
-    storage_cloud_identity_factory,
-    monkeypatch,
+def test_application_item_retry_and_cancel_are_independent(
+    employee_context, application_batch_factory, monkeypatch
 ):
-    from object_storage.models import StorageApplication, StorageResourcePool
+    from object_storage.models import ApplicationItem
 
-    client, membership = member_client
-    pool = StorageResourcePool.objects.get(tenant=membership.tenant, enabled=True)
-    identity = storage_cloud_identity_factory(
-        membership=membership,
-        resource_pool=pool,
-    )
-    _create_key(identity, 1)
+    client, user, _pool, _config = employee_context
+    batch = application_batch_factory(applicant=user, item_count=2)
+    failed, pending = batch.items.order_by("id")
+    failed.status = ApplicationItem.Status.FAILED
+    failed.error_code = "BUCKET_CREATE_FAILED"
+    failed.save(update_fields=("status", "error_code", "updated_at"))
     queued = []
     monkeypatch.setattr(
-        "object_storage.tasks.run_storage_application.delay", queued.append
+        "object_storage.tasks.run_storage_application_batch.delay", queued.append
     )
+
+    retried = client.post(
+        f"/api/v1/object-storage/workspace/applications/{batch.id}/items/{failed.id}/retry/",
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="retry-item-1",
+    )
+    cancelled = client.post(
+        f"/api/v1/object-storage/workspace/applications/{batch.id}/items/{pending.id}/cancel/",
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="cancel-item-1",
+    )
+
+    failed.refresh_from_db()
+    pending.refresh_from_db()
+    assert retried.status_code == 202
+    assert cancelled.status_code == 200
+    assert failed.status == ApplicationItem.Status.WAITING_RETRY
+    assert pending.status == ApplicationItem.Status.CANCELLED
+    assert queued == [batch.id]
+
+
+def test_cross_user_item_action_returns_not_found(
+    employee_context, application_batch_factory, user_factory
+):
+    client, _user, _pool, _config = employee_context
+    batch = application_batch_factory(applicant=user_factory(), item_count=1)
+    item = batch.items.get()
+    item.status = "failed"
+    item.save(update_fields=("status", "updated_at"))
 
     response = client.post(
-        "/api/v1/object-storage/workspace/applications/",
-        {"project": "new", "environment": "test", "purpose": "data"},
+        f"/api/v1/object-storage/workspace/applications/{batch.id}/items/{item.id}/retry/",
+        {},
         content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="add-after-release",
+        HTTP_IDEMPOTENCY_KEY="cross-user-retry",
     )
-
-    application = StorageApplication.objects.get(idempotency_key="add-after-release")
-    assert response.status_code == 202
-    assert application.action_type == StorageApplication.ActionType.ADD_BUCKET
-
-
-def test_employee_cannot_read_another_members_credential(
-    member_client, storage_cloud_identity_factory, storage_membership_factory
-):
-    client, membership = member_client
-    other_member = storage_membership_factory(tenant=membership.tenant)
-    other_identity = storage_cloud_identity_factory(membership=other_member)
-    key = _create_key(other_identity, 1)
-
-    response = client.get(f"/api/v1/object-storage/workspace/credentials/{key.id}/")
 
     assert response.status_code == 404
-    assert "secret_access_key" not in _payload(response)
 
 
-def test_suspended_member_cannot_apply_or_retrieve(
-    member_client, storage_cloud_identity_factory
+@pytest.mark.parametrize("action", ["disable", "enable", "rotate", "revoke"])
+def test_single_key_actions_are_owner_scoped_and_require_idempotency(
+    employee_context, cloud_identity_factory, monkeypatch, action
 ):
-    client, membership = member_client
-    membership.is_active = False
-    membership.save(update_fields=("is_active",))
-    identity = storage_cloud_identity_factory(membership=membership)
-    key = _create_key(identity, 1)
+    client, user, pool, _config = employee_context
+    identity = cloud_identity_factory(user=user, resource_pool=pool, state="active")
+    key = _key(identity)
+    called = []
 
-    buckets = client.get("/api/v1/object-storage/workspace/buckets/")
-    credentials = client.get(f"/api/v1/object-storage/workspace/credentials/{key.id}/")
+    def operation(**kwargs):
+        called.append(kwargs)
+        return key
+
+    monkeypatch.setattr(
+        f"object_storage.views_employee.{action}_access_key_action", operation
+    )
+    url = f"/api/v1/object-storage/workspace/credentials/{key.id}/{action}/"
+    missing = client.post(url, {}, content_type="application/json")
+    response = client.post(
+        url,
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY=f"key-{action}-1",
+    )
+
+    assert missing.status_code == 400
+    assert response.status_code == 200
+    assert called[0]["actor"] == user
+    assert _payload(response)["id"] == key.id
+    assert "action-secret" not in response.content.decode()
+
+
+def test_delivery_token_and_consume_are_no_store(
+    employee_context, application_batch_factory, monkeypatch
+):
+    client, user, _pool, _config = employee_context
+    batch = application_batch_factory(applicant=user)
+    monkeypatch.setattr(
+        "object_storage.views_employee.get_ephemeral_delivery_token",
+        lambda **kwargs: "one-time-token",
+    )
+    monkeypatch.setattr(
+        "object_storage.views_employee.consume_employee_delivery_token",
+        lambda **kwargs: {
+            "access_key_id": "LTAI-delivered",
+            "secret_access_key": "delivered-secret",
+            "last_four": "ered",
+        },
+    )
+
+    token = client.get(
+        f"/api/v1/object-storage/workspace/applications/{batch.id}/delivery-token/"
+    )
+    consumed = client.post(
+        "/api/v1/object-storage/workspace/credentials/deliver/",
+        {"token": "one-time-token"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="consume-token-1",
+    )
+
+    assert token.status_code == 200
+    assert consumed.status_code == 200
+    assert token["Cache-Control"] == "no-store"
+    assert consumed["Cache-Control"] == "no-store"
+    assert _payload(token)["token"] == "one-time-token"
+
+
+def test_single_key_rotation_creates_one_time_delivery_batch(
+    employee_context, cloud_identity_factory, monkeypatch
+):
+    from object_storage.models import AccessKey, ApplicationBatch, DeliveryTicket
+
+    client, user, pool, _config = employee_context
+    identity = cloud_identity_factory(user=user, resource_pool=pool, state="active")
+    selected = _key(identity, 31)
+    replacement = _key(identity, 32)
+    replacement.local_state = AccessKey.LocalState.DELIVERY_READY
+    replacement.save(update_fields=("local_state", "updated_at"))
+    monkeypatch.setattr(
+        "object_storage.views_employee.rotate_access_key_action",
+        lambda **kwargs: replacement,
+    )
+
+    response = client.post(
+        f"/api/v1/object-storage/workspace/credentials/{selected.id}/rotate/",
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="rotate-delivery-1",
+    )
+
+    payload = _payload(response)
+    batch = ApplicationBatch.objects.get(pk=payload["delivery_application_id"])
+    ticket = DeliveryTicket.objects.get(application_batch=batch)
+    assert response.status_code == 200
+    assert batch.applicant == user
+    assert batch.issued_access_key == replacement
+    assert ticket.access_key == replacement
+    assert "access_key_id" not in payload
+    assert "secret_access_key" not in payload
+
+
+def test_single_existing_key_rotation_does_not_select_retirement_candidate(
+    employee_context, cloud_identity_factory, monkeypatch
+):
+    from object_storage import views_employee
+
+    _client, user, pool, _config = employee_context
+    identity = cloud_identity_factory(user=user, resource_pool=pool, state="active")
+    selected = _key(identity, 41)
+    captured = {}
+    monkeypatch.setattr(views_employee, "_provider", lambda access_key: object())
+
+    def rotate(**kwargs):
+        captured.update(kwargs)
+        return selected
+
+    monkeypatch.setattr(views_employee, "rotate_access_key_for_actor", rotate)
+
+    views_employee.rotate_access_key_action(access_key=selected, actor=user)
+
+    assert captured["selected_access_key_id"] is None
+
+
+def test_bucket_release_and_recover_are_owner_scoped(
+    employee_context, cloud_identity_factory, bucket_factory, monkeypatch
+):
+    client, user, pool, _config = employee_context
+    identity = cloud_identity_factory(user=user, resource_pool=pool, state="active")
+    bucket = bucket_factory(
+        cloud_identity=identity,
+        state="active",
+        pending_delete_at=timezone.now(),
+    )
+    calls = []
+
+    def operation(**kwargs):
+        calls.append(kwargs)
+        return bucket
+
+    monkeypatch.setattr("object_storage.views_employee.release_bucket", operation)
+    monkeypatch.setattr("object_storage.views_employee.recover_bucket", operation)
+    body = {"bucket_name": bucket.name, "confirmed": True, "reason": "cleanup"}
+
+    released = client.post(
+        f"/api/v1/object-storage/workspace/buckets/{bucket.id}/release/",
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="release-bucket-1",
+    )
+    recovered = client.post(
+        f"/api/v1/object-storage/workspace/buckets/{bucket.id}/recover/",
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="recover-bucket-1",
+    )
+
+    assert released.status_code == 202
+    assert recovered.status_code == 200
+    assert all(call["actor"] == user for call in calls)
+
+
+def test_paused_platform_returns_stable_domain_codes(employee_context):
+    client, _user, _pool, config = employee_context
+    config.pause_new_applications = True
+    config.pause_key_operations = True
+    config.save()
+
     application = client.post(
         "/api/v1/object-storage/workspace/applications/",
-        {
-            "action_type": "add_bucket",
-            "project": "app",
-            "environment": "test",
-            "purpose": "data",
-        },
+        {"items": []},
         content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="suspended-application",
+        HTTP_IDEMPOTENCY_KEY="paused-application",
     )
 
-    assert buckets.status_code == 403
-    assert credentials.status_code == 403
-    assert application.status_code == 403
-
-
-def test_non_superuser_cannot_reveal_secret(
-    member_client, storage_cloud_identity_factory
-):
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    key = _create_key(identity, 1)
-
-    response = client.post(
-        f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/",
-        {"reason": "support investigation"},
-        content_type="application/json",
-    )
-
-    assert response.status_code == 403
-    assert "secret_access_key" not in _payload(response)
-
-
-def test_superuser_reveal_requires_reason_and_returns_one_key(
-    superuser_client, storage_cloud_identity_factory
-):
-    identity = storage_cloud_identity_factory()
-    key = _create_key(identity, 1)
-    url = f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/"
-
-    missing_reason = superuser_client.post(url, {}, content_type="application/json")
-    revealed = superuser_client.post(
-        url,
-        {"reason": "incident investigation"},
-        content_type="application/json",
-    )
-
-    assert missing_reason.status_code == 400
-    assert missing_reason["Cache-Control"] == "no-store"
-    assert revealed.status_code == 200
-    assert _payload(revealed)["access_key_id"] == "LTAI-key-1"
-    assert _payload(revealed)["secret_access_key"] == "secret-1"
-    assert revealed["Cache-Control"] == "no-store"
-
-
-def test_rotation_with_two_active_keys_proposes_oldest_key(
-    member_client, storage_cloud_identity_factory
-):
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    oldest = _create_key(identity, 1)
-    newest = _create_key(identity, 2)
-
-    response = client.get(
-        "/api/v1/object-storage/workspace/credentials/rotation-preview/"
-    )
-
-    assert response.status_code == 200
-    assert _payload(response)["candidate"]["id"] == oldest.id
-    assert _payload(response)["candidate"]["last_four"] == oldest.access_key_last_four
-    assert "secret_access_key" not in _payload(response)
-
-
-def test_nonempty_bucket_release_is_rejected(
-    member_client, storage_bucket_factory, storage_cloud_identity_factory, monkeypatch
-):
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    bucket = storage_bucket_factory(cloud_identity=identity)
-    monkeypatch.setattr(
-        "object_storage.views_employee.get_provider_for_pool",
-        lambda pool: SimpleNamespace(
-            inspect_bucket_emptiness=lambda selected: SimpleNamespace(
-                is_empty=False,
-                object_count=1,
-                version_count=0,
-                delete_marker_count=0,
-                multipart_upload_count=0,
-            )
-        ),
-    )
-
-    response = client.post(
-        f"/api/v1/object-storage/workspace/buckets/{bucket.id}/release/",
-        {"reason": "cleanup"},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="release-nonempty",
-    )
-
-    assert response.status_code == 409
-    assert _payload(response)["error_code"] == "BUCKET_NOT_EMPTY"
-
-
-def test_empty_bucket_release_creates_async_application(
-    member_client,
-    storage_bucket_factory,
-    storage_cloud_identity_factory,
-    monkeypatch,
-):
-    from object_storage.models import StorageApplication
-
-    client, membership = member_client
-    identity = storage_cloud_identity_factory(membership=membership)
-    bucket = storage_bucket_factory(cloud_identity=identity)
-    queued = []
-    monkeypatch.setattr(
-        "object_storage.views_employee.get_provider_for_pool",
-        lambda pool: SimpleNamespace(
-            inspect_bucket_emptiness=lambda selected: SimpleNamespace(is_empty=True)
-        ),
-    )
-    monkeypatch.setattr(
-        "object_storage.tasks.run_storage_application.delay", queued.append
-    )
-
-    response = client.post(
-        f"/api/v1/object-storage/workspace/buckets/{bucket.id}/release/",
-        {"bucket_name": bucket.name, "reason": "project complete"},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="release-empty",
-    )
-
-    application = StorageApplication.objects.get(idempotency_key="release-empty")
-    assert response.status_code == 202
-    assert application.action_type == StorageApplication.ActionType.RELEASE_BUCKET
-    assert application.request_fields["target_bucket_id"] == bucket.id
-    assert queued == [application.id]
-
-
-def test_confirmed_rotation_creates_async_application(
-    member_client, storage_cloud_identity_factory, monkeypatch
-):
-    from object_storage.models import StorageApplication, StorageResourcePool
-
-    client, membership = member_client
-    pool = StorageResourcePool.objects.get(tenant=membership.tenant, enabled=True)
-    identity = storage_cloud_identity_factory(
-        membership=membership,
-        resource_pool=pool,
-    )
-    oldest = _create_key(identity, 1)
-    _create_key(identity, 2)
-    queued = []
-    monkeypatch.setattr(
-        "object_storage.tasks.run_storage_application.delay", queued.append
-    )
-
-    response = client.post(
-        "/api/v1/object-storage/workspace/credentials/rotation-preview/",
-        {"candidate_access_key_id": oldest.id, "confirmed": True},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="rotate-two-keys",
-    )
-    duplicate = client.post(
-        "/api/v1/object-storage/workspace/credentials/rotation-preview/",
-        {"candidate_access_key_id": oldest.id, "confirmed": True},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="rotate-two-keys",
-    )
-
-    application = StorageApplication.objects.get(idempotency_key="rotate-two-keys")
-    assert response.status_code == 202
-    assert duplicate.status_code == 202
-    assert application.action_type == StorageApplication.ActionType.ROTATE_CREDENTIAL
-    assert application.request_fields["candidate_access_key_id"] == oldest.id
-    assert queued == [application.id]
-
-
-def test_superuser_suspends_and_reactivates_member_without_reenabling_key(
-    superuser_client,
-    storage_cloud_identity_factory,
-    monkeypatch,
-):
-    from object_storage.models import StorageAccessKey, StorageApplication
-
-    identity = storage_cloud_identity_factory()
-    membership = identity.membership
-    key = _create_key(
-        identity,
-        1,
-        local_state=StorageAccessKey.LocalState.RETIRED,
-        cloud_state=StorageAccessKey.CloudState.INACTIVE,
-    )
-    queued = []
-    monkeypatch.setattr(
-        "object_storage.tasks.run_storage_application.delay", queued.append
-    )
-
-    suspended = superuser_client.post(
-        f"/api/v1/object-storage/management/members/{membership.id}/suspend/",
-        {"reason": "employee departure"},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="suspend-member",
-    )
-    membership.refresh_from_db()
-    assert suspended.status_code == 202
-    assert membership.is_active is False
-
-    reactivated = superuser_client.post(
-        f"/api/v1/object-storage/management/members/{membership.id}/reactivate/",
-        {"reason": "employee returned"},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="reactivate-member",
-    )
-    membership.refresh_from_db()
-    key.refresh_from_db()
-
-    assert reactivated.status_code == 202
-    assert membership.is_active is True
-    assert key.cloud_state == StorageAccessKey.CloudState.INACTIVE
-    assert StorageApplication.objects.filter(applicant=membership).count() == 2
-    assert len(queued) == 2
-
-    duplicate_suspend = superuser_client.post(
-        f"/api/v1/object-storage/management/members/{membership.id}/suspend/",
-        {"reason": "employee departure"},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="suspend-member",
-    )
-    membership.refresh_from_db()
-
-    assert duplicate_suspend.status_code == 202
-    assert membership.is_active is True
-    assert len(queued) == 2
-
-
-def test_state_change_without_idempotency_key_does_not_change_member(
-    superuser_client, storage_cloud_identity_factory
-):
-    identity = storage_cloud_identity_factory()
-    membership = identity.membership
-    superuser_client.defaults.pop("HTTP_IDEMPOTENCY_KEY", None)
-
-    response = superuser_client.post(
-        f"/api/v1/object-storage/management/members/{membership.id}/suspend/",
-        {"reason": "employee departure"},
-        content_type="application/json",
-    )
-
-    membership.refresh_from_db()
-    assert response.status_code == 400
-    assert membership.is_active is True
-
-
-def test_superuser_can_suspend_member_without_cloud_identity(
-    superuser_client,
-    storage_membership_factory,
-    storage_resource_pool_factory,
-    monkeypatch,
-):
-    membership = storage_membership_factory()
-    storage_resource_pool_factory(tenant=membership.tenant, enabled=True)
-    queued = []
-    monkeypatch.setattr(
-        "object_storage.tasks.run_storage_application.delay", queued.append
-    )
-
-    response = superuser_client.post(
-        f"/api/v1/object-storage/management/members/{membership.id}/suspend/",
-        {"reason": "employee departure"},
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="suspend-without-cloud-identity",
-    )
-
-    membership.refresh_from_db()
-    assert response.status_code == 202
-    assert membership.is_active is False
-    assert len(queued) == 1
+    assert application.status_code == 409
+    assert _payload(application)["error_code"] == "NEW_APPLICATIONS_PAUSED"

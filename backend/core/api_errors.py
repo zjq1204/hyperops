@@ -17,7 +17,6 @@ from rest_framework.exceptions import (
 )
 from rest_framework.response import Response
 
-
 logger = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{8,128}$")
 TECHNICAL_ERROR_PATTERN = re.compile(
@@ -142,6 +141,13 @@ def sanitize_response_data(value, *, status_code: int):
 
 
 def _exception_error_code(exc, status_code: int) -> str:
+    explicit_code = str(getattr(exc, "default_code", "")).upper()
+    if explicit_code in {
+        "OBJECT_STORAGE_NOT_CONFIGURED",
+        "OBJECT_STORAGE_SUSPENDED",
+        "TENANT_SCOPE_UNSUPPORTED",
+    }:
+        return explicit_code
     if isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
         return "AUTHENTICATION_REQUIRED"
     if isinstance(exc, PermissionDenied):
@@ -161,6 +167,9 @@ def _exception_detail(error_code: str) -> str:
     messages = {
         "AUTHENTICATION_REQUIRED": "登录状态已失效，请重新登录",
         "PERMISSION_DENIED": "当前账号没有执行此操作的权限",
+        "OBJECT_STORAGE_NOT_CONFIGURED": "对象存储尚未配置",
+        "OBJECT_STORAGE_SUSPENDED": "对象存储访问已暂停",
+        "TENANT_SCOPE_UNSUPPORTED": "不支持企业级对象存储范围参数",
         "NOT_FOUND": "请求的资源不存在或已被删除",
         "VALIDATION_ERROR": "请检查填写内容",
         "RATE_LIMITED": "操作过于频繁，请稍后重试",

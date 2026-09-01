@@ -1,440 +1,920 @@
-from datetime import timedelta
-
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import generics, status
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from object_storage.feishu import get_feishu_client
 from object_storage.models import (
-    FeishuAppConfig,
-    StorageAccessKey,
-    StorageApplication,
-    StorageAuditEvent,
-    StorageBucket,
-    StorageCloudIdentity,
-    StorageMembership,
+    AccessKey,
+    ApplicationBatch,
+    ApplicationItem,
+    AuditEvent,
+    Bucket,
+    CloudIdentity,
+    PlatformFeishuConfig,
+    PlatformObjectStorageConfig,
     StorageResourcePool,
-    StorageTenant,
+    UserBucketQuota,
 )
 from object_storage.permissions import (
-    IsObjectStorageSuperuser,
+    HasObjectStorageAdminAccess,
+    RejectTenantScopeMixin,
     RequireIdempotencyKeyMixin,
 )
 from object_storage.providers.aliyun import build_aliyun_provider
 from object_storage.serializers_admin import (
-    FeishuAppConfigAdminSerializer,
-    StorageAccessKeyAdminSerializer,
-    StorageAdminReasonSerializer,
-    StorageApplicationAdminSerializer,
-    StorageApplicationDetailAdminSerializer,
-    StorageAuditEventAdminSerializer,
-    StorageBucketAdminSerializer,
-    StorageCloudIdentityAdminSerializer,
-    StorageMembershipAdminSerializer,
+    AccessGroupSummarySerializer,
+    AccessKeyAdminSerializer,
+    ApplicationBatchAdminSerializer,
+    ApplicationBatchDetailAdminSerializer,
+    AuditEventAdminSerializer,
+    BucketActionAcknowledgementSerializer,
+    BucketAdminActionSerializer,
+    BucketAdminSerializer,
+    BucketConfigurationAcknowledgementSerializer,
+    BucketConfigurationSerializer,
+    BucketDetailAdminSerializer,
+    CloudIdentityAdminSerializer,
+    CloudIdentityDetailAdminSerializer,
+    PlatformFeishuConfigAdminSerializer,
+    PlatformObjectStorageConfigAdminSerializer,
+    ReasonSerializer,
     StorageResourcePoolAdminSerializer,
-    StorageTenantAdminSerializer,
+    UserBucketQuotaAdminSerializer,
+    get_quota_user,
 )
+from object_storage.services.applications import refresh_batch_status
 from object_storage.services.audit import record_audit_event
-from object_storage.services.provider_errors import ObjectStorageProviderError
+from object_storage.services.credentials import (
+    CredentialRotationError,
+    acknowledge_credential_operation_uncertainty,
+    disable_access_key,
+    enable_access_key,
+    reconcile_credential_operation_uncertainty,
+    reveal_access_key,
+    revoke_access_key,
+    rotate_access_key_for_actor,
+)
+from object_storage.services.lifecycle import (
+    BucketConfigurationError,
+    LifecycleError,
+    acknowledge_bucket_action_uncertainty,
+    acknowledge_bucket_configuration_uncertainty,
+    delete_bucket,
+    reactivate_user_resources,
+    reconcile_bucket_action_uncertainty,
+    reconcile_bucket_configuration_uncertainty,
+    recover_bucket,
+    release_bucket,
+    retry_bucket_configuration,
+    retry_delete_bucket,
+    suspend_user_resources,
+    update_bucket_configuration,
+)
+from object_storage.services.platform import (
+    PlatformConfigurationError,
+    get_feishu_config,
+    get_object_storage_config,
+    validate_and_save_platform_config,
+    validate_feishu_config,
+    validate_resource_pool,
+)
 
 
-def validate_feishu_config(config):
-    return get_feishu_client().validate_config(config)
+def _no_store(response):
+    response["Cache-Control"] = "no-store"
+    response["Pragma"] = "no-cache"
+    return response
 
 
-def validate_resource_pool(pool):
-    return build_aliyun_provider(pool).validate_management_identity(pool)
+def _error(error_code, status_code=status.HTTP_400_BAD_REQUEST):
+    return Response({"error_code": error_code}, status=status_code)
 
 
-class StorageTenantListCreateView(
-    RequireIdempotencyKeyMixin, generics.ListCreateAPIView
-):
-    permission_classes = [IsObjectStorageSuperuser]
-    serializer_class = StorageTenantAdminSerializer
-    queryset = StorageTenant.objects.all()
+def _service_error(error, default="OBJECT_STORAGE_OPERATION_FAILED"):
+    return str(getattr(error, "error_code", "") or default)
 
 
-class StorageTenantDetailView(
-    RequireIdempotencyKeyMixin, generics.RetrieveUpdateAPIView
-):
-    permission_classes = [IsObjectStorageSuperuser]
-    serializer_class = StorageTenantAdminSerializer
-    queryset = StorageTenant.objects.all()
-    lookup_url_kwarg = "tenant_id"
+def _client_ip(request):
+    forwarded = str(request.META.get("HTTP_X_FORWARDED_FOR") or "")
+    return (
+        forwarded.split(",", 1)[0].strip() if forwarded else None
+    ) or request.META.get("REMOTE_ADDR")
 
 
-class FeishuAppConfigView(RequireIdempotencyKeyMixin, APIView):
-    permission_classes = [IsObjectStorageSuperuser]
+def _mutation_seen(request, action, target_type, target_id):
+    return AuditEvent.objects.filter(
+        actor=request.user,
+        action=action,
+        target_type=target_type,
+        target_id=str(target_id),
+        request_id=request.idempotency_key,
+    ).exists()
 
-    def get(self, request, tenant_id):
-        tenant = get_object_or_404(StorageTenant, pk=tenant_id)
-        config = get_object_or_404(FeishuAppConfig, tenant=tenant)
-        return Response(FeishuAppConfigAdminSerializer(config).data)
 
-    def put(self, request, tenant_id):
-        tenant = get_object_or_404(StorageTenant, pk=tenant_id)
-        config = FeishuAppConfig.objects.filter(tenant=tenant).first()
-        serializer = FeishuAppConfigAdminSerializer(
+def _record_mutation(request, action, target_type, target_id, **metadata):
+    return record_audit_event(
+        actor=request.user,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        result="accepted",
+        request_id=request.idempotency_key,
+        safe_metadata=metadata,
+    )
+
+
+def _provider_for_key(access_key):
+    return build_aliyun_provider(access_key.cloud_identity.resource_pool)
+
+
+def disable_access_key_action(*, access_key, actor, reason=""):
+    return disable_access_key(
+        access_key=access_key,
+        actor=actor,
+        provider=_provider_for_key(access_key),
+        reason=reason,
+    )
+
+
+def enable_access_key_action(*, access_key, actor, reason=""):
+    return enable_access_key(
+        access_key=access_key,
+        actor=actor,
+        provider=_provider_for_key(access_key),
+        reason=reason,
+    )
+
+
+def rotate_access_key_action(*, access_key, actor, reason=""):
+    active_key_count = AccessKey.objects.filter(
+        cloud_identity=access_key.cloud_identity,
+        cloud_state__in=(AccessKey.CloudState.ACTIVE, AccessKey.CloudState.INACTIVE),
+        deleted_at__isnull=True,
+    ).count()
+    return rotate_access_key_for_actor(
+        identity=access_key.cloud_identity,
+        actor=actor,
+        provider=_provider_for_key(access_key),
+        selected_access_key_id=access_key.pk if active_key_count >= 2 else None,
+        reason=reason,
+    )
+
+
+def revoke_access_key_action(*, access_key, actor, reason=""):
+    return revoke_access_key(
+        access_key=access_key,
+        actor=actor,
+        provider=_provider_for_key(access_key),
+        reason=reason,
+    )
+
+
+class AdminAPIView(RejectTenantScopeMixin, APIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+
+
+class AdminMutationAPIView(RejectTenantScopeMixin, RequireIdempotencyKeyMixin, APIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+
+
+class NoStoreAdminMutationAPIView(AdminMutationAPIView):
+    def finalize_response(self, request, response, *args, **kwargs):
+        return _no_store(super().finalize_response(request, response, *args, **kwargs))
+
+
+class AccessGroupListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = AccessGroupSummarySerializer
+    queryset = Group.objects.order_by("name", "id")
+    pagination_class = None
+
+
+class PlatformSettingsView(AdminMutationAPIView):
+    def get(self, request):
+        return Response(
+            PlatformObjectStorageConfigAdminSerializer(get_object_storage_config()).data
+        )
+
+    def patch(self, request):
+        config = get_object_storage_config()
+        action = "storage.api.platform_settings.update"
+        if _mutation_seen(request, action, "PlatformObjectStorageConfig", config.pk):
+            return Response(PlatformObjectStorageConfigAdminSerializer(config).data)
+        serializer = PlatformObjectStorageConfigAdminSerializer(
             config,
             data=request.data,
-            context={"tenant": tenant},
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            validate_and_save_platform_config(
+                object_storage_config=config,
+                object_storage_fields=serializer.validated_data,
+            )
+        except PlatformConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_400_BAD_REQUEST)
+        config.refresh_from_db()
+        _record_mutation(request, action, "PlatformObjectStorageConfig", config.pk)
+        return Response(PlatformObjectStorageConfigAdminSerializer(config).data)
+
+
+class PlatformFeishuSettingsView(AdminMutationAPIView):
+    def get(self, request):
+        return Response(PlatformFeishuConfigAdminSerializer(get_feishu_config()).data)
+
+    def patch(self, request):
+        config = get_feishu_config()
+        action = "storage.api.feishu_settings.update"
+        if _mutation_seen(request, action, "PlatformFeishuConfig", config.pk):
+            return Response(PlatformFeishuConfigAdminSerializer(config).data)
+        serializer = PlatformFeishuConfigAdminSerializer(
+            config,
+            data=request.data,
+            partial=True,
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        _record_mutation(request, action, "PlatformFeishuConfig", config.pk)
         return Response(serializer.data)
 
 
-class FeishuAppValidationView(RequireIdempotencyKeyMixin, APIView):
-    permission_classes = [IsObjectStorageSuperuser]
-
-    def post(self, request, tenant_id):
-        config = get_object_or_404(FeishuAppConfig, tenant_id=tenant_id)
+class PlatformFeishuValidationView(AdminMutationAPIView):
+    def post(self, request):
+        config = get_feishu_config()
+        action = "storage.api.feishu.validate"
+        if _mutation_seen(request, action, "PlatformFeishuConfig", config.pk):
+            return Response({"validation_status": config.validation_status})
         try:
-            safe_result = validate_feishu_config(config)
-        except Exception:
-            config.validation_status = FeishuAppConfig.ValidationStatus.INVALID
-            config.validation_error_code = "FEISHU_VALIDATION_FAILED"
-            config.enabled = False
-            config.save(
-                update_fields=(
-                    "validation_status",
-                    "validation_error_code",
-                    "enabled",
-                    "updated_at",
-                )
-            )
-            return Response(
-                {"error_code": "FEISHU_VALIDATION_FAILED"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        config.validation_status = FeishuAppConfig.ValidationStatus.VALID
-        config.validation_error_code = ""
-        config.last_validated_at = timezone.now()
-        config.save(
-            update_fields=(
-                "validation_status",
-                "validation_error_code",
-                "last_validated_at",
-                "updated_at",
-            )
-        )
+            result = validate_feishu_config(config)
+        except PlatformConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_400_BAD_REQUEST)
+        _record_mutation(request, action, "PlatformFeishuConfig", config.pk)
         return Response(
             {
-                "validation_status": config.validation_status,
-                "capabilities": safe_result,
+                "validation_status": PlatformFeishuConfig.ValidationStatus.VALID,
+                "capabilities": result,
             }
         )
 
 
 class StorageResourcePoolListCreateView(
-    RequireIdempotencyKeyMixin, generics.ListCreateAPIView
+    RejectTenantScopeMixin, RequireIdempotencyKeyMixin, generics.ListCreateAPIView
 ):
-    permission_classes = [IsObjectStorageSuperuser]
+    permission_classes = [HasObjectStorageAdminAccess]
     serializer_class = StorageResourcePoolAdminSerializer
+    queryset = StorageResourcePool.objects.all()
+    pagination_class = None
 
-    def get_queryset(self):
-        return StorageResourcePool.objects.filter(tenant_id=self.kwargs["tenant_id"])
-
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context["tenant"] = get_object_or_404(
-            StorageTenant, pk=self.kwargs["tenant_id"]
-        )
-        return context
+    def create(self, request, *args, **kwargs):
+        action = "storage.api.resource_pool.create"
+        existing = AuditEvent.objects.filter(
+            actor=request.user,
+            action=action,
+            target_type="StorageResourcePool",
+            request_id=request.idempotency_key,
+        ).first()
+        if existing:
+            pool = StorageResourcePool.objects.filter(pk=existing.target_id).first()
+            if pool:
+                return Response(StorageResourcePoolAdminSerializer(pool).data)
+        response = super().create(request, *args, **kwargs)
+        if response.status_code == status.HTTP_201_CREATED:
+            _record_mutation(
+                request,
+                action,
+                "StorageResourcePool",
+                response.data["id"],
+            )
+        return response
 
 
 class StorageResourcePoolDetailView(
-    RequireIdempotencyKeyMixin, generics.RetrieveUpdateAPIView
+    RejectTenantScopeMixin, RequireIdempotencyKeyMixin, generics.RetrieveUpdateAPIView
 ):
-    permission_classes = [IsObjectStorageSuperuser]
+    permission_classes = [HasObjectStorageAdminAccess]
     serializer_class = StorageResourcePoolAdminSerializer
     queryset = StorageResourcePool.objects.all()
     lookup_url_kwarg = "pool_id"
 
+    def update(self, request, *args, **kwargs):
+        pool = self.get_object()
+        action = "storage.api.resource_pool.update"
+        if _mutation_seen(request, action, "StorageResourcePool", pool.pk):
+            return Response(StorageResourcePoolAdminSerializer(pool).data)
+        try:
+            response = super().update(request, *args, **kwargs)
+        except PlatformConfigurationError as error:
+            status_code = (
+                status.HTTP_409_CONFLICT
+                if _service_error(error) == "RESOURCE_POOL_ID_LOCKED"
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return _error(_service_error(error), status_code)
+        if response.status_code == status.HTTP_200_OK:
+            _record_mutation(request, action, "StorageResourcePool", pool.pk)
+        return response
 
-class StorageResourcePoolValidationView(RequireIdempotencyKeyMixin, APIView):
-    permission_classes = [IsObjectStorageSuperuser]
 
+class StorageResourcePoolValidationView(AdminMutationAPIView):
     def post(self, request, pool_id):
         pool = get_object_or_404(StorageResourcePool, pk=pool_id)
+        action = "storage.api.resource_pool.validate"
+        if _mutation_seen(request, action, "StorageResourcePool", pool.pk):
+            return Response({"validation_status": pool.validation_status})
         try:
-            capabilities = validate_resource_pool(pool)
-            if not capabilities.can_manage_ram or not capabilities.can_manage_oss:
-                raise ObjectStorageProviderError("PROVIDER_CAPABILITY_MISSING")
-        except ObjectStorageProviderError as exc:
-            pool.validation_status = StorageResourcePool.ValidationStatus.INVALID
-            pool.validation_error_code = exc.error_code
-            pool.enabled = False
-            pool.save(
-                update_fields=(
-                    "validation_status",
-                    "validation_error_code",
-                    "enabled",
-                    "updated_at",
-                )
-            )
-            return Response(
-                {"error_code": exc.error_code},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        pool.validation_status = StorageResourcePool.ValidationStatus.VALID
-        pool.validation_error_code = ""
-        pool.last_validated_at = timezone.now()
-        pool.save(
-            update_fields=(
-                "validation_status",
-                "validation_error_code",
-                "last_validated_at",
-                "updated_at",
-            )
-        )
+            result = validate_resource_pool(pool)
+        except PlatformConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_400_BAD_REQUEST)
+        pool.refresh_from_db()
+        _record_mutation(request, action, "StorageResourcePool", pool.pk)
         return Response(
             {
                 "validation_status": pool.validation_status,
-                "capabilities": capabilities.as_dict(),
+                "account_id": result.account_id,
+                "request_ids": result.request_ids,
             }
         )
 
 
-class TenantFilteredAdminListView(generics.ListAPIView):
-    permission_classes = [IsObjectStorageSuperuser]
-    tenant_field = "tenant_id"
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        tenant_id = self.request.query_params.get("tenant_id")
-        if tenant_id:
-            try:
-                tenant_id = int(tenant_id)
-            except (TypeError, ValueError) as exc:
-                raise ValidationError({"tenant_id": "INVALID_TENANT_ID"}) from exc
-            queryset = queryset.filter(**{self.tenant_field: tenant_id})
-        return queryset
+class UserQuotaListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = UserBucketQuotaAdminSerializer
+    queryset = UserBucketQuota.objects.select_related("user").all()
+    pagination_class = None
 
 
-class StorageMembershipAdminListView(TenantFilteredAdminListView):
-    serializer_class = StorageMembershipAdminSerializer
-    queryset = StorageMembership.objects.select_related("tenant", "user").all()
+class UserQuotaDetailView(AdminMutationAPIView):
+    def get(self, request, user_id):
+        quota = get_object_or_404(
+            UserBucketQuota.objects.select_related("user"), user_id=user_id
+        )
+        return Response(UserBucketQuotaAdminSerializer(quota).data)
+
+    def put(self, request, user_id):
+        user = get_object_or_404(get_user_model(), pk=user_id)
+        quota = UserBucketQuota.objects.filter(user=user).first()
+        quota = quota or UserBucketQuota(user=user)
+        serializer = UserBucketQuotaAdminSerializer(
+            quota,
+            data=request.data,
+            partial=False,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def patch(self, request, user_id):
+        quota = get_object_or_404(UserBucketQuota, user=get_quota_user(user_id))
+        serializer = UserBucketQuotaAdminSerializer(
+            quota,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, user_id):
+        action = "storage.api.user_quota.delete"
+        if _mutation_seen(request, action, "UserBucketQuota", user_id):
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        quota = get_object_or_404(UserBucketQuota, user_id=user_id)
+        _record_mutation(request, action, "UserBucketQuota", user_id, user_id=user_id)
+        quota.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class StorageCloudIdentityAdminListView(TenantFilteredAdminListView):
-    serializer_class = StorageCloudIdentityAdminSerializer
-    queryset = StorageCloudIdentity.objects.select_related(
-        "tenant", "membership", "resource_pool"
+class CloudIdentityAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = CloudIdentityAdminSerializer
+    queryset = CloudIdentity.objects.select_related("user", "resource_pool").all()
+
+
+class CloudIdentityAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = CloudIdentityDetailAdminSerializer
+    queryset = CloudIdentity.objects.select_related("user", "resource_pool").all()
+    lookup_url_kwarg = "identity_id"
+
+
+class BucketAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = BucketAdminSerializer
+    queryset = Bucket.objects.select_related(
+        "owner", "cloud_identity", "resource_pool"
     ).all()
 
 
-class StorageBucketAdminListView(TenantFilteredAdminListView):
-    serializer_class = StorageBucketAdminSerializer
-    queryset = StorageBucket.objects.select_related(
-        "tenant", "owner", "resource_pool", "cloud_identity"
+class BucketAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = BucketDetailAdminSerializer
+    queryset = Bucket.objects.select_related(
+        "owner", "cloud_identity", "resource_pool"
     ).all()
+    lookup_url_kwarg = "bucket_id"
 
 
-class StorageAccessKeyAdminListView(TenantFilteredAdminListView):
-    serializer_class = StorageAccessKeyAdminSerializer
-    queryset = StorageAccessKey.objects.select_related("tenant", "cloud_identity").all()
+class AccessKeyAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = AccessKeyAdminSerializer
+    queryset = AccessKey.objects.select_related("cloud_identity__user").all()
 
 
-class StorageApplicationAdminListView(TenantFilteredAdminListView):
-    serializer_class = StorageApplicationAdminSerializer
-    queryset = StorageApplication.objects.select_related("tenant", "applicant").all()
+class AccessKeyAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = AccessKeyAdminSerializer
+    queryset = AccessKey.objects.select_related("cloud_identity__user").all()
+    lookup_url_kwarg = "key_id"
 
 
-class StorageApplicationAdminDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsObjectStorageSuperuser]
-    serializer_class = StorageApplicationDetailAdminSerializer
-    queryset = StorageApplication.objects.prefetch_related("attempts", "events")
+class ApplicationBatchAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = ApplicationBatchAdminSerializer
+    queryset = ApplicationBatch.objects.select_related("applicant").all()
+
+
+class ApplicationBatchAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = ApplicationBatchDetailAdminSerializer
+    queryset = ApplicationBatch.objects.select_related("applicant").prefetch_related(
+        "items__attempts", "items__events"
+    )
     lookup_url_kwarg = "application_id"
 
 
-def _admin_idempotency_key(request):
-    key = str(request.headers.get("Idempotency-Key") or "").strip()
-    if not key:
-        raise ValidationError({"idempotency_key": "IDEMPOTENCY_KEY_REQUIRED"})
-    return key
+class AuditEventAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = AuditEventAdminSerializer
 
-
-class StorageApplicationRetryView(APIView):
-    permission_classes = [IsObjectStorageSuperuser]
-
-    def post(self, request, application_id):
-        serializer = StorageAdminReasonSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        idempotency_key = _admin_idempotency_key(request)
-        should_enqueue = False
-        with transaction.atomic():
-            application = get_object_or_404(
-                StorageApplication.objects.select_for_update(),
-                pk=application_id,
+    def get_queryset(self):
+        queryset = AuditEvent.objects.all()
+        if self.request.query_params.get("action"):
+            queryset = queryset.filter(action=self.request.query_params["action"])
+        if self.request.query_params.get("target_type"):
+            queryset = queryset.filter(
+                target_type=self.request.query_params["target_type"]
             )
-            existing = StorageAuditEvent.objects.filter(
-                application=application,
-                action="storage.application.retry_requested",
-                request_id=idempotency_key,
-            ).exists()
-            if not existing:
-                if application.status not in (
-                    StorageApplication.Status.MANUAL_REQUIRED,
-                    StorageApplication.Status.FAILED,
-                ):
-                    return Response(
-                        {"error_code": "APPLICATION_NOT_RETRYABLE"},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-                application.status = StorageApplication.Status.PENDING
-                application.error_code = ""
-                application.error_summary = ""
-                application.finished_at = None
-                application.save(
-                    update_fields=(
-                        "status",
-                        "error_code",
-                        "error_summary",
-                        "finished_at",
-                        "updated_at",
+        if self.request.query_params.get("actor_id"):
+            queryset = queryset.filter(
+                actor_id_snapshot=self.request.query_params["actor_id"]
+            )
+        since = parse_datetime(self.request.query_params.get("since", ""))
+        if since:
+            queryset = queryset.filter(created_at__gte=since)
+        return queryset
+
+
+class AuditEventAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = AuditEventAdminSerializer
+    queryset = AuditEvent.objects.all()
+    lookup_url_kwarg = "event_id"
+
+
+class AccessKeyActionView(AdminMutationAPIView):
+    action = ""
+
+    def post(self, request, key_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        access_key = get_object_or_404(
+            AccessKey.objects.select_related("cloud_identity__resource_pool"), pk=key_id
+        )
+        audit_action = f"storage.api.admin.credential.{self.action}"
+        if _mutation_seen(request, audit_action, "AccessKey", access_key.pk):
+            return Response(AccessKeyAdminSerializer(access_key).data)
+        operation = globals()[f"{self.action}_access_key_action"]
+        try:
+            result = operation(
+                access_key=access_key,
+                actor=request.user,
+                reason=serializer.validated_data["reason"],
+            )
+        except (CredentialRotationError, PlatformConfigurationError) as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        except Exception:
+            return _error(
+                "PROVIDER_OPERATION_FAILED", status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        _record_mutation(request, audit_action, "AccessKey", access_key.pk)
+        return Response(AccessKeyAdminSerializer(result).data)
+
+
+class AccessKeyDisableView(AccessKeyActionView):
+    action = "disable"
+
+
+class AccessKeyEnableView(AccessKeyActionView):
+    action = "enable"
+
+
+class AccessKeyRotateView(AccessKeyActionView):
+    action = "rotate"
+
+
+class AccessKeyRevokeView(AccessKeyActionView):
+    action = "revoke"
+
+
+class AccessKeyRevealView(NoStoreAdminMutationAPIView):
+    def post(self, request, key_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        access_key = get_object_or_404(AccessKey, pk=key_id)
+        if AuditEvent.objects.filter(
+            actor=request.user,
+            action="storage.credential.revealed",
+            target_type="AccessKey",
+            target_id=str(access_key.pk),
+            request_id=request.idempotency_key,
+        ).exists():
+            return _error("REVEAL_ALREADY_COMPLETED", status.HTTP_409_CONFLICT)
+        secret = reveal_access_key(
+            access_key=access_key,
+            actor=request.user,
+            reason=serializer.validated_data["reason"],
+            request_id=request.idempotency_key,
+            ip_address=_client_ip(request),
+        )
+        return Response(secret)
+
+
+class BucketLifecycleActionView(AdminMutationAPIView):
+    action = ""
+
+    def post(self, request, bucket_id):
+        serializer = BucketAdminActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(
+            Bucket.objects.select_related("cloud_identity", "resource_pool"),
+            pk=bucket_id,
+        )
+        audit_action = f"storage.api.admin.bucket.{self.action}"
+        if _mutation_seen(request, audit_action, "Bucket", bucket.pk):
+            return Response(BucketAdminSerializer(bucket).data)
+        common = {
+            "bucket": bucket,
+            "actor": request.user,
+            "bucket_name": serializer.validated_data["bucket_name"],
+            "confirmed": serializer.validated_data["confirmed"],
+            "reason": serializer.validated_data["reason"],
+        }
+        operation = globals()[self.action.replace("-", "_") + "_bucket"]
+        if self.action == "delete":
+            common["immediate"] = True
+        try:
+            result = operation(**common)
+        except LifecycleError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        except Exception:
+            return _error(
+                "PROVIDER_OPERATION_FAILED", status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        _record_mutation(
+            request,
+            audit_action,
+            "Bucket",
+            bucket.pk,
+            bucket_id=bucket.pk,
+        )
+        return Response(
+            BucketAdminSerializer(result).data,
+            status=(
+                status.HTTP_202_ACCEPTED
+                if self.action == "release"
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+class BucketReleaseView(BucketLifecycleActionView):
+    action = "release"
+
+
+class BucketRecoverView(BucketLifecycleActionView):
+    action = "recover"
+
+
+class BucketDeleteView(BucketLifecycleActionView):
+    action = "delete"
+
+
+class BucketRetryDeleteView(BucketLifecycleActionView):
+    action = "retry-delete"
+
+
+class BucketConfigurationView(AdminMutationAPIView):
+    def patch(self, request, bucket_id):
+        serializer = BucketConfigurationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(Bucket, pk=bucket_id)
+        action = "storage.api.admin.bucket.configuration_update"
+        if _mutation_seen(request, action, "Bucket", bucket.pk):
+            return Response(BucketAdminSerializer(bucket).data)
+        try:
+            result = update_bucket_configuration(
+                bucket=bucket,
+                actor=request.user,
+                desired=serializer.validated_data["desired"],
+                reason=serializer.validated_data["reason"],
+                bucket_name=serializer.validated_data["bucket_name"],
+                confirmed=serializer.validated_data["confirmed"],
+            )
+        except BucketConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(request, action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(
+            BucketAdminSerializer(result).data, status=status.HTTP_202_ACCEPTED
+        )
+
+
+class BucketConfigurationRetryView(AdminMutationAPIView):
+    def post(self, request, bucket_id):
+        serializer = BucketAdminActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(Bucket, pk=bucket_id)
+        action = "storage.api.admin.bucket.configuration_retry"
+        if _mutation_seen(request, action, "Bucket", bucket.pk):
+            return Response(BucketAdminSerializer(bucket).data)
+        try:
+            result = retry_bucket_configuration(
+                bucket=bucket,
+                actor=request.user,
+                reason=serializer.validated_data["reason"],
+                bucket_name=serializer.validated_data["bucket_name"],
+                confirmed=serializer.validated_data["confirmed"],
+            )
+        except BucketConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(request, action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(
+            BucketAdminSerializer(result).data, status=status.HTTP_202_ACCEPTED
+        )
+
+
+class BucketActionUncertaintyObserveView(AdminMutationAPIView):
+    def post(self, request, bucket_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(Bucket, pk=bucket_id)
+        action = "storage.api.admin.bucket.uncertainty_observe"
+        if _mutation_seen(request, action, "Bucket", bucket.pk):
+            return Response(BucketDetailAdminSerializer(bucket).data)
+        try:
+            result = reconcile_bucket_action_uncertainty(
+                bucket=bucket,
+                actor=request.user,
+                reason=serializer.validated_data["reason"],
+            )
+        except LifecycleError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(request, action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(BucketDetailAdminSerializer(result).data)
+
+
+class BucketActionUncertaintyAcknowledgeView(AdminMutationAPIView):
+    def post(self, request, bucket_id):
+        serializer = BucketActionAcknowledgementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(Bucket, pk=bucket_id)
+        action = "storage.api.admin.bucket.uncertainty_acknowledge"
+        if _mutation_seen(request, action, "Bucket", bucket.pk):
+            return Response(BucketDetailAdminSerializer(bucket).data)
+        try:
+            result = acknowledge_bucket_action_uncertainty(
+                bucket=bucket,
+                actor=request.user,
+                **serializer.validated_data,
+            )
+        except LifecycleError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(request, action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(BucketDetailAdminSerializer(result).data)
+
+
+class BucketConfigurationUncertaintyObserveView(AdminMutationAPIView):
+    def post(self, request, bucket_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(Bucket, pk=bucket_id)
+        action = "storage.api.admin.bucket.configuration_uncertainty_observe"
+        if _mutation_seen(request, action, "Bucket", bucket.pk):
+            return Response(BucketDetailAdminSerializer(bucket).data)
+        try:
+            result = reconcile_bucket_configuration_uncertainty(
+                bucket=bucket,
+                actor=request.user,
+                reason=serializer.validated_data["reason"],
+            )
+        except BucketConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(request, action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(BucketDetailAdminSerializer(result).data)
+
+
+class BucketConfigurationUncertaintyAcknowledgeView(AdminMutationAPIView):
+    def post(self, request, bucket_id):
+        serializer = BucketConfigurationAcknowledgementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bucket = get_object_or_404(Bucket, pk=bucket_id)
+        action = "storage.api.admin.bucket.configuration_uncertainty_acknowledge"
+        if _mutation_seen(request, action, "Bucket", bucket.pk):
+            return Response(BucketDetailAdminSerializer(bucket).data)
+        try:
+            result = acknowledge_bucket_configuration_uncertainty(
+                bucket=bucket,
+                actor=request.user,
+                **serializer.validated_data,
+            )
+        except BucketConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(request, action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(BucketDetailAdminSerializer(result).data)
+
+
+class UserResourceStateView(AdminMutationAPIView):
+    action = ""
+
+    def post(self, request, user_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = get_object_or_404(get_user_model(), pk=user_id)
+        audit_action = f"storage.api.admin.user.{self.action}"
+        existing_identity = CloudIdentity.objects.filter(user=user).first()
+        if existing_identity and _mutation_seen(
+            request, audit_action, "CloudIdentity", existing_identity.pk
+        ):
+            return Response(CloudIdentityAdminSerializer(existing_identity).data)
+        operation = (
+            suspend_user_resources
+            if self.action == "suspend"
+            else reactivate_user_resources
+        )
+        try:
+            identity = operation(
+                user=user,
+                actor=request.user,
+                reason=serializer.validated_data["reason"],
+            )
+        except (LifecycleError, CloudIdentity.DoesNotExist) as error:
+            return _error(
+                _service_error(error, "CLOUD_IDENTITY_NOT_FOUND"),
+                status.HTTP_409_CONFLICT,
+            )
+        _record_mutation(
+            request,
+            audit_action,
+            "CloudIdentity",
+            identity.pk,
+            user_id=user.pk,
+        )
+        return Response(
+            CloudIdentityAdminSerializer(identity).data,
+            status=(
+                status.HTTP_202_ACCEPTED
+                if self.action == "suspend"
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+class UserResourceSuspendView(UserResourceStateView):
+    action = "suspend"
+
+
+class UserResourceReactivateView(UserResourceStateView):
+    action = "reactivate"
+
+
+class ApplicationBatchRetryView(AdminMutationAPIView):
+    def post(self, request, application_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        audit_action = "storage.api.admin.application_batch.retry"
+        existing_batch = get_object_or_404(ApplicationBatch, pk=application_id)
+        if _mutation_seen(request, audit_action, "ApplicationBatch", existing_batch.pk):
+            return Response(ApplicationBatchAdminSerializer(existing_batch).data)
+        with transaction.atomic():
+            batch = get_object_or_404(
+                ApplicationBatch.objects.select_for_update(), pk=application_id
+            )
+            if batch.running_task_id or batch.owner_token:
+                return _error("APPLICATION_IN_PROGRESS", status.HTTP_409_CONFLICT)
+            items = list(
+                batch.items.select_for_update().filter(
+                    status__in=(
+                        ApplicationItem.Status.FAILED,
+                        ApplicationItem.Status.WAITING_RETRY,
                     )
                 )
-                record_audit_event(
-                    tenant=application.tenant,
-                    actor=request.user,
-                    application=application,
-                    action="storage.application.retry_requested",
-                    target_type="StorageApplication",
-                    target_id=application.pk,
-                    result="accepted",
-                    reason=serializer.validated_data["reason"],
-                    request_id=idempotency_key,
-                )
-                should_enqueue = True
-                from object_storage.tasks import run_storage_application
+            )
+            if not items:
+                return _error("APPLICATION_NOT_RETRYABLE", status.HTTP_409_CONFLICT)
+            for item in items:
+                item.status = ApplicationItem.Status.WAITING_RETRY
+                item.error_code = ""
+                item.error_summary = ""
+                item.retry_count += 1
+                item.save()
+            batch.started_at = None
+            batch.finished_at = None
+            batch.save(update_fields=("started_at", "finished_at", "updated_at"))
+            refresh_batch_status(batch)
+            record_audit_event(
+                actor=request.user,
+                action="storage.application_batch.retry_requested",
+                target_type="ApplicationBatch",
+                target_id=batch.pk,
+                result="accepted",
+                reason=serializer.validated_data["reason"],
+                request_id=request.idempotency_key,
+                safe_metadata={"application_id": batch.pk, "count": len(items)},
+            )
+            _record_mutation(
+                request,
+                audit_action,
+                "ApplicationBatch",
+                batch.pk,
+                application_id=batch.pk,
+            )
+        from object_storage.tasks import run_storage_application_batch
 
         try:
-            if should_enqueue:
-                run_storage_application.delay(application.pk)
+            run_storage_application_batch.delay(batch.pk)
         except Exception:
-            with transaction.atomic():
-                application = StorageApplication.objects.select_for_update().get(
-                    pk=application.pk
-                )
-                application.status = StorageApplication.Status.MANUAL_REQUIRED
-                application.error_code = "TASK_ENQUEUE_FAILED"
-                application.error_summary = "任务入队失败，需要人工处理"
-                application.finished_at = timezone.now()
-                application.save(
-                    update_fields=(
-                        "status",
-                        "error_code",
-                        "error_summary",
-                        "finished_at",
-                        "updated_at",
-                    )
-                )
-                record_audit_event(
-                    tenant=application.tenant,
-                    actor=request.user,
-                    application=application,
-                    action="storage.application.enqueue_failed",
-                    target_type="StorageApplication",
-                    target_id=application.pk,
-                    result="manual_required",
-                    reason=serializer.validated_data["reason"],
-                    request_id=idempotency_key,
-                )
-            return Response(
-                StorageApplicationAdminSerializer(application).data,
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            return _error("TASK_ENQUEUE_FAILED", status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(
-            StorageApplicationAdminSerializer(application).data,
+            ApplicationBatchAdminSerializer(batch).data,
             status=status.HTTP_202_ACCEPTED,
         )
 
 
-class StorageApplicationResolveView(APIView):
-    permission_classes = [IsObjectStorageSuperuser]
-
-    def post(self, request, application_id):
-        serializer = StorageAdminReasonSerializer(data=request.data)
+class CredentialUncertaintyObserveView(AdminMutationAPIView):
+    def post(self, request, identity_id):
+        serializer = ReasonSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        idempotency_key = _admin_idempotency_key(request)
-        with transaction.atomic():
-            application = get_object_or_404(
-                StorageApplication.objects.select_for_update(),
-                pk=application_id,
-            )
-            if not StorageAuditEvent.objects.filter(
-                application=application,
-                action="storage.application.cancelled",
-                request_id=idempotency_key,
-            ).exists():
-                if application.status not in (
-                    StorageApplication.Status.MANUAL_REQUIRED,
-                    StorageApplication.Status.FAILED,
-                ):
-                    return Response(
-                        {"error_code": "APPLICATION_NOT_RESOLVABLE"},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-                application.status = StorageApplication.Status.CANCELLED
-                application.finished_at = timezone.now()
-                application.save(update_fields=("status", "finished_at", "updated_at"))
-                record_audit_event(
-                    tenant=application.tenant,
-                    actor=request.user,
-                    application=application,
-                    action="storage.application.cancelled",
-                    target_type="StorageApplication",
-                    target_id=application.pk,
-                    result="cancelled",
-                    reason=serializer.validated_data["reason"],
-                    request_id=idempotency_key,
-                )
-        return Response(StorageApplicationAdminSerializer(application).data)
-
-
-class StorageAuditEventAdminListView(TenantFilteredAdminListView):
-    serializer_class = StorageAuditEventAdminSerializer
-    queryset = StorageAuditEvent.objects.select_related(
-        "tenant", "actor", "application"
-    ).all()
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        now = timezone.now()
-        minimum = now - timedelta(days=30)
-        requested_start = self._parse_time("start")
-        queryset = queryset.filter(
-            created_at__gte=max(minimum, requested_start or minimum)
+        identity = get_object_or_404(
+            CloudIdentity.objects.select_related("resource_pool"), pk=identity_id
         )
-        requested_end = self._parse_time("end")
-        if requested_end:
-            queryset = queryset.filter(created_at__lte=min(now, requested_end))
-        for parameter, field_name in (
-            ("actor_id", "actor_id"),
-            ("application_id", "application_id"),
-            ("action", "action"),
-            ("target_type", "target_type"),
-            ("target_id", "target_id"),
-            ("result", "result"),
-        ):
-            value = self.request.query_params.get(parameter)
-            if value:
-                queryset = queryset.filter(**{field_name: value})
-        return queryset
+        action = "storage.api.admin.credential.uncertainty_observe"
+        if _mutation_seen(request, action, "CloudIdentity", identity.pk):
+            return Response(CloudIdentityDetailAdminSerializer(identity).data)
+        try:
+            result = reconcile_credential_operation_uncertainty(
+                identity=identity,
+                actor=request.user,
+                provider=build_aliyun_provider(identity.resource_pool),
+                reason=serializer.validated_data["reason"],
+            )
+        except CredentialRotationError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(
+            request,
+            action,
+            "CloudIdentity",
+            identity.pk,
+            user_id=identity.user_id,
+        )
+        return Response(CloudIdentityDetailAdminSerializer(result).data)
 
-    def _parse_time(self, parameter):
-        raw_value = str(self.request.query_params.get(parameter) or "")
-        if not raw_value:
-            return None
-        parsed = parse_datetime(raw_value)
-        if parsed is None:
-            raise ValidationError({parameter: "INVALID_DATETIME"})
-        if timezone.is_naive(parsed):
-            parsed = timezone.make_aware(parsed)
-        return parsed
+
+class CredentialUncertaintyAcknowledgeView(AdminMutationAPIView):
+    def post(self, request, identity_id):
+        required = {
+            "reason",
+            "identity_name",
+            "operation_type",
+            "operation_generation",
+            "operation_token",
+            "cloud_console_resolved",
+            "observation_summary",
+            "resolved_state",
+        }
+        if not required.issubset(request.data):
+            return _error("CREDENTIAL_ACKNOWLEDGEMENT_INVALID")
+        identity = get_object_or_404(CloudIdentity, pk=identity_id)
+        action = "storage.api.admin.credential.uncertainty_acknowledge"
+        if _mutation_seen(request, action, "CloudIdentity", identity.pk):
+            return Response(CloudIdentityDetailAdminSerializer(identity).data)
+        values = {key: request.data.get(key) for key in required}
+        values["resolved_key_state"] = request.data.get("resolved_key_state")
+        try:
+            result = acknowledge_credential_operation_uncertainty(
+                identity=identity,
+                actor=request.user,
+                **values,
+            )
+        except CredentialRotationError as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        _record_mutation(
+            request,
+            action,
+            "CloudIdentity",
+            identity.pk,
+            user_id=identity.user_id,
+        )
+        return Response(CloudIdentityDetailAdminSerializer(result).data)

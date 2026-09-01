@@ -1,20 +1,22 @@
 from rest_framework import serializers
 
 from object_storage.models import (
-    StorageAccessKey,
-    StorageApplication,
-    StorageApplicationAttempt,
-    StorageApplicationEvent,
-    StorageBucket,
-    StorageCloudIdentity,
+    AccessKey,
+    ApplicationAttempt,
+    ApplicationBatch,
+    ApplicationEvent,
+    ApplicationItem,
+    Bucket,
+    CloudIdentity,
 )
 
 
-class StorageBucketEmployeeSerializer(serializers.ModelSerializer):
+class BucketEmployeeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageBucket
+        model = Bucket
         fields = (
             "id",
+            "business_name",
             "name",
             "project",
             "environment",
@@ -22,57 +24,41 @@ class StorageBucketEmployeeSerializer(serializers.ModelSerializer):
             "notes",
             "region",
             "state",
+            "pending_delete_at",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
 
 
-class StorageAccessKeySummarySerializer(serializers.ModelSerializer):
+class AccessKeySummarySerializer(serializers.ModelSerializer):
     last_four = serializers.CharField(source="access_key_last_four")
 
     class Meta:
-        model = StorageAccessKey
+        model = AccessKey
         fields = (
             "id",
             "last_four",
             "cloud_state",
             "local_state",
-            "created_at",
-            "updated_at",
-        )
-
-
-class StorageCloudIdentityEmployeeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StorageCloudIdentity
-        fields = (
-            "id",
-            "ram_user_name",
-            "state",
             "last_synced_at",
-        )
-
-
-class StorageApplicationEmployeeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StorageApplication
-        fields = (
-            "id",
-            "action_type",
-            "status",
-            "current_stage",
-            "error_code",
-            "error_summary",
-            "target_bucket_id",
-            "target_access_key_id",
+            "deactivated_at",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationAttemptEmployeeSerializer(serializers.ModelSerializer):
+class CloudIdentityEmployeeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageApplicationAttempt
+        model = CloudIdentity
+        fields = ("id", "ram_user_name", "state", "last_synced_at")
+        read_only_fields = fields
+
+
+class ApplicationAttemptEmployeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApplicationAttempt
         fields = (
             "id",
             "attempt_number",
@@ -81,63 +67,121 @@ class StorageApplicationAttemptEmployeeSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationEventEmployeeSerializer(serializers.ModelSerializer):
+class ApplicationEventEmployeeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageApplicationEvent
+        model = ApplicationEvent
         fields = (
             "id",
+            "attempt_id",
             "stage",
             "result",
             "error_code",
             "safe_metadata",
             "created_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationDetailEmployeeSerializer(StorageApplicationEmployeeSerializer):
-    attempts = StorageApplicationAttemptEmployeeSerializer(many=True, read_only=True)
-    events = StorageApplicationEventEmployeeSerializer(many=True, read_only=True)
+class ApplicationItemEmployeeSerializer(serializers.ModelSerializer):
+    bucket_id = serializers.IntegerField(read_only=True, allow_null=True)
+    attempts = ApplicationAttemptEmployeeSerializer(many=True, read_only=True)
+    events = ApplicationEventEmployeeSerializer(many=True, read_only=True)
 
-    class Meta(StorageApplicationEmployeeSerializer.Meta):
-        fields = StorageApplicationEmployeeSerializer.Meta.fields + (
+    class Meta:
+        model = ApplicationItem
+        fields = (
+            "id",
+            "business_name",
+            "project",
+            "environment",
+            "purpose",
+            "notes",
+            "rendered_bucket_name",
+            "status",
+            "current_stage",
+            "retry_count",
+            "error_code",
+            "bucket_id",
             "attempts",
             "events",
+            "created_at",
+            "updated_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationCreateSerializer(serializers.Serializer):
-    action_type = serializers.ChoiceField(
-        choices=(
-            StorageApplication.ActionType.FIRST_BUCKET_AND_CREDENTIAL,
-            StorageApplication.ActionType.ADD_BUCKET,
-        ),
+class ApplicationBatchEmployeeSerializer(serializers.ModelSerializer):
+    counts = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApplicationBatch
+        fields = (
+            "id",
+            "status",
+            "current_stage",
+            "counts",
+            "error_code",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_counts(self, instance):
+        return {
+            "total": instance.item_count,
+            "pending": instance.pending_count,
+            "succeeded": instance.success_count,
+            "failed": instance.failed_count,
+        }
+
+
+class ApplicationBatchDetailEmployeeSerializer(ApplicationBatchEmployeeSerializer):
+    items = ApplicationItemEmployeeSerializer(many=True, read_only=True)
+
+    class Meta(ApplicationBatchEmployeeSerializer.Meta):
+        fields = ApplicationBatchEmployeeSerializer.Meta.fields + ("items",)
+
+
+class ApplicationItemCreateSerializer(serializers.Serializer):
+    business_name = serializers.CharField(max_length=80)
+    purpose = serializers.CharField(max_length=255)
+    project = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    environment = serializers.ChoiceField(
+        choices=Bucket.Environment.choices,
         required=False,
     )
-    project = serializers.CharField(max_length=80)
-    environment = serializers.ChoiceField(choices=StorageBucket.Environment.choices)
-    purpose = serializers.CharField(max_length=255)
-    notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    notes = serializers.CharField(max_length=2000, required=False, allow_blank=True)
+    initial_suffix = serializers.CharField(max_length=8)
+    rendered_bucket_name = serializers.CharField(max_length=63)
+
+
+class ApplicationBatchCreateSerializer(serializers.Serializer):
+    items = ApplicationItemCreateSerializer(many=True, allow_empty=False)
+
+    def validate(self, attrs):
+        allowed = {"items"}
+        unsupported = set(getattr(self, "initial_data", {})).difference(allowed)
+        if unsupported:
+            raise serializers.ValidationError(
+                {name: "CLIENT_OWNERSHIP_FIELD_UNSUPPORTED" for name in unsupported}
+            )
+        return attrs
 
 
 class DeliveryTokenSerializer(serializers.Serializer):
     token = serializers.CharField(trim_whitespace=False, max_length=256)
 
 
-class RevealAccessKeySerializer(serializers.Serializer):
-    reason = serializers.CharField(max_length=500, allow_blank=False)
+class BucketActionSerializer(serializers.Serializer):
+    bucket_name = serializers.CharField(max_length=63)
+    confirmed = serializers.BooleanField()
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
 
-class ReleaseBucketSerializer(serializers.Serializer):
-    bucket_name = serializers.CharField(required=False, max_length=63)
-    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
-
-
-class RotationRequestSerializer(serializers.Serializer):
-    candidate_access_key_id = serializers.IntegerField(required=False, min_value=1)
-    confirmed = serializers.BooleanField(default=False)
-
-
-class MembershipActionSerializer(serializers.Serializer):
-    reason = serializers.CharField(max_length=500, allow_blank=False)
+class KeyActionSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True)

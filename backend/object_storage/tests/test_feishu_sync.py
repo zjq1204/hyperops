@@ -47,6 +47,11 @@ def feishu_sync_settings(settings):
     cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def feishu_sync_idempotency_header(client):
+    client.defaults["HTTP_IDEMPOTENCY_KEY"] = "feishu-sync-contract"
+
+
 @pytest.fixture
 def feishu_config(db):
     from django.contrib.auth.models import Group

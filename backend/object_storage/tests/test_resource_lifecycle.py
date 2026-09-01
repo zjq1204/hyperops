@@ -1845,21 +1845,32 @@ def test_suspended_identity_blocks_object_storage_member_permission(
 ):
     from types import SimpleNamespace
 
-    from object_storage.models import CloudIdentity
+    from object_storage.models import (
+        CloudIdentity,
+        PlatformFeishuConfig,
+        StorageResourcePool,
+    )
     from object_storage.permissions import (
-        IsActiveObjectStorageMember,
+        HasPlatformObjectStorageAccess,
         ObjectStorageSuspended,
     )
 
     user = user_factory()
-    cloud_identity_factory(user=user, state=CloudIdentity.State.SUSPENDED)
-    user.object_storage_membership = SimpleNamespace(
-        is_active=True, tenant=SimpleNamespace(enabled=True)
+    identity = cloud_identity_factory(user=user, state=CloudIdentity.State.SUSPENDED)
+    identity.resource_pool.enabled = True
+    identity.resource_pool.validation_status = (
+        StorageResourcePool.ValidationStatus.VALID
+    )
+    identity.resource_pool.save()
+    PlatformFeishuConfig.objects.create(
+        singleton_key="default",
+        enabled=True,
+        validation_status=PlatformFeishuConfig.ValidationStatus.VALID,
     )
     request = SimpleNamespace(user=user)
 
     with pytest.raises(ObjectStorageSuspended):
-        IsActiveObjectStorageMember().has_permission(request, None)
+        HasPlatformObjectStorageAccess().has_permission(request, None)
 
 
 def test_local_user_delete_is_protected_while_bucket_is_associated(

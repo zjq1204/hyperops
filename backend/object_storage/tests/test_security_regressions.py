@@ -17,8 +17,17 @@ def stable_object_storage_secret(settings):
 
 @pytest.fixture
 def member_client(client, user_factory, storage_resource_pool_factory):
+    from object_storage.models import PlatformFeishuConfig, StorageResourcePool
+
     user = user_factory()
-    storage_resource_pool_factory(enabled=True)
+    PlatformFeishuConfig.objects.update_or_create(
+        singleton_key="default",
+        defaults={"enabled": True, "validation_status": "valid"},
+    )
+    storage_resource_pool_factory(
+        enabled=True,
+        validation_status=StorageResourcePool.ValidationStatus.VALID,
+    )
     client.force_login(user)
     return client, user
 

@@ -5,6 +5,7 @@ from accounts.access import FEATURE_KEYS, FEATURE_DEFAULT_PATHS
 from core.views import PlatformMetaView
 
 
+@override_settings(ENABLE_OBJECT_STORAGE=False)
 def test_object_storage_module_is_disabled_by_default(settings):
     assert settings.ENABLE_OBJECT_STORAGE is False
 

@@ -1,69 +1,90 @@
 import hashlib
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from rest_framework import serializers
 
 from object_storage.crypto import encrypt_secret
 from object_storage.models import (
-    FeishuAppConfig,
-    StorageAccessKey,
-    StorageApplication,
-    StorageApplicationAttempt,
-    StorageApplicationEvent,
-    StorageAuditEvent,
-    StorageBucket,
-    StorageCloudIdentity,
-    StorageMembership,
+    AccessKey,
+    ApplicationAttempt,
+    ApplicationBatch,
+    ApplicationEvent,
+    ApplicationItem,
+    AuditEvent,
+    Bucket,
+    CloudIdentity,
+    PlatformFeishuConfig,
+    PlatformObjectStorageConfig,
     StorageResourcePool,
-    StorageTenant,
+    UserBucketQuota,
+)
+from object_storage.services.tenant import sync_feishu_access_group
+from object_storage.services.platform import (
+    replace_management_credentials,
+    update_resource_pool,
 )
 
 
-class StorageTenantAdminSerializer(serializers.ModelSerializer):
-    delivery_lifetime_seconds = serializers.IntegerField(
-        min_value=600,
-        max_value=604800,
-    )
-
+class AccessGroupSummarySerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageTenant
+        model = Group
+        fields = ("id", "name")
+        read_only_fields = fields
+
+
+class PlatformObjectStorageConfigAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlatformObjectStorageConfig
         fields = (
             "id",
-            "code",
-            "name",
-            "enabled",
-            "bucket_naming_template",
+            "singleton_key",
+            "naming_template",
             "naming_template_version",
             "default_bucket_quota",
             "delivery_lifetime_seconds",
             "audit_retention_days",
+            "pause_new_applications",
+            "pause_key_operations",
+            "default_bucket_acl",
+            "default_storage_class",
+            "default_encryption",
+            "default_versioning",
+            "default_lifecycle",
             "created_at",
             "updated_at",
         )
-        read_only_fields = (
-            "id",
-            "naming_template_version",
-            "audit_retention_days",
-            "created_at",
-            "updated_at",
-        )
+        read_only_fields = ("id", "singleton_key", "created_at", "updated_at")
+
+    def validate_default_bucket_acl(self, value):
+        if value != "private":
+            raise serializers.ValidationError("PLATFORM_DEFAULT_ACL_MUST_BE_PRIVATE")
+        return value
 
 
-class FeishuAppConfigAdminSerializer(serializers.ModelSerializer):
+class PlatformFeishuConfigAdminSerializer(serializers.ModelSerializer):
     app_secret = serializers.CharField(
         write_only=True,
         required=False,
         allow_blank=False,
         trim_whitespace=False,
     )
+    access_group_name = serializers.CharField(
+        source="access_group.name",
+        read_only=True,
+        allow_null=True,
+    )
 
     class Meta:
-        model = FeishuAppConfig
+        model = PlatformFeishuConfig
         fields = (
             "id",
-            "tenant_id",
+            "singleton_key",
             "app_id",
             "app_secret",
             "oauth_callback_url",
+            "access_group",
+            "access_group_name",
             "validation_status",
             "validation_error_code",
             "last_validated_at",
@@ -73,7 +94,7 @@ class FeishuAppConfigAdminSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "id",
-            "tenant_id",
+            "singleton_key",
             "validation_status",
             "validation_error_code",
             "last_validated_at",
@@ -83,56 +104,66 @@ class FeishuAppConfigAdminSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         instance = self.instance
-        if instance is None and not attrs.get("app_secret"):
-            raise serializers.ValidationError({"app_secret": "APP_SECRET_REQUIRED"})
         if attrs.get("enabled") and (
             instance is None
-            or instance.validation_status != FeishuAppConfig.ValidationStatus.VALID
+            or instance.validation_status != PlatformFeishuConfig.ValidationStatus.VALID
         ):
             raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
+        if attrs.get("enabled"):
+            active = StorageResourcePool.objects.filter(
+                provider=attrs.get(
+                    "provider",
+                    (
+                        self.instance.provider
+                        if self.instance
+                        else StorageResourcePool.Provider.ALIYUN
+                    ),
+                ),
+                enabled=True,
+            )
+            if self.instance:
+                active = active.exclude(pk=self.instance.pk)
+            if active.exists():
+                raise serializers.ValidationError(
+                    {"enabled": "ACTIVE_POOL_ALREADY_EXISTS"}
+                )
         return attrs
-
-    def create(self, validated_data):
-        secret = validated_data.pop("app_secret")
-        return FeishuAppConfig.objects.create(
-            tenant=self.context["tenant"],
-            app_secret_encrypted=encrypt_secret(secret),
-            **validated_data,
-        )
 
     def update(self, instance, validated_data):
         secret = validated_data.pop("app_secret", None)
+        previous_group_id = instance.access_group_id
+        connection_changed = secret or any(
+            field in validated_data
+            and validated_data[field] != getattr(instance, field)
+            for field in ("app_id", "oauth_callback_url")
+        )
         if secret:
             instance.app_secret_encrypted = encrypt_secret(secret)
-            instance.validation_status = FeishuAppConfig.ValidationStatus.PENDING
+        if connection_changed:
+            instance.validation_status = PlatformFeishuConfig.ValidationStatus.PENDING
             instance.validation_error_code = ""
             instance.last_validated_at = None
             instance.enabled = False
-        for name, value in validated_data.items():
-            setattr(instance, name, value)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
         instance.save()
+        if previous_group_id != instance.access_group_id:
+            sync_feishu_access_group(instance, previous_group_id=previous_group_id)
         return instance
 
 
 class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
     management_access_key = serializers.CharField(
-        write_only=True,
-        required=False,
-        allow_blank=False,
-        trim_whitespace=False,
+        write_only=True, required=False, allow_blank=False, trim_whitespace=False
     )
     management_secret_key = serializers.CharField(
-        write_only=True,
-        required=False,
-        allow_blank=False,
-        trim_whitespace=False,
+        write_only=True, required=False, allow_blank=False, trim_whitespace=False
     )
 
     class Meta:
         model = StorageResourcePool
         fields = (
             "id",
-            "tenant_id",
             "provider",
             "cloud_account_id",
             "region",
@@ -149,8 +180,6 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "id",
-            "tenant_id",
-            "provider",
             "credential_fingerprint",
             "access_key_last_four",
             "validation_status",
@@ -161,10 +190,9 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        instance = self.instance
         access_key = attrs.get("management_access_key")
         secret_key = attrs.get("management_secret_key")
-        if instance is None and (not access_key or not secret_key):
+        if self.instance is None and not (access_key and secret_key):
             raise serializers.ValidationError(
                 {"credentials": "MANAGEMENT_CREDENTIALS_REQUIRED"}
             )
@@ -173,29 +201,15 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
                 {"credentials": "MANAGEMENT_CREDENTIALS_INCOMPLETE"}
             )
         if attrs.get("enabled") and (
-            instance is None
-            or instance.validation_status != StorageResourcePool.ValidationStatus.VALID
+            self.instance is None
+            or self.instance.validation_status
+            != StorageResourcePool.ValidationStatus.VALID
         ):
             raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
-        if attrs.get("enabled"):
-            tenant = instance.tenant if instance else self.context["tenant"]
-            provider = (
-                instance.provider if instance else StorageResourcePool.Provider.ALIYUN
-            )
-            active_pools = StorageResourcePool.objects.filter(
-                tenant=tenant,
-                provider=provider,
-                enabled=True,
-            )
-            if instance:
-                active_pools = active_pools.exclude(pk=instance.pk)
-            if active_pools.exists():
-                raise serializers.ValidationError(
-                    {"enabled": "ACTIVE_POOL_ALREADY_EXISTS"}
-                )
         return attrs
 
-    def _credential_fields(self, access_key, secret_key):
+    @staticmethod
+    def _credentials(access_key, secret_key):
         return {
             "management_access_key_encrypted": encrypt_secret(access_key),
             "management_secret_key_encrypted": encrypt_secret(secret_key),
@@ -208,72 +222,115 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         access_key = validated_data.pop("management_access_key")
         secret_key = validated_data.pop("management_secret_key")
+        config = PlatformObjectStorageConfig.objects.get_or_create(
+            singleton_key="default"
+        )[0]
         return StorageResourcePool.objects.create(
-            tenant=self.context["tenant"],
-            **self._credential_fields(access_key, secret_key),
+            config=config,
+            **self._credentials(access_key, secret_key),
             **validated_data,
         )
 
     def update(self, instance, validated_data):
         access_key = validated_data.pop("management_access_key", None)
         secret_key = validated_data.pop("management_secret_key", None)
-        if access_key and secret_key:
-            for name, value in self._credential_fields(access_key, secret_key).items():
-                setattr(instance, name, value)
-            instance.validation_status = StorageResourcePool.ValidationStatus.PENDING
-            instance.validation_error_code = ""
-            instance.last_validated_at = None
-            instance.enabled = False
-        for name, value in validated_data.items():
-            setattr(instance, name, value)
-        instance.save()
+        enabled = validated_data.pop("enabled", None)
+        provider = validated_data.pop("provider", None)
+        cloud_account_id = validated_data.pop("cloud_account_id", None)
+        region = validated_data.pop("region", None)
+        instance = update_resource_pool(
+            instance,
+            provider=provider,
+            cloud_account_id=cloud_account_id,
+            region=region,
+        )
+        if access_key:
+            instance = replace_management_credentials(
+                instance,
+                access_key=access_key,
+                secret_key=secret_key,
+            )
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        update_fields = list(validated_data)
+        if enabled is not None:
+            if enabled and (
+                instance.validation_status != StorageResourcePool.ValidationStatus.VALID
+            ):
+                raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
+            instance.enabled = enabled
+            update_fields.append("enabled")
+        if update_fields:
+            instance.save(update_fields=tuple(update_fields) + ("updated_at",))
         return instance
 
 
-class StorageMembershipAdminSerializer(serializers.ModelSerializer):
+class UserBucketQuotaAdminSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.get_username", read_only=True)
+
     class Meta:
-        model = StorageMembership
+        model = UserBucketQuota
         fields = (
             "id",
-            "tenant_id",
             "user_id",
-            "feishu_open_id",
-            "feishu_union_id",
-            "display_name",
-            "department_snapshot",
-            "is_active",
-            "deactivated_at",
+            "username",
+            "bucket_quota",
             "created_at",
             "updated_at",
         )
+        read_only_fields = ("id", "user_id", "username", "created_at", "updated_at")
 
 
-class StorageCloudIdentityAdminSerializer(serializers.ModelSerializer):
+class CloudIdentityAdminSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.get_username", read_only=True)
+
     class Meta:
-        model = StorageCloudIdentity
+        model = CloudIdentity
         fields = (
             "id",
-            "tenant_id",
-            "membership_id",
+            "user_id",
+            "username",
             "resource_pool_id",
             "ram_user_id",
             "ram_user_name",
             "state",
             "last_synced_at",
+            "credential_operation_error_code",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
 
 
-class StorageBucketAdminSerializer(serializers.ModelSerializer):
+class CloudIdentityDetailAdminSerializer(CloudIdentityAdminSerializer):
+    operation_confirmation = serializers.SerializerMethodField()
+
+    class Meta(CloudIdentityAdminSerializer.Meta):
+        fields = CloudIdentityAdminSerializer.Meta.fields + ("operation_confirmation",)
+
+    def get_operation_confirmation(self, instance):
+        if not instance.credential_operation_token:
+            return None
+        return {
+            "type": instance.credential_operation_type,
+            "generation": instance.credential_operation_generation,
+            "token": instance.credential_operation_token,
+            "key_id": instance.credential_operation_key_id,
+        }
+
+
+class BucketAdminSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="owner.get_username", read_only=True)
+
     class Meta:
-        model = StorageBucket
+        model = Bucket
         fields = (
             "id",
-            "tenant_id",
-            "resource_pool_id",
             "owner_id",
+            "username",
+            "resource_pool_id",
             "cloud_identity_id",
+            "business_name",
             "name",
             "project",
             "environment",
@@ -283,21 +340,60 @@ class StorageBucketAdminSerializer(serializers.ModelSerializer):
             "template_version",
             "cloud_resource_id",
             "state",
+            "pending_delete_at",
+            "desired_config_snapshot",
+            "applied_config_snapshot",
+            "config_state",
+            "config_error_code",
+            "deletion_error_code",
             "last_synced_at",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
 
 
-class StorageAccessKeyAdminSerializer(serializers.ModelSerializer):
+class BucketDetailAdminSerializer(BucketAdminSerializer):
+    operation_confirmation = serializers.SerializerMethodField()
+    configuration_confirmation = serializers.SerializerMethodField()
+
+    class Meta(BucketAdminSerializer.Meta):
+        fields = BucketAdminSerializer.Meta.fields + (
+            "operation_confirmation",
+            "configuration_confirmation",
+            "action_observed_snapshot",
+            "configuration_observed_snapshot",
+        )
+
+    def get_operation_confirmation(self, instance):
+        if not instance.action_owner_token:
+            return None
+        return {
+            "type": instance.action_type,
+            "generation": instance.action_generation,
+            "token": instance.action_owner_token,
+        }
+
+    def get_configuration_confirmation(self, instance):
+        if not instance.configuration_operation_token:
+            return None
+        return {
+            "type": "configuration",
+            "generation": instance.configuration_generation,
+            "token": instance.configuration_operation_token,
+        }
+
+
+class AccessKeyAdminSerializer(serializers.ModelSerializer):
     last_four = serializers.CharField(source="access_key_last_four")
     fingerprint = serializers.CharField(source="access_key_fingerprint")
+    user_id = serializers.IntegerField(source="cloud_identity.user_id", read_only=True)
 
     class Meta:
-        model = StorageAccessKey
+        model = AccessKey
         fields = (
             "id",
-            "tenant_id",
+            "user_id",
             "cloud_identity_id",
             "fingerprint",
             "last_four",
@@ -306,16 +402,19 @@ class StorageAccessKeyAdminSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "deactivated_at",
             "deleted_at",
+            "operation_error_code",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationAttemptAdminSerializer(serializers.ModelSerializer):
+class ApplicationAttemptAdminSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageApplicationAttempt
+        model = ApplicationAttempt
         fields = (
             "id",
+            "application_item_id",
             "attempt_number",
             "status",
             "provider_request_id",
@@ -323,13 +422,15 @@ class StorageApplicationAttemptAdminSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationEventAdminSerializer(serializers.ModelSerializer):
+class ApplicationEventAdminSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageApplicationEvent
+        model = ApplicationEvent
         fields = (
             "id",
+            "application_item_id",
             "attempt_id",
             "stage",
             "result",
@@ -337,48 +438,80 @@ class StorageApplicationEventAdminSerializer(serializers.ModelSerializer):
             "safe_metadata",
             "created_at",
         )
+        read_only_fields = fields
 
 
-class StorageApplicationAdminSerializer(serializers.ModelSerializer):
+class ApplicationItemAdminSerializer(serializers.ModelSerializer):
+    attempts = ApplicationAttemptAdminSerializer(many=True, read_only=True)
+    events = ApplicationEventAdminSerializer(many=True, read_only=True)
+
     class Meta:
-        model = StorageApplication
+        model = ApplicationItem
         fields = (
             "id",
-            "tenant_id",
-            "applicant_id",
-            "action_type",
-            "target_bucket_id",
-            "target_access_key_id",
+            "business_name",
+            "project",
+            "environment",
+            "purpose",
+            "notes",
+            "rendered_bucket_name",
             "status",
             "current_stage",
+            "retry_count",
             "error_code",
-            "error_summary",
+            "bucket_id",
+            "attempts",
+            "events",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class ApplicationBatchAdminSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="applicant.get_username", read_only=True)
+    counts = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApplicationBatch
+        fields = (
+            "id",
+            "applicant_id",
+            "username",
+            "status",
+            "current_stage",
+            "counts",
+            "error_code",
             "started_at",
             "finished_at",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
+
+    def get_counts(self, instance):
+        return {
+            "total": instance.item_count,
+            "pending": instance.pending_count,
+            "succeeded": instance.success_count,
+            "failed": instance.failed_count,
+        }
 
 
-class StorageApplicationDetailAdminSerializer(StorageApplicationAdminSerializer):
-    attempts = StorageApplicationAttemptAdminSerializer(many=True, read_only=True)
-    events = StorageApplicationEventAdminSerializer(many=True, read_only=True)
+class ApplicationBatchDetailAdminSerializer(ApplicationBatchAdminSerializer):
+    items = ApplicationItemAdminSerializer(many=True, read_only=True)
 
-    class Meta(StorageApplicationAdminSerializer.Meta):
-        fields = StorageApplicationAdminSerializer.Meta.fields + (
-            "attempts",
-            "events",
-        )
+    class Meta(ApplicationBatchAdminSerializer.Meta):
+        fields = ApplicationBatchAdminSerializer.Meta.fields + ("items",)
 
 
-class StorageAuditEventAdminSerializer(serializers.ModelSerializer):
+class AuditEventAdminSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorageAuditEvent
+        model = AuditEvent
         fields = (
             "id",
-            "tenant_id",
-            "actor_id",
-            "application_id",
+            "actor_id_snapshot",
+            "actor_name_snapshot",
             "action",
             "target_type",
             "target_id",
@@ -389,7 +522,42 @@ class StorageAuditEventAdminSerializer(serializers.ModelSerializer):
             "safe_metadata",
             "created_at",
         )
+        read_only_fields = fields
 
 
-class StorageAdminReasonSerializer(serializers.Serializer):
+class ReasonSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=500, allow_blank=False)
+
+
+class BucketAdminActionSerializer(ReasonSerializer):
+    bucket_name = serializers.CharField(max_length=63)
+    confirmed = serializers.BooleanField()
+
+
+class BucketConfigurationSerializer(BucketAdminActionSerializer):
+    desired = serializers.DictField()
+
+
+class BucketActionAcknowledgementSerializer(BucketAdminActionSerializer):
+    operation_type = serializers.CharField(max_length=32)
+    operation_generation = serializers.IntegerField(min_value=1)
+    operation_token = serializers.CharField(max_length=64)
+    resolved_state = serializers.ChoiceField(choices=Bucket.State.choices)
+
+
+class BucketConfigurationAcknowledgementSerializer(BucketAdminActionSerializer):
+    operation_type = serializers.CharField(max_length=32)
+    operation_generation = serializers.IntegerField(min_value=1)
+    operation_token = serializers.CharField(max_length=64)
+    resolution = serializers.ChoiceField(choices=("desired", "applied", "unknown"))
+
+
+class CredentialAcknowledgementSerializer(ReasonSerializer):
+    operation_type = serializers.CharField(max_length=32)
+    operation_generation = serializers.IntegerField(min_value=1)
+    operation_token = serializers.CharField(max_length=64)
+    resolution = serializers.CharField(max_length=32)
+
+
+def get_quota_user(user_id):
+    return get_user_model().objects.get(pk=user_id)

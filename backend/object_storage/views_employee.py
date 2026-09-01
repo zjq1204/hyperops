@@ -1,53 +1,68 @@
+import hashlib
+
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from object_storage.models import (
-    StorageAccessKey,
-    StorageApplication,
-    StorageBucket,
-    StorageCloudIdentity,
-    StorageMembership,
-    StorageResourcePool,
+    AccessKey,
+    ApplicationBatch,
+    ApplicationItem,
+    AuditEvent,
+    Bucket,
+    CloudIdentity,
+    DeliveryTicket,
 )
 from object_storage.permissions import (
-    IsActiveObjectStorageMember,
-    IsObjectStorageSuperuser,
+    HasPlatformObjectStorageAccess,
+    RejectTenantScopeMixin,
     RequireIdempotencyKeyMixin,
 )
 from object_storage.providers.aliyun import build_aliyun_provider
 from object_storage.serializers import (
+    AccessKeySummarySerializer,
+    ApplicationBatchCreateSerializer,
+    ApplicationBatchDetailEmployeeSerializer,
+    ApplicationBatchEmployeeSerializer,
+    ApplicationItemEmployeeSerializer,
+    BucketActionSerializer,
+    BucketEmployeeSerializer,
+    CloudIdentityEmployeeSerializer,
     DeliveryTokenSerializer,
-    MembershipActionSerializer,
-    ReleaseBucketSerializer,
-    RevealAccessKeySerializer,
-    RotationRequestSerializer,
-    StorageAccessKeySummarySerializer,
-    StorageApplicationCreateSerializer,
-    StorageApplicationDetailEmployeeSerializer,
-    StorageApplicationEmployeeSerializer,
-    StorageBucketEmployeeSerializer,
-    StorageCloudIdentityEmployeeSerializer,
+    KeyActionSerializer,
 )
-from object_storage.services.applications import create_application
+from object_storage.services.applications import (
+    ApplicationServiceError,
+    create_application_batch,
+    refresh_batch_status,
+)
 from object_storage.services.audit import record_audit_event
 from object_storage.services.credentials import (
     CredentialDeliveryError,
+    CredentialRotationError,
     consume_delivery_token,
+    create_delivery_ticket,
+    digest_delivery_token,
+    disable_access_key,
+    enable_access_key,
     get_ephemeral_delivery_token,
-    reveal_access_key,
-    rotation_candidate,
+    revoke_access_key,
+    rotate_access_key_for_actor,
 )
-from object_storage.services.provider_errors import ObjectStorageProviderError
-from object_storage.services.policy import count_quota_consuming_buckets
-
-
-def get_provider_for_pool(pool):
-    return build_aliyun_provider(pool)
+from object_storage.services.lifecycle import (
+    LifecycleError,
+    recover_bucket,
+    release_bucket,
+)
+from object_storage.services.platform import PlatformConfigurationError
+from object_storage.services.policy import (
+    BucketQuotaExceeded,
+    count_quota_consuming_buckets,
+    effective_bucket_quota,
+)
 
 
 def _no_store(response):
@@ -56,489 +71,501 @@ def _no_store(response):
     return response
 
 
-def _client_ip(request):
-    forwarded = str(request.META.get("HTTP_X_FORWARDED_FOR") or "")
-    return (
-        forwarded.split(",", 1)[0].strip() if forwarded else None
-    ) or request.META.get("REMOTE_ADDR")
+def _error(error_code, status_code=status.HTTP_400_BAD_REQUEST):
+    return Response({"error_code": error_code}, status=status_code)
 
 
-def _idempotency_key(request):
-    key = str(request.headers.get("Idempotency-Key") or "").strip()
-    if not key:
-        raise ValidationError({"idempotency_key": "IDEMPOTENCY_KEY_REQUIRED"})
-    return key
+def _service_error(error, default="OBJECT_STORAGE_OPERATION_FAILED"):
+    return str(getattr(error, "error_code", "") or default)
 
 
-def _existing_application(membership, idempotency_key):
-    return StorageApplication.objects.filter(
-        tenant=membership.tenant,
-        applicant=membership,
-        idempotency_key=idempotency_key,
+def _request_key(request):
+    return str(getattr(request, "idempotency_key", "") or "")
+
+
+def _already_processed(request, action, target_type, target_id):
+    return _processed_event(request, action, target_type, target_id) is not None
+
+
+def _processed_event(request, action, target_type, target_id):
+    return AuditEvent.objects.filter(
+        actor=request.user,
+        action=action,
+        target_type=target_type,
+        target_id=str(target_id),
+        request_id=_request_key(request),
     ).first()
 
 
-def _application_response(application):
-    return Response(
-        StorageApplicationEmployeeSerializer(application).data,
-        status=status.HTTP_202_ACCEPTED,
+def _record_request(request, action, target_type, target_id, **metadata):
+    record_audit_event(
+        actor=request.user,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        result="accepted",
+        request_id=_request_key(request),
+        safe_metadata=metadata,
     )
 
 
-class NoStoreAPIView(APIView):
+def _provider(access_key):
+    return build_aliyun_provider(access_key.cloud_identity.resource_pool)
+
+
+def disable_access_key_action(*, access_key, actor, reason=""):
+    return disable_access_key(
+        access_key=access_key,
+        actor=actor,
+        provider=_provider(access_key),
+        reason=reason,
+    )
+
+
+def enable_access_key_action(*, access_key, actor, reason=""):
+    return enable_access_key(
+        access_key=access_key,
+        actor=actor,
+        provider=_provider(access_key),
+        reason=reason,
+    )
+
+
+def rotate_access_key_action(*, access_key, actor, reason=""):
+    active_key_count = AccessKey.objects.filter(
+        cloud_identity=access_key.cloud_identity,
+        cloud_state__in=(AccessKey.CloudState.ACTIVE, AccessKey.CloudState.INACTIVE),
+        deleted_at__isnull=True,
+    ).count()
+    return rotate_access_key_for_actor(
+        identity=access_key.cloud_identity,
+        actor=actor,
+        provider=_provider(access_key),
+        selected_access_key_id=access_key.pk if active_key_count >= 2 else None,
+        reason=reason,
+    )
+
+
+def revoke_access_key_action(*, access_key, actor, reason=""):
+    return revoke_access_key(
+        access_key=access_key,
+        actor=actor,
+        provider=_provider(access_key),
+        reason=reason,
+    )
+
+
+def consume_employee_delivery_token(*, raw_token, user):
+    ticket = get_object_or_404(
+        DeliveryTicket.objects.select_related("application_batch"),
+        user=user,
+        token_digest=digest_delivery_token(raw_token),
+    )
+    return consume_delivery_token(
+        raw_token=raw_token,
+        user=user,
+        application_batch=ticket.application_batch,
+    )
+
+
+def _rotation_delivery_batch(*, request, access_key):
+    digest = hashlib.sha256(_request_key(request).encode("utf-8")).hexdigest()
+    now = timezone.now()
+    batch, created = ApplicationBatch.objects.get_or_create(
+        applicant=request.user,
+        idempotency_key=f"credential-rotate-{digest}",
+        defaults={
+            "payload_digest": digest,
+            "status": ApplicationBatch.Status.SUCCEEDED,
+            "issued_access_key": access_key,
+            "cloud_identity": access_key.cloud_identity,
+            "started_at": now,
+            "finished_at": now,
+        },
+    )
+    if not created and batch.issued_access_key_id != access_key.pk:
+        raise CredentialDeliveryError("IDEMPOTENCY_KEY_REUSED")
+    create_delivery_ticket(
+        application_batch=batch,
+        access_key=access_key,
+        user=request.user,
+        platform_config=request.object_storage_config,
+    )
+    return batch
+
+
+class EmployeeAPIView(RejectTenantScopeMixin, APIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+
+
+class EmployeeMutationAPIView(
+    RejectTenantScopeMixin, RequireIdempotencyKeyMixin, APIView
+):
+    permission_classes = [HasPlatformObjectStorageAccess]
+
+
+class NoStoreEmployeeMutationAPIView(EmployeeMutationAPIView):
     def finalize_response(self, request, response, *args, **kwargs):
-        return _no_store(super().finalize_response(request, response, *args, **kwargs))
+        response = super().finalize_response(request, response, *args, **kwargs)
+        return _no_store(response)
 
 
-class EmployeeOverviewView(APIView):
-    permission_classes = [IsActiveObjectStorageMember]
-
+class EmployeeOverviewView(EmployeeAPIView):
     def get(self, request):
-        membership = request.storage_membership
-        tenant = membership.tenant
-        identity = (
-            StorageCloudIdentity.objects.filter(
-                membership=membership,
-            )
-            .order_by("-resource_pool__enabled", "id")
-            .first()
+        user = request.user
+        identity = CloudIdentity.objects.filter(user=user).first()
+        buckets = Bucket.objects.filter(owner=user)
+        credentials = AccessKey.objects.filter(cloud_identity__user=user).order_by(
+            "-created_at", "-id"
         )
-        buckets = StorageBucket.objects.filter(owner=membership)
-        keys = StorageAccessKey.objects.filter(
-            cloud_identity__membership=membership
-        ).order_by("-created_at", "-id")
-        applications = StorageApplication.objects.filter(
-            tenant=tenant,
-            applicant=membership,
-        ).order_by("-created_at", "-id")[:5]
+        applications = ApplicationBatch.objects.filter(applicant=user).order_by(
+            "-created_at", "-id"
+        )[:5]
+        limit = effective_bucket_quota(
+            user, platform_config=request.object_storage_config
+        )
+        used = count_quota_consuming_buckets(user)
         return Response(
             {
                 "quota": {
-                    "used": count_quota_consuming_buckets(membership),
-                    "limit": tenant.default_bucket_quota,
+                    "used": used,
+                    "limit": limit,
+                    "remaining": max(0, limit - used),
                 },
                 "cloud_identity": (
-                    StorageCloudIdentityEmployeeSerializer(identity).data
-                    if identity
-                    else None
+                    CloudIdentityEmployeeSerializer(identity).data if identity else None
                 ),
-                "buckets": StorageBucketEmployeeSerializer(buckets, many=True).data,
-                "credentials": StorageAccessKeySummarySerializer(keys, many=True).data,
-                "applications": StorageApplicationEmployeeSerializer(
+                "buckets": BucketEmployeeSerializer(buckets, many=True).data,
+                "credentials": AccessKeySummarySerializer(credentials, many=True).data,
+                "applications": ApplicationBatchEmployeeSerializer(
                     applications, many=True
                 ).data,
             }
         )
 
 
-class EmployeeBucketListView(generics.ListAPIView):
-    permission_classes = [IsActiveObjectStorageMember]
-    serializer_class = StorageBucketEmployeeSerializer
+class EmployeeBucketListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+    serializer_class = BucketEmployeeSerializer
     pagination_class = None
 
     def get_queryset(self):
-        return StorageBucket.objects.filter(owner=self.request.storage_membership)
+        return Bucket.objects.filter(owner=self.request.user)
 
 
-class EmployeeApplicationDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsActiveObjectStorageMember]
-    serializer_class = StorageApplicationDetailEmployeeSerializer
+class EmployeeBucketDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+    serializer_class = BucketEmployeeSerializer
+    lookup_url_kwarg = "bucket_id"
+
+    def get_queryset(self):
+        return Bucket.objects.filter(owner=self.request.user)
+
+
+class EmployeeApplicationListCreateView(
+    RejectTenantScopeMixin, RequireIdempotencyKeyMixin, APIView
+):
+    permission_classes = [HasPlatformObjectStorageAccess]
+
+    def get(self, request):
+        batches = ApplicationBatch.objects.filter(applicant=request.user).order_by(
+            "-created_at", "-id"
+        )
+        return Response(ApplicationBatchEmployeeSerializer(batches, many=True).data)
+
+    def post(self, request):
+        if request.object_storage_config.pause_new_applications:
+            return _error("NEW_APPLICATIONS_PAUSED", status.HTTP_409_CONFLICT)
+        serializer = ApplicationBatchCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            batch = create_application_batch(
+                user=request.user,
+                resource_pool=request.object_storage_pool,
+                idempotency_key=_request_key(request),
+                items=serializer.validated_data["items"],
+            )
+        except BucketQuotaExceeded:
+            return _error("BUCKET_QUOTA_EXCEEDED", status.HTTP_409_CONFLICT)
+        except (ApplicationServiceError, PlatformConfigurationError) as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        return Response(
+            ApplicationBatchEmployeeSerializer(batch).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class EmployeeApplicationDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+    serializer_class = ApplicationBatchDetailEmployeeSerializer
     lookup_url_kwarg = "application_id"
 
     def get_queryset(self):
-        return StorageApplication.objects.filter(
-            tenant=self.request.storage_membership.tenant,
-            applicant=self.request.storage_membership,
-        ).prefetch_related("attempts", "events")
+        return ApplicationBatch.objects.filter(
+            applicant=self.request.user
+        ).prefetch_related("items__attempts", "items__events")
 
 
-class EmployeeApplicationRetryView(APIView):
-    permission_classes = [IsActiveObjectStorageMember]
+class EmployeeApplicationItemActionView(EmployeeMutationAPIView):
+    action = ""
 
-    def post(self, request, application_id):
-        membership = request.storage_membership
-        request_id = _idempotency_key(request)
+    def post(self, request, application_id, item_id):
         should_enqueue = False
         with transaction.atomic():
-            application = get_object_or_404(
-                StorageApplication.objects.select_for_update(),
-                pk=application_id,
-                tenant=membership.tenant,
-                applicant=membership,
+            item = get_object_or_404(
+                ApplicationItem.objects.select_for_update().select_related("batch"),
+                pk=item_id,
+                batch_id=application_id,
+                batch__applicant=request.user,
             )
-            existing = application.tenant.audit_events.filter(
-                application=application,
-                action="storage.application.employee_retry_requested",
-                actor=request.user,
-                request_id=request_id,
-            ).exists()
-            if not existing:
-                if application.status not in (
-                    StorageApplication.Status.FAILED,
-                    StorageApplication.Status.MANUAL_REQUIRED,
-                ):
-                    return Response(
-                        {"error_code": "APPLICATION_NOT_RETRYABLE"},
-                        status=status.HTTP_409_CONFLICT,
+            audit_action = f"storage.application_item.{self.action}_requested"
+            if _already_processed(request, audit_action, "ApplicationItem", item.pk):
+                return Response(ApplicationItemEmployeeSerializer(item).data)
+            batch = ApplicationBatch.objects.select_for_update().get(pk=application_id)
+            if batch.running_task_id or batch.owner_token:
+                return _error("APPLICATION_IN_PROGRESS", status.HTTP_409_CONFLICT)
+            if self.action == "retry":
+                if item.status not in {
+                    ApplicationItem.Status.FAILED,
+                    ApplicationItem.Status.WAITING_RETRY,
+                }:
+                    return _error(
+                        "APPLICATION_ITEM_NOT_RETRYABLE", status.HTTP_409_CONFLICT
                     )
-                application.status = StorageApplication.Status.PENDING
-                application.error_code = ""
-                application.error_summary = ""
-                application.finished_at = None
-                application.save(
-                    update_fields=(
-                        "status",
-                        "error_code",
-                        "error_summary",
-                        "finished_at",
-                        "updated_at",
-                    )
-                )
-                record_audit_event(
-                    tenant=application.tenant,
-                    actor=request.user,
-                    application=application,
-                    action="storage.application.employee_retry_requested",
-                    target_type="StorageApplication",
-                    target_id=application.pk,
-                    result="accepted",
-                    request_id=request_id,
-                )
+                item.status = ApplicationItem.Status.WAITING_RETRY
+                item.retry_count += 1
+                item.error_code = ""
+                item.error_summary = ""
                 should_enqueue = True
-
+            else:
+                if item.status not in {
+                    ApplicationItem.Status.PENDING,
+                    ApplicationItem.Status.WAITING_RETRY,
+                    ApplicationItem.Status.FAILED,
+                }:
+                    return _error(
+                        "APPLICATION_ITEM_NOT_CANCELLABLE", status.HTTP_409_CONFLICT
+                    )
+                item.status = ApplicationItem.Status.CANCELLED
+                item.error_code = ""
+                item.error_summary = ""
+                if item.bucket_id:
+                    Bucket.objects.filter(
+                        pk=item.bucket_id,
+                        owner=request.user,
+                        state__in=(Bucket.State.REQUESTED, Bucket.State.FAILED),
+                    ).update(state=Bucket.State.CANCELLED)
+            item.save(
+                update_fields=(
+                    "status",
+                    "retry_count",
+                    "error_code",
+                    "error_summary",
+                    "updated_at",
+                )
+            )
+            batch.started_at = None if self.action == "retry" else batch.started_at
+            batch.finished_at = None
+            batch.save(update_fields=("started_at", "finished_at", "updated_at"))
+            refresh_batch_status(batch)
+            _record_request(
+                request,
+                audit_action,
+                "ApplicationItem",
+                item.pk,
+                application_id=batch.pk,
+                item_id=item.pk,
+            )
         if should_enqueue:
-            from object_storage.tasks import run_storage_application
+            from object_storage.tasks import run_storage_application_batch
 
             try:
-                run_storage_application.delay(application.pk)
+                run_storage_application_batch.delay(batch.pk)
             except Exception:
-                with transaction.atomic():
-                    application = StorageApplication.objects.select_for_update().get(
-                        pk=application.pk
-                    )
-                    application.status = StorageApplication.Status.MANUAL_REQUIRED
-                    application.error_code = "TASK_ENQUEUE_FAILED"
-                    application.finished_at = timezone.now()
-                    application.save(
-                        update_fields=(
-                            "status",
-                            "error_code",
-                            "finished_at",
-                            "updated_at",
-                        )
-                    )
-                    record_audit_event(
-                        tenant=application.tenant,
-                        actor=request.user,
-                        application=application,
-                        action="storage.application.employee_retry_enqueue_failed",
-                        target_type="StorageApplication",
-                        target_id=application.pk,
-                        result="manual_required",
-                        request_id=request_id,
-                    )
-                return Response(
-                    StorageApplicationEmployeeSerializer(application).data,
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                return _error(
+                    "TASK_ENQUEUE_FAILED", status.HTTP_503_SERVICE_UNAVAILABLE
                 )
-        return _application_response(application)
+        return Response(
+            ApplicationItemEmployeeSerializer(item).data,
+            status=status.HTTP_202_ACCEPTED if should_enqueue else status.HTTP_200_OK,
+        )
 
 
-class EmployeeCredentialDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsActiveObjectStorageMember]
-    serializer_class = StorageAccessKeySummarySerializer
+class EmployeeApplicationItemRetryView(EmployeeApplicationItemActionView):
+    action = "retry"
+
+
+class EmployeeApplicationItemCancelView(EmployeeApplicationItemActionView):
+    action = "cancel"
+
+
+class EmployeeCredentialListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+    serializer_class = AccessKeySummarySerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return AccessKey.objects.filter(
+            cloud_identity__user=self.request.user
+        ).order_by("-created_at", "-id")
+
+
+class EmployeeCredentialDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+    serializer_class = AccessKeySummarySerializer
     lookup_url_kwarg = "key_id"
 
     def get_queryset(self):
-        return StorageAccessKey.objects.filter(
-            cloud_identity__membership=self.request.storage_membership
-        )
+        return AccessKey.objects.filter(cloud_identity__user=self.request.user)
 
 
-class EmployeeApplicationCreateView(APIView):
-    permission_classes = [IsActiveObjectStorageMember]
+class EmployeeCredentialActionView(EmployeeMutationAPIView):
+    action = ""
 
-    def get(self, request):
-        applications = StorageApplication.objects.filter(
-            tenant=request.storage_membership.tenant,
-            applicant=request.storage_membership,
-        ).order_by("-created_at", "-id")
-        return Response(
-            StorageApplicationEmployeeSerializer(applications, many=True).data
-        )
-
-    def post(self, request):
-        serializer = StorageApplicationCreateSerializer(data=request.data)
+    def post(self, request, key_id):
+        serializer = KeyActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        membership = request.storage_membership
-        pool = get_object_or_404(
-            StorageResourcePool,
-            tenant=membership.tenant,
-            enabled=True,
+        access_key = get_object_or_404(
+            AccessKey.objects.select_related("cloud_identity__resource_pool"),
+            pk=key_id,
+            cloud_identity__user=request.user,
         )
-        action_type = (
-            StorageApplication.ActionType.ADD_BUCKET
-            if StorageAccessKey.objects.filter(
-                cloud_identity__membership=membership,
-                cloud_state__in=(
-                    StorageAccessKey.CloudState.ACTIVE,
-                    StorageAccessKey.CloudState.INACTIVE,
-                ),
-            ).exists()
-            else StorageApplication.ActionType.FIRST_BUCKET_AND_CREDENTIAL
+        audit_action = f"storage.api.credential.{self.action}"
+        processed = _processed_event(request, audit_action, "AccessKey", access_key.pk)
+        if processed:
+            result = access_key
+            payload = AccessKeySummarySerializer(result).data
+            application_id = processed.safe_metadata.get("application_id")
+            if self.action == "rotate" and application_id:
+                batch = ApplicationBatch.objects.filter(pk=application_id).first()
+                if batch and batch.issued_access_key_id:
+                    payload = AccessKeySummarySerializer(batch.issued_access_key).data
+                    payload["delivery_application_id"] = batch.pk
+            return Response(payload)
+        operation = globals()[f"{self.action}_access_key_action"]
+        try:
+            result = operation(
+                access_key=access_key,
+                actor=request.user,
+                reason=serializer.validated_data.get("reason", ""),
+            )
+        except (CredentialRotationError, PlatformConfigurationError) as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        except Exception:
+            return _error(
+                "PROVIDER_OPERATION_FAILED", status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        payload = AccessKeySummarySerializer(result).data
+        metadata = {}
+        if self.action == "rotate":
+            try:
+                batch = _rotation_delivery_batch(request=request, access_key=result)
+            except CredentialDeliveryError as error:
+                return _error(_service_error(error), status.HTTP_409_CONFLICT)
+            payload["delivery_application_id"] = batch.pk
+            metadata["application_id"] = batch.pk
+        _record_request(
+            request,
+            audit_action,
+            "AccessKey",
+            access_key.pk,
+            **metadata,
         )
-        application = create_application(
-            membership=membership,
-            resource_pool=pool,
-            action_type=action_type,
-            idempotency_key=_idempotency_key(request),
-            request_fields=serializer.validated_data,
-        )
-        return _application_response(application)
+        return Response(payload)
 
 
-class EmployeeCredentialDeliveryView(NoStoreAPIView):
-    permission_classes = [IsActiveObjectStorageMember]
+class EmployeeCredentialDisableView(EmployeeCredentialActionView):
+    action = "disable"
 
+
+class EmployeeCredentialEnableView(EmployeeCredentialActionView):
+    action = "enable"
+
+
+class EmployeeCredentialRotateView(EmployeeCredentialActionView):
+    action = "rotate"
+
+
+class EmployeeCredentialRevokeView(EmployeeCredentialActionView):
+    action = "revoke"
+
+
+class EmployeeDeliveryTokenView(RejectTenantScopeMixin, APIView):
+    permission_classes = [HasPlatformObjectStorageAccess]
+
+    def get(self, request, application_id):
+        batch = get_object_or_404(
+            ApplicationBatch,
+            pk=application_id,
+            applicant=request.user,
+        )
+        try:
+            token = get_ephemeral_delivery_token(
+                application_batch=batch,
+                user=request.user,
+            )
+        except CredentialDeliveryError as error:
+            return _no_store(_error(_service_error(error), status.HTTP_410_GONE))
+        return _no_store(Response({"token": token}))
+
+
+class EmployeeCredentialDeliveryView(NoStoreEmployeeMutationAPIView):
     def post(self, request):
         serializer = DeliveryTokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            secret = consume_delivery_token(
+            secret = consume_employee_delivery_token(
                 raw_token=serializer.validated_data["token"],
-                membership=request.storage_membership,
+                user=request.user,
             )
-        except CredentialDeliveryError as exc:
-            return _no_store(
-                Response(
-                    {"error_code": exc.error_code},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            )
-        return _no_store(Response(secret))
+        except CredentialDeliveryError as error:
+            return _error(_service_error(error), status.HTTP_400_BAD_REQUEST)
+        return Response(secret)
 
 
-class EmployeeDeliveryTokenView(NoStoreAPIView):
-    permission_classes = [IsActiveObjectStorageMember]
-
-    def get(self, request, application_id):
-        application = get_object_or_404(
-            StorageApplication.objects.select_related("delivery_ticket"),
-            pk=application_id,
-            applicant=request.storage_membership,
-        )
-        try:
-            raw_token = get_ephemeral_delivery_token(
-                application=application,
-                membership=request.storage_membership,
-            )
-        except CredentialDeliveryError as exc:
-            return Response(
-                {"error_code": exc.error_code},
-                status=status.HTTP_410_GONE,
-            )
-        return Response({"token": raw_token})
-
-
-class EmployeeRotationPreviewView(APIView):
-    permission_classes = [IsActiveObjectStorageMember]
-
-    def get(self, request):
-        identity = (
-            StorageCloudIdentity.objects.filter(
-                membership=request.storage_membership,
-            )
-            .order_by("id")
-            .first()
-        )
-        candidate = rotation_candidate(identity) if identity else None
-        return Response(
-            {
-                "candidate": (
-                    StorageAccessKeySummarySerializer(candidate).data
-                    if candidate
-                    else None
-                )
-            }
-        )
-
-    def post(self, request):
-        serializer = RotationRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        membership = request.storage_membership
-        idempotency_key = _idempotency_key(request)
-        existing = _existing_application(membership, idempotency_key)
-        if existing:
-            return _application_response(existing)
-        identity = get_object_or_404(
-            StorageCloudIdentity.objects.filter(
-                membership=membership,
-                resource_pool__enabled=True,
-            )
-        )
-        candidate = rotation_candidate(identity)
-        candidate_id = serializer.validated_data.get("candidate_access_key_id")
-        if candidate and (
-            not serializer.validated_data["confirmed"] or candidate_id != candidate.pk
-        ):
-            return Response(
-                {"error_code": "ROTATION_CONFIRMATION_REQUIRED"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        application = create_application(
-            membership=membership,
-            resource_pool=identity.resource_pool,
-            action_type=StorageApplication.ActionType.ROTATE_CREDENTIAL,
-            idempotency_key=idempotency_key,
-            request_fields={
-                "candidate_access_key_id": candidate_id,
-                "confirmed": serializer.validated_data["confirmed"],
-            },
-        )
-        return _application_response(application)
-
-
-class EmployeeBucketReleaseView(APIView):
-    permission_classes = [IsActiveObjectStorageMember]
+class EmployeeBucketActionView(EmployeeMutationAPIView):
+    action = ""
 
     def post(self, request, bucket_id):
-        serializer = ReleaseBucketSerializer(data=request.data)
+        serializer = BucketActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         bucket = get_object_or_404(
-            StorageBucket.objects.select_related("resource_pool"),
+            Bucket.objects.select_related("cloud_identity", "resource_pool"),
             pk=bucket_id,
-            owner=request.storage_membership,
+            owner=request.user,
         )
-        idempotency_key = _idempotency_key(request)
-        existing = _existing_application(
-            request.storage_membership,
-            idempotency_key,
-        )
-        if existing:
-            return _application_response(existing)
+        audit_action = f"storage.api.bucket.{self.action}"
+        if _already_processed(request, audit_action, "Bucket", bucket.pk):
+            return Response(BucketEmployeeSerializer(bucket).data)
+        operation = release_bucket if self.action == "release" else recover_bucket
         try:
-            emptiness = get_provider_for_pool(
-                bucket.resource_pool
-            ).inspect_bucket_emptiness(bucket)
-        except ObjectStorageProviderError as exc:
-            return Response(
-                {"error_code": exc.error_code},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            result = operation(
+                bucket=bucket,
+                actor=request.user,
+                bucket_name=serializer.validated_data["bucket_name"],
+                confirmed=serializer.validated_data["confirmed"],
+                reason=serializer.validated_data.get("reason", ""),
             )
-        if not emptiness.is_empty:
-            return Response(
-                {"error_code": "BUCKET_NOT_EMPTY"},
-                status=status.HTTP_409_CONFLICT,
+        except (LifecycleError, BucketQuotaExceeded) as error:
+            return _error(_service_error(error), status.HTTP_409_CONFLICT)
+        except Exception:
+            return _error(
+                "PROVIDER_OPERATION_FAILED", status.HTTP_503_SERVICE_UNAVAILABLE
             )
-        if serializer.validated_data.get("bucket_name") != bucket.name:
-            return Response(
-                {"error_code": "BUCKET_NAME_CONFIRMATION_REQUIRED"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        application = create_application(
-            membership=request.storage_membership,
-            resource_pool=bucket.resource_pool,
-            action_type=StorageApplication.ActionType.RELEASE_BUCKET,
-            idempotency_key=idempotency_key,
-            request_fields={
-                "target_bucket_id": bucket.pk,
-                "reason": serializer.validated_data.get("reason", ""),
-            },
+        _record_request(request, audit_action, "Bucket", bucket.pk, bucket_id=bucket.pk)
+        return Response(
+            BucketEmployeeSerializer(result).data,
+            status=(
+                status.HTTP_202_ACCEPTED
+                if self.action == "release"
+                else status.HTTP_200_OK
+            ),
         )
-        return _application_response(application)
 
 
-class ManagementAccessKeyRevealView(RequireIdempotencyKeyMixin, NoStoreAPIView):
-    permission_classes = [IsObjectStorageSuperuser]
-
-    def post(self, request, key_id):
-        serializer = RevealAccessKeySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        access_key = get_object_or_404(StorageAccessKey, pk=key_id)
-        request_id = str(request.headers.get("Idempotency-Key") or "").strip()
-        if access_key.tenant.audit_events.filter(
-            action="storage.credential.revealed",
-            target_type="StorageAccessKey",
-            target_id=access_key.pk,
-            actor=request.user,
-            request_id=request_id,
-        ).exists():
-            return _no_store(
-                Response(
-                    {"error_code": "REVEAL_ALREADY_COMPLETED"},
-                    status=status.HTTP_409_CONFLICT,
-                )
-            )
-        secret = reveal_access_key(
-            access_key=access_key,
-            actor=request.user,
-            reason=serializer.validated_data["reason"],
-            request_id=request_id,
-            ip_address=_client_ip(request),
-        )
-        return _no_store(Response(secret))
+class EmployeeBucketReleaseView(EmployeeBucketActionView):
+    action = "release"
 
 
-class ManagementMembershipStateView(APIView):
-    permission_classes = [IsObjectStorageSuperuser]
-    action_type = None
-    active_state = None
-
-    def post(self, request, membership_id):
-        serializer = MembershipActionSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        idempotency_key = _idempotency_key(request)
-        should_enqueue = False
-        with transaction.atomic():
-            membership = get_object_or_404(
-                StorageMembership.objects.select_for_update(), pk=membership_id
-            )
-            identity = (
-                StorageCloudIdentity.objects.select_related("resource_pool")
-                .filter(membership=membership)
-                .order_by("-resource_pool__enabled", "id")
-                .first()
-            )
-            resource_pool = (
-                identity.resource_pool
-                if identity is not None
-                else get_object_or_404(
-                    StorageResourcePool,
-                    tenant=membership.tenant,
-                    enabled=True,
-                )
-            )
-            application = _existing_application(membership, idempotency_key)
-            if application is None:
-                membership.is_active = self.active_state
-                membership.deactivated_at = (
-                    None if self.active_state else timezone.now()
-                )
-                membership.save(
-                    update_fields=("is_active", "deactivated_at", "updated_at")
-                )
-                application = create_application(
-                    membership=membership,
-                    resource_pool=resource_pool,
-                    action_type=self.action_type,
-                    idempotency_key=idempotency_key,
-                    request_fields={"reason": serializer.validated_data["reason"]},
-                    enqueue=False,
-                    actor=request.user,
-                )
-                should_enqueue = True
-        from object_storage.tasks import run_storage_application
-
-        if should_enqueue:
-            run_storage_application.delay(application.pk)
-        return _application_response(application)
-
-
-class ManagementMembershipSuspendView(ManagementMembershipStateView):
-    action_type = StorageApplication.ActionType.SUSPEND_MEMBERSHIP
-    active_state = False
-
-
-class ManagementMembershipReactivateView(ManagementMembershipStateView):
-    action_type = StorageApplication.ActionType.REACTIVATE_MEMBERSHIP
-    active_state = True
+class EmployeeBucketRecoverView(EmployeeBucketActionView):
+    action = "recover"

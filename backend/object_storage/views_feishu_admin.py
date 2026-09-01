@@ -4,7 +4,10 @@ from rest_framework.views import APIView
 
 from object_storage.feishu import FeishuProviderError, get_feishu_client
 from object_storage.models import PlatformFeishuConfig
-from object_storage.permissions import HasObjectStorageAdminAccess
+from object_storage.permissions import (
+    HasObjectStorageAdminAccess,
+    RequireIdempotencyKeyMixin,
+)
 from object_storage.services.audit import record_audit_event
 from object_storage.services.feishu_sync import (
     FeishuSyncConfirmationError,
@@ -50,7 +53,7 @@ def _record_failure(request, error_code):
     )
 
 
-class FeishuSyncPreviewView(APIView):
+class FeishuSyncPreviewView(RequireIdempotencyKeyMixin, APIView):
     permission_classes = [HasObjectStorageAdminAccess]
 
     def post(self, request):
@@ -74,7 +77,7 @@ class FeishuSyncPreviewView(APIView):
         return _no_store(Response(payload))
 
 
-class FeishuSyncConfirmView(APIView):
+class FeishuSyncConfirmView(RequireIdempotencyKeyMixin, APIView):
     permission_classes = [HasObjectStorageAdminAccess]
 
     def post(self, request):
