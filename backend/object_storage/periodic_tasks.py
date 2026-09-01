@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 def register_periodic_tasks():
     TASK_REGISTRY.add(
+        "object-storage.claim-recovery",
+        "object_storage.recover_expired_application_claims",
+        schedule="*/5 * * * *",
+        queue="object_storage",
+    )
+    TASK_REGISTRY.add(
         "object-storage.audit-cleanup",
         "object_storage.delete_expired_audit_events",
         schedule="0 3 * * *",

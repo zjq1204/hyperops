@@ -133,7 +133,64 @@ def test_task_result_is_json_safe_batch_summary(monkeypatch):
     }
 
 
-def test_audit_cleanup_is_registered_on_a_daily_schedule():
+@pytest.mark.django_db
+def test_claim_recovery_task_scans_only_expired_running_batches(
+    user_factory, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage import tasks
+    from object_storage.models import ApplicationBatch
+
+    user = user_factory()
+    now = timezone.now()
+    expired = ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="expired-claim",
+        status=ApplicationBatch.Status.RUNNING,
+        running_task_id="expired-worker",
+        run_lease_until=now - timedelta(minutes=1),
+    )
+    ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="active-claim",
+        status=ApplicationBatch.Status.RUNNING,
+        running_task_id="active-worker",
+        run_lease_until=now + timedelta(minutes=1),
+    )
+    ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="expired-but-pending",
+        status=ApplicationBatch.Status.PENDING,
+        running_task_id="",
+        run_lease_until=now - timedelta(minutes=1),
+    )
+    recovery_calls = []
+
+    def recover(batch_id, *, now):
+        recovery_calls.append((batch_id, now))
+        return SimpleNamespace(pk=batch_id, running_task_id="", owner_token="")
+
+    monkeypatch.setattr(
+        tasks,
+        "recover_expired_application_claim",
+        recover,
+        raising=False,
+    )
+
+    result = tasks.recover_expired_application_claims()
+
+    assert [batch_id for batch_id, _now in recovery_calls] == [expired.pk]
+    assert result == {
+        "candidate_count": 1,
+        "recovered_count": 1,
+        "failed_count": 0,
+    }
+
+
+def test_object_storage_periodic_tasks_are_registered():
     from object_storage import periodic_tasks
     from core.periodic_registry import TASK_REGISTRY
 
@@ -144,3 +201,8 @@ def test_audit_cleanup_is_registered_on_a_daily_schedule():
     assert entry["task"] == "object_storage.delete_expired_audit_events"
     assert entry["schedule"] == "0 3 * * *"
     assert entry["queue"] == "object_storage"
+
+    recovery = TASK_REGISTRY._entries["object-storage.claim-recovery"]
+    assert recovery["task"] == "object_storage.recover_expired_application_claims"
+    assert recovery["schedule"] == "*/5 * * * *"
+    assert recovery["queue"] == "object_storage"

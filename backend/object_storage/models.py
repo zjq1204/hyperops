@@ -539,6 +539,12 @@ class ApplicationBatch(TimestampedModel):
     principal_created_by_batch = models.BooleanField(default=False)
     key_created_by_batch = models.BooleanField(default=False)
     running_task_id = models.CharField(max_length=255, blank=True, default="")
+    owner_token = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        editable=False,
+    )
     run_lease_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -557,6 +563,10 @@ class ApplicationBatch(TimestampedModel):
             models.Index(
                 fields=["status", "-created_at"],
                 name="os_batch_status_time_idx",
+            ),
+            models.Index(
+                fields=["status", "run_lease_until"],
+                name="os_batch_claim_lease_idx",
             ),
         ]
 

@@ -442,10 +442,20 @@ def test_expired_running_lease_has_explicit_recovery_path(batch_context, monkeyp
 
     _user, _pool, create = batch_context
     batch = create()
-    batch, claimed, _owner = applications._claim_batch(batch.pk, "possibly-slow-worker")
+    batch, claimed, owner_token = applications._claim_batch(
+        batch.pk, "possibly-slow-worker"
+    )
     assert claimed is True
+    batch.refresh_from_db()
+    assert owner_token
+    assert batch.owner_token == owner_token
+    assert batch.running_task_id == "possibly-slow-worker"
     assert (
-        applications._claim_item(batch.items.get().pk, "possibly-slow-worker")
+        applications._claim_item(
+            batch.items.get().pk,
+            "possibly-slow-worker",
+            owner_token,
+        )
         is not None
     )
     batch.run_lease_until = timezone.now() - timedelta(seconds=1)
@@ -462,6 +472,7 @@ def test_expired_running_lease_has_explicit_recovery_path(batch_context, monkeyp
     item = recovered.items.get()
     assert recovered.status == ApplicationBatch.Status.RUNNING
     assert recovered.running_task_id == ""
+    assert recovered.owner_token == ""
     assert recovered.run_lease_until is None
     assert item.status == ApplicationItem.Status.WAITING_RETRY
     assert item.attempts.get().error_code == "CLAIM_EXPIRED"
@@ -474,6 +485,160 @@ def test_expired_running_lease_has_explicit_recovery_path(batch_context, monkeyp
 
     assert result.status == ApplicationBatch.Status.SUCCEEDED
     assert result.running_task_id == ""
+
+
+def test_claim_recovery_moves_unstarted_items_to_waiting_retry(
+    batch_context, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import ApplicationItem, Bucket
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    batch, claimed, _owner_token = applications._claim_batch(
+        batch.pk,
+        "expired-before-item-claim",
+    )
+    assert claimed is True
+    batch.run_lease_until = timezone.now() - timedelta(seconds=1)
+    batch.save(update_fields=("run_lease_until",))
+    provider = FakeProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    recovered = applications.recover_expired_application_claim(
+        batch.pk,
+        now=timezone.now(),
+    )
+
+    item = recovered.items.get()
+    item.bucket.refresh_from_db()
+    assert item.status == ApplicationItem.Status.WAITING_RETRY
+    assert item.bucket.state == Bucket.State.WAITING_RETRY
+    assert item.events.filter(stage="CLAIM_RECOVERY", result="recovered").exists()
+
+
+def test_claim_recovery_marks_terminal_state_without_delivery_manual(
+    batch_context,
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import (
+        ApplicationBatch,
+        ApplicationAttempt,
+        ApplicationItem,
+    )
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    batch, claimed, owner_token = applications._claim_batch(
+        batch.pk,
+        "expired-before-delivery",
+    )
+    assert claimed is True
+    item, attempt = applications._claim_item(
+        batch.items.get().pk,
+        "expired-before-delivery",
+        owner_token,
+    )
+    item.status = ApplicationItem.Status.SUCCEEDED
+    item.save(update_fields=("status", "updated_at"))
+    applications._finish_attempt(attempt, ApplicationAttempt.Status.SUCCEEDED)
+    batch.run_lease_until = timezone.now() - timedelta(seconds=1)
+    batch.save(update_fields=("run_lease_until",))
+
+    recovered = applications.recover_expired_application_claim(
+        batch.pk,
+        now=timezone.now(),
+    )
+
+    item.refresh_from_db()
+    assert recovered.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert recovered.error_code == "CLAIM_EXPIRED_TERMINAL_STATE_UNKNOWN"
+    assert item.status == ApplicationItem.Status.SUCCEEDED
+    assert recovered.running_task_id == ""
+    assert recovered.owner_token == ""
+
+
+def test_stale_worker_cannot_write_success_policy_or_delivery_after_claim_switch(
+    batch_context, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import (
+        ApplicationBatch,
+        ApplicationItem,
+        Bucket,
+        DeliveryTicket,
+    )
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    original_create_bucket = provider.create_owned_bucket
+    switched_claim = {}
+
+    def create_bucket_and_switch_claim(bucket):
+        result = original_create_bucket(bucket)
+        ApplicationBatch.objects.filter(pk=batch.pk).update(
+            run_lease_until=timezone.now() - timedelta(seconds=1)
+        )
+        applications.recover_expired_application_claim(
+            batch.pk,
+            now=timezone.now(),
+            provider=provider,
+        )
+        replacement, claimed, replacement_token = applications._claim_batch(
+            batch.pk,
+            "replacement-worker",
+        )
+        assert claimed is True
+        switched_claim.update(
+            batch=replacement,
+            owner_token=replacement_token,
+        )
+        return result
+
+    provider.create_owned_bucket = create_bucket_and_switch_claim
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+    stale_claim_error = getattr(applications, "StaleApplicationClaim", RuntimeError)
+
+    with pytest.raises(stale_claim_error, match="STALE_APPLICATION_CLAIM"):
+        applications.execute_application_batch(
+            batch.pk,
+            execution_key="expired-worker",
+        )
+
+    batch.refresh_from_db()
+    item = batch.items.get()
+    item.bucket.refresh_from_db()
+    assert batch.status == ApplicationBatch.Status.RUNNING
+    assert batch.running_task_id == "replacement-worker"
+    assert batch.owner_token == switched_claim["owner_token"]
+    assert item.status == ApplicationItem.Status.WAITING_RETRY
+    assert item.bucket.state == Bucket.State.WAITING_RETRY
+    assert not any(call[0] == "policy" for call in provider.calls)
+    assert not item.events.filter(stage="POLICY_APPLYING", result="succeeded").exists()
+    assert not DeliveryTicket.objects.filter(application_batch=batch).exists()
+
+    applications._release_batch_lease(batch.pk, switched_claim["owner_token"])
+    result = applications.execute_application_batch(
+        batch.pk,
+        execution_key="replacement-worker-retry",
+    )
+
+    assert result.status == ApplicationBatch.Status.SUCCEEDED
+    assert sum(call[0] == "create_bucket" for call in provider.calls) == 1
+    assert DeliveryTicket.objects.filter(application_batch=batch).exists()
 
 
 def test_unexpired_running_lease_is_still_a_worker_noop(batch_context, monkeypatch):

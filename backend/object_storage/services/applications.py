@@ -1,7 +1,8 @@
 import hashlib
 import json
-from types import SimpleNamespace
+import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -57,6 +58,60 @@ class ApplicationServiceError(RuntimeError):
     def __init__(self, error_code):
         self.error_code = error_code
         super().__init__(error_code)
+
+
+class StaleApplicationClaim(ApplicationServiceError):
+    def __init__(self):
+        super().__init__("STALE_APPLICATION_CLAIM")
+
+
+def _lock_application_claim(batch_id, owner_token, *, item_ids=()):
+    batch = ApplicationBatch.objects.select_for_update().get(pk=batch_id)
+    if not (
+        owner_token
+        and batch.status == ApplicationBatch.Status.RUNNING
+        and batch.running_task_id
+        and batch.owner_token == owner_token
+    ):
+        raise StaleApplicationClaim()
+
+    expected_item_ids = set(item_ids)
+    if not expected_item_ids:
+        return batch, {}
+    items = {
+        item.pk: item
+        for item in ApplicationItem.objects.select_for_update().filter(
+            batch_id=batch_id,
+            pk__in=expected_item_ids,
+        )
+    }
+    if set(items) != expected_item_ids or any(
+        item.status != ApplicationItem.Status.CREATING for item in items.values()
+    ):
+        raise StaleApplicationClaim()
+    return batch, items
+
+
+def _assert_application_claim(batch_id, owner_token, *, item_ids=()):
+    with transaction.atomic():
+        _lock_application_claim(batch_id, owner_token, item_ids=item_ids)
+
+
+def _call_provider_with_claim(
+    batch_id,
+    owner_token,
+    callback,
+    *,
+    item_ids=(),
+):
+    _assert_application_claim(batch_id, owner_token, item_ids=item_ids)
+    try:
+        result = callback()
+    except Exception:
+        _assert_application_claim(batch_id, owner_token, item_ids=item_ids)
+        raise
+    _assert_application_claim(batch_id, owner_token, item_ids=item_ids)
+    return result
 
 
 def get_provider_for_pool(resource_pool):
@@ -318,8 +373,10 @@ def _attempt_for(item, execution_key):
         return attempt, True
 
 
-def _claim_item(item_id, execution_key):
+def _claim_item(item_id, execution_key, owner_token):
+    batch_id = ApplicationItem.objects.only("batch_id").get(pk=item_id).batch_id
     with transaction.atomic():
+        _lock_application_claim(batch_id, owner_token)
         item = ApplicationItem.objects.select_for_update().get(pk=item_id)
         if item.status not in {
             ApplicationItem.Status.PENDING,
@@ -347,6 +404,7 @@ def _claim_item(item_id, execution_key):
             attempt_number=(last_attempt.attempt_number + 1 if last_attempt else 1),
             task_id=execution_key,
         )
+        _event(item, attempt, "BUCKET_CREATING", "started")
         return item, attempt
 
 
@@ -371,7 +429,7 @@ def _finish_attempt(
     )
 
 
-def _set_item_failure(item, attempt, error, *, manual=False):
+def _set_item_failure_locked(item, attempt, error, *, manual=False):
     code = _error_code(error)
     request_id = _request_id(error)
     status = (
@@ -406,7 +464,25 @@ def _set_item_failure(item, attempt, error, *, manual=False):
     )
 
 
-def _set_item_waiting(item, attempt, error, stage):
+def _set_item_failure(item, attempt, error, *, owner_token, manual=False):
+    with transaction.atomic():
+        _batch, items = _lock_application_claim(
+            item.batch_id,
+            owner_token,
+            item_ids=(item.pk,),
+        )
+        locked_attempt = ApplicationAttempt.objects.select_for_update().get(
+            pk=attempt.pk
+        )
+        _set_item_failure_locked(
+            items[item.pk],
+            locked_attempt,
+            error,
+            manual=manual,
+        )
+
+
+def _set_item_waiting_locked(item, attempt, error, stage):
     code = _error_code(error)
     request_id = _request_id(error)
     item.status = ApplicationItem.Status.WAITING_RETRY
@@ -440,7 +516,25 @@ def _set_item_waiting(item, attempt, error, stage):
     )
 
 
-def refresh_batch_status(batch):
+def _set_item_waiting(item, attempt, error, stage, *, owner_token):
+    with transaction.atomic():
+        _batch, items = _lock_application_claim(
+            item.batch_id,
+            owner_token,
+            item_ids=(item.pk,),
+        )
+        locked_attempt = ApplicationAttempt.objects.select_for_update().get(
+            pk=attempt.pk
+        )
+        _set_item_waiting_locked(
+            items[item.pk],
+            locked_attempt,
+            error,
+            stage,
+        )
+
+
+def _refresh_batch_status_locked(batch):
     statuses = list(batch.items.values_list("status", flat=True))
     pending_states = {
         ApplicationItem.Status.PENDING,
@@ -497,71 +591,111 @@ def refresh_batch_status(batch):
     return batch
 
 
-def _mark_batch_items(batch, error, *, waiting, stage):
-    items = list(
-        batch.items.filter(
-            status__in=(
-                ApplicationItem.Status.PENDING,
-                ApplicationItem.Status.CREATING,
-                ApplicationItem.Status.WAITING_RETRY,
-            )
-        ).order_by("id")
-    )
-    for item in items:
-        attempt, created = _attempt_for(item, "")
-        if not created:
-            continue
-        item.current_stage = stage
-        if waiting:
-            _set_item_waiting(item, attempt, error, stage)
+def refresh_batch_status(batch, *, owner_token=None):
+    if owner_token is None:
+        return _refresh_batch_status_locked(batch)
+    with transaction.atomic():
+        locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
+        return _refresh_batch_status_locked(locked_batch)
+
+
+def _mark_batch_items(batch, error, *, waiting, stage, owner_token=None):
+    with transaction.atomic():
+        if owner_token is None:
+            locked_batch = ApplicationBatch.objects.select_for_update().get(pk=batch.pk)
         else:
-            _set_item_failure(item, attempt, error, manual=True)
-    batch.current_stage = stage
-    batch.error_code = _error_code(error)
-    batch.error_summary = _error_code(error)
-    batch.save(
-        update_fields=(
-            "current_stage",
-            "error_code",
-            "error_summary",
-            "updated_at",
+            locked_batch, _locked_items = _lock_application_claim(
+                batch.pk,
+                owner_token,
+            )
+        items = list(
+            locked_batch.items.select_for_update()
+            .filter(
+                status__in=(
+                    ApplicationItem.Status.PENDING,
+                    ApplicationItem.Status.CREATING,
+                    ApplicationItem.Status.WAITING_RETRY,
+                )
+            )
+            .order_by("id")
         )
-    )
-    return refresh_batch_status(batch)
+        for item in items:
+            last_attempt = item.attempts.order_by("-attempt_number").first()
+            attempt = ApplicationAttempt.objects.create(
+                application_item=item,
+                attempt_number=(last_attempt.attempt_number + 1 if last_attempt else 1),
+            )
+            item.current_stage = stage
+            if waiting:
+                _set_item_waiting_locked(item, attempt, error, stage)
+            else:
+                _set_item_failure_locked(item, attempt, error, manual=True)
+        locked_batch.current_stage = stage
+        locked_batch.error_code = _error_code(error)
+        locked_batch.error_summary = _error_code(error)
+        locked_batch.save(
+            update_fields=(
+                "current_stage",
+                "error_code",
+                "error_summary",
+                "updated_at",
+            )
+        )
+        return _refresh_batch_status_locked(locked_batch)
 
 
-def _principal(batch, identity, provider):
-    principal = provider.find_or_create_personal_principal(identity)
-    expected_marker = f"hyperops:identity:{identity.pk}"
-    if (
-        str(getattr(principal, "marker", "")) != expected_marker
-        or str(getattr(principal, "user_name", "")) != identity.ram_user_name
-    ):
-        raise ObjectStorageProviderError("PRINCIPAL_OWNERSHIP_CONFLICT")
-    identity.ram_user_id = str(getattr(principal, "user_id", ""))
-    identity.ram_user_name = str(principal.user_name)
-    identity.state = CloudIdentity.State.ACTIVE
-    identity.last_synced_at = timezone.now()
-    identity.save(
-        update_fields=(
-            "ram_user_id",
-            "ram_user_name",
-            "state",
-            "last_synced_at",
-            "updated_at",
-        )
+def _principal(batch, identity, provider, owner_token):
+    principal = _call_provider_with_claim(
+        batch.pk,
+        owner_token,
+        lambda: provider.find_or_create_personal_principal(identity),
     )
-    if bool(getattr(principal, "created", False)):
-        batch.principal_created_by_batch = True
-        batch.save(update_fields=("principal_created_by_batch", "updated_at"))
+    with transaction.atomic():
+        locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
+        locked_identity = CloudIdentity.objects.select_for_update().get(pk=identity.pk)
+        expected_marker = f"hyperops:identity:{locked_identity.pk}"
+        if (
+            str(getattr(principal, "marker", "")) != expected_marker
+            or str(getattr(principal, "user_name", "")) != locked_identity.ram_user_name
+        ):
+            raise ObjectStorageProviderError("PRINCIPAL_OWNERSHIP_CONFLICT")
+        locked_identity.ram_user_id = str(getattr(principal, "user_id", ""))
+        locked_identity.ram_user_name = str(principal.user_name)
+        locked_identity.state = CloudIdentity.State.ACTIVE
+        locked_identity.last_synced_at = timezone.now()
+        locked_identity.save(
+            update_fields=(
+                "ram_user_id",
+                "ram_user_name",
+                "state",
+                "last_synced_at",
+                "updated_at",
+            )
+        )
+        if bool(getattr(principal, "created", False)):
+            locked_batch.principal_created_by_batch = True
+            locked_batch.save(
+                update_fields=("principal_created_by_batch", "updated_at")
+            )
+    identity.ram_user_id = locked_identity.ram_user_id
+    identity.ram_user_name = locked_identity.ram_user_name
+    identity.state = locked_identity.state
+    identity.last_synced_at = locked_identity.last_synced_at
+    batch.principal_created_by_batch = locked_batch.principal_created_by_batch
 
 
 def _provider_items(result):
     return tuple(getattr(result, "items", result))
 
 
-def _valid_local_key(identity, provider):
-    cloud_keys = _provider_items(provider.list_access_keys(identity))
+def _valid_local_key(batch, identity, provider, owner_token):
+    cloud_keys = _provider_items(
+        _call_provider_with_claim(
+            batch.pk,
+            owner_token,
+            lambda: provider.list_access_keys(identity),
+        )
+    )
     cloud_fingerprints = {
         key.fingerprint
         for key in cloud_keys
@@ -583,21 +717,59 @@ def _valid_local_key(identity, provider):
     return local_keys[0] if local_keys else None
 
 
-def _persist_batch_access_key(identity, provider):
-    issued = provider.create_access_key(identity)
+def _persist_batch_access_key(batch, identity, provider, owner_token):
+    issued = _call_provider_with_claim(
+        batch.pk,
+        owner_token,
+        lambda: provider.create_access_key(identity),
+    )
     try:
-        return AccessKey.objects.create(
-            cloud_identity=identity,
-            local_state=AccessKey.LocalState.DELIVERY_READY,
-            **encrypt_issued_access_key(issued),
-        )
+        encrypted_key = encrypt_issued_access_key(issued)
+        with transaction.atomic():
+            locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity.pk
+            )
+            access_key = AccessKey.objects.create(
+                cloud_identity=locked_identity,
+                local_state=AccessKey.LocalState.DELIVERY_READY,
+                **encrypted_key,
+            )
+            locked_batch.issued_access_key = access_key
+            locked_batch.key_created_by_batch = True
+            locked_batch.save(
+                update_fields=(
+                    "issued_access_key",
+                    "key_created_by_batch",
+                    "updated_at",
+                )
+            )
+            record_audit_event(
+                actor=locked_batch.applicant,
+                action="storage.credential.issued",
+                target_type="AccessKey",
+                target_id=access_key.pk,
+                result="succeeded",
+                safe_metadata={
+                    "application_id": locked_batch.pk,
+                    "last_four": access_key.access_key_last_four,
+                },
+            )
+    except StaleApplicationClaim:
+        raise
     except Exception as persistence_error:
         exact_key = SimpleNamespace(
             cloud_identity=identity,
             access_key_id=str(issued.access_key_id),
         )
         try:
-            provider.delete_access_key(exact_key)
+            _call_provider_with_claim(
+                batch.pk,
+                owner_token,
+                lambda: provider.delete_access_key(exact_key),
+            )
+        except StaleApplicationClaim:
+            raise
         except Exception as cleanup_error:
             raise CredentialRotationError(
                 "KEY_COMPENSATION_FAILED",
@@ -607,40 +779,33 @@ def _persist_batch_access_key(identity, provider):
             "KEY_LOCAL_PERSISTENCE_FAILED",
             manual_required=True,
         ) from persistence_error
-
-
-def _ensure_access_key(batch, identity, provider):
-    valid_key = _valid_local_key(identity, provider)
-    if valid_key is not None:
-        if batch.issued_access_key_id != valid_key.pk or batch.key_created_by_batch:
-            batch.issued_access_key = valid_key
-            batch.key_created_by_batch = False
-            batch.save(
-                update_fields=(
-                    "issued_access_key",
-                    "key_created_by_batch",
-                    "updated_at",
-                )
-            )
-        return valid_key
-    access_key = _persist_batch_access_key(identity, provider)
     batch.issued_access_key = access_key
     batch.key_created_by_batch = True
-    batch.save(
-        update_fields=("issued_access_key", "key_created_by_batch", "updated_at")
-    )
-    record_audit_event(
-        actor=batch.applicant,
-        action="storage.credential.issued",
-        target_type="AccessKey",
-        target_id=access_key.pk,
-        result="succeeded",
-        safe_metadata={
-            "application_id": batch.pk,
-            "last_four": access_key.access_key_last_four,
-        },
-    )
     return access_key
+
+
+def _ensure_access_key(batch, identity, provider, owner_token):
+    valid_key = _valid_local_key(batch, identity, provider, owner_token)
+    if valid_key is not None:
+        with transaction.atomic():
+            locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
+            if (
+                locked_batch.issued_access_key_id != valid_key.pk
+                or locked_batch.key_created_by_batch
+            ):
+                locked_batch.issued_access_key = valid_key
+                locked_batch.key_created_by_batch = False
+                locked_batch.save(
+                    update_fields=(
+                        "issued_access_key",
+                        "key_created_by_batch",
+                        "updated_at",
+                    )
+                )
+        batch.issued_access_key = valid_key
+        batch.key_created_by_batch = False
+        return valid_key
+    return _persist_batch_access_key(batch, identity, provider, owner_token)
 
 
 def _owned(ownership):
@@ -662,19 +827,42 @@ def _bucket_render_values(item, bucket):
     }
 
 
-def _ensure_bucket(item, provider):
-    bucket = Bucket.objects.select_related("owner").get(pk=item.bucket_id)
-    if bucket.state == Bucket.State.ACTIVE:
-        exists, owned = _owned(provider.find_owned_bucket(bucket))
+def _ensure_bucket(item, provider, owner_token):
+    with transaction.atomic():
+        _batch, items = _lock_application_claim(
+            item.batch_id,
+            owner_token,
+            item_ids=(item.pk,),
+        )
+        locked_item = items[item.pk]
+        bucket = (
+            Bucket.objects.select_for_update()
+            .select_related("owner")
+            .get(pk=locked_item.bucket_id)
+        )
+        active = bucket.state == Bucket.State.ACTIVE
+        if not active and bucket.state not in {
+            Bucket.State.REQUESTED,
+            Bucket.State.CREATING,
+            Bucket.State.WAITING_RETRY,
+        }:
+            raise ObjectStorageProviderError("BUCKET_STATE_INCONSISTENT")
+        if not active:
+            bucket.state = Bucket.State.CREATING
+            bucket.save(update_fields=("state", "updated_at"))
+
+    if active:
+        exists, owned = _owned(
+            _call_provider_with_claim(
+                item.batch_id,
+                owner_token,
+                lambda: provider.find_owned_bucket(bucket),
+                item_ids=(item.pk,),
+            )
+        )
         if not exists or not owned:
             raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
         return bucket
-    if bucket.state not in {
-        Bucket.State.REQUESTED,
-        Bucket.State.CREATING,
-        Bucket.State.WAITING_RETRY,
-    }:
-        raise ObjectStorageProviderError("BUCKET_STATE_INCONSISTENT")
 
     initial = BucketNameCandidate(
         name=item.rendered_bucket_name,
@@ -682,43 +870,89 @@ def _ensure_bucket(item, provider):
     )
 
     def create(candidate):
-        if bucket.name != candidate.name:
-            bucket.name = candidate.name
-            bucket.save(update_fields=("name", "updated_at"))
-        ownership = provider.find_owned_bucket(bucket)
+        with transaction.atomic():
+            _batch, _items = _lock_application_claim(
+                item.batch_id,
+                owner_token,
+                item_ids=(item.pk,),
+            )
+            locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+            if locked_bucket.name != candidate.name:
+                locked_bucket.name = candidate.name
+                locked_bucket.save(update_fields=("name", "updated_at"))
+            bucket.name = locked_bucket.name
+        ownership = _call_provider_with_claim(
+            item.batch_id,
+            owner_token,
+            lambda: provider.find_owned_bucket(bucket),
+            item_ids=(item.pk,),
+        )
         exists, owned = _owned(ownership)
         if exists and owned:
             return SimpleNamespace(created=False, request_id="")
         if exists:
             raise ObjectStorageProviderError("BUCKET_NAME_CONFLICT")
-        return provider.create_owned_bucket(bucket)
+        return _call_provider_with_claim(
+            item.batch_id,
+            owner_token,
+            lambda: provider.create_owned_bucket(bucket),
+            item_ids=(item.pk,),
+        )
 
-    bucket.state = Bucket.State.CREATING
-    bucket.save(update_fields=("state", "updated_at"))
     try:
         create_bucket_with_unique_name(
             create_callback=create,
             initial_candidate=initial,
             **_bucket_render_values(item, bucket),
         )
+    except StaleApplicationClaim:
+        raise
     except Exception as error:
         if is_retryable_provider_error(error):
-            exists, owned = _owned(provider.find_owned_bucket(bucket))
+            exists, owned = _owned(
+                _call_provider_with_claim(
+                    item.batch_id,
+                    owner_token,
+                    lambda: provider.find_owned_bucket(bucket),
+                    item_ids=(item.pk,),
+                )
+            )
             if not (exists and owned):
-                bucket.state = Bucket.State.WAITING_RETRY
-                bucket.save(update_fields=("state", "updated_at"))
+                with transaction.atomic():
+                    _lock_application_claim(
+                        item.batch_id,
+                        owner_token,
+                        item_ids=(item.pk,),
+                    )
+                    locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+                    locked_bucket.state = Bucket.State.WAITING_RETRY
+                    locked_bucket.save(update_fields=("state", "updated_at"))
                 raise
         else:
-            bucket.state = Bucket.State.FAILED
-            bucket.save(update_fields=("state", "updated_at"))
+            with transaction.atomic():
+                _lock_application_claim(
+                    item.batch_id,
+                    owner_token,
+                    item_ids=(item.pk,),
+                )
+                locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+                locked_bucket.state = Bucket.State.FAILED
+                locked_bucket.save(update_fields=("state", "updated_at"))
             raise
-    bucket.state = Bucket.State.ACTIVE
-    bucket.last_synced_at = timezone.now()
-    bucket.save(update_fields=("state", "last_synced_at", "updated_at"))
+    with transaction.atomic():
+        _lock_application_claim(
+            item.batch_id,
+            owner_token,
+            item_ids=(item.pk,),
+        )
+        bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        bucket.state = Bucket.State.ACTIVE
+        bucket.last_synced_at = timezone.now()
+        bucket.save(update_fields=("state", "last_synced_at", "updated_at"))
     return bucket
 
 
-def _process_items(batch, provider, execution_key):
+def _process_items(batch, provider, execution_key, owner_token):
     retry_errors = []
     policy_candidates = []
     item_ids = list(
@@ -732,25 +966,38 @@ def _process_items(batch, provider, execution_key):
         .values_list("id", flat=True)
     )
     for item_id in item_ids:
-        claimed = _claim_item(item_id, execution_key)
+        claimed = _claim_item(item_id, execution_key, owner_token)
         if claimed is None:
             continue
         item, attempt = claimed
-        _event(item, attempt, "BUCKET_CREATING", "started")
         try:
-            _ensure_bucket(item, provider)
+            _ensure_bucket(item, provider, owner_token)
+        except StaleApplicationClaim:
+            raise
         except Exception as error:
             if is_retryable_provider_error(error):
-                _set_item_waiting(item, attempt, error, "BUCKET_CREATING")
+                _set_item_waiting(
+                    item,
+                    attempt,
+                    error,
+                    "BUCKET_CREATING",
+                    owner_token=owner_token,
+                )
                 retry_errors.append(error)
             else:
-                _set_item_failure(item, attempt, error)
+                _set_item_failure(
+                    item,
+                    attempt,
+                    error,
+                    owner_token=owner_token,
+                )
             continue
         policy_candidates.append((item, attempt))
     return policy_candidates, retry_errors
 
 
-def _active_owned_buckets(batch, identity, provider):
+def _active_owned_buckets(batch, identity, provider, owner_token, item_ids):
+    _assert_application_claim(batch.pk, owner_token, item_ids=item_ids)
     buckets = list(
         Bucket.objects.filter(
             owner=batch.applicant,
@@ -759,55 +1006,119 @@ def _active_owned_buckets(batch, identity, provider):
         ).order_by("name")
     )
     for bucket in buckets:
-        exists, owned = _owned(provider.find_owned_bucket(bucket))
+        exists, owned = _owned(
+            _call_provider_with_claim(
+                batch.pk,
+                owner_token,
+                lambda bucket=bucket: provider.find_owned_bucket(bucket),
+                item_ids=item_ids,
+            )
+        )
         if not exists or not owned:
             raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
     return buckets
 
 
-def _apply_policy(batch, identity, provider, candidates):
+def _apply_policy(batch, identity, provider, candidates, owner_token):
     if not candidates:
         return None
+    item_ids = tuple(item.pk for item, _attempt in candidates)
     try:
-        buckets = _active_owned_buckets(batch, identity, provider)
-        provider.reconcile_object_policy(identity, buckets)
+        buckets = _active_owned_buckets(
+            batch,
+            identity,
+            provider,
+            owner_token,
+            item_ids,
+        )
+        _call_provider_with_claim(
+            batch.pk,
+            owner_token,
+            lambda: provider.reconcile_object_policy(identity, buckets),
+            item_ids=item_ids,
+        )
+    except StaleApplicationClaim:
+        raise
     except Exception as error:
         temporary = is_retryable_provider_error(error)
         for item, attempt in candidates:
             if temporary:
-                _set_item_waiting(item, attempt, error, "POLICY_APPLYING")
+                _set_item_waiting(
+                    item,
+                    attempt,
+                    error,
+                    "POLICY_APPLYING",
+                    owner_token=owner_token,
+                )
             else:
-                _set_item_failure(item, attempt, error, manual=True)
+                _set_item_failure(
+                    item,
+                    attempt,
+                    error,
+                    owner_token=owner_token,
+                    manual=True,
+                )
         return error
-    for item, attempt in candidates:
-        item.status = ApplicationItem.Status.SUCCEEDED
-        item.current_stage = ""
-        item.error_code = ""
-        item.error_summary = ""
-        item.save(
-            update_fields=(
-                "status",
-                "current_stage",
-                "error_code",
-                "error_summary",
-                "updated_at",
-            )
+    with transaction.atomic():
+        _locked_batch, locked_items = _lock_application_claim(
+            batch.pk,
+            owner_token,
+            item_ids=item_ids,
         )
-        _finish_attempt(attempt, ApplicationAttempt.Status.SUCCEEDED)
-        _event(item, attempt, "POLICY_APPLYING", "succeeded")
+        attempts = {
+            attempt.pk: attempt
+            for attempt in ApplicationAttempt.objects.select_for_update().filter(
+                pk__in=(attempt.pk for _item, attempt in candidates)
+            )
+        }
+        for item, attempt in candidates:
+            locked_item = locked_items[item.pk]
+            locked_attempt = attempts[attempt.pk]
+            locked_item.status = ApplicationItem.Status.SUCCEEDED
+            locked_item.current_stage = ""
+            locked_item.error_code = ""
+            locked_item.error_summary = ""
+            locked_item.save(
+                update_fields=(
+                    "status",
+                    "current_stage",
+                    "error_code",
+                    "error_summary",
+                    "updated_at",
+                )
+            )
+            _finish_attempt(locked_attempt, ApplicationAttempt.Status.SUCCEEDED)
+            _event(
+                locked_item,
+                locked_attempt,
+                "POLICY_APPLYING",
+                "succeeded",
+            )
     return None
 
 
-def _ensure_delivery(batch):
-    if batch.issued_access_key_id is None or batch.success_count < 1:
-        return
-    if DeliveryTicket.objects.filter(application_batch=batch).exists():
-        return
-    create_delivery_ticket(
-        application_batch=batch,
-        access_key=batch.issued_access_key,
-        user=batch.applicant,
-    )
+def _ensure_delivery(batch, owner_token):
+    with transaction.atomic():
+        locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
+        locked_batch = ApplicationBatch.objects.select_related(
+            "applicant",
+            "issued_access_key",
+            "issued_access_key__cloud_identity",
+        ).get(pk=locked_batch.pk)
+        if (
+            locked_batch.issued_access_key_id is None
+            or not locked_batch.items.filter(
+                status=ApplicationItem.Status.SUCCEEDED
+            ).exists()
+        ):
+            return
+        if DeliveryTicket.objects.filter(application_batch=locked_batch).exists():
+            return
+        create_delivery_ticket(
+            application_batch=locked_batch,
+            access_key=locked_batch.issued_access_key,
+            user=locked_batch.applicant,
+        )
 
 
 def _batch_is_terminal(batch):
@@ -874,9 +1185,11 @@ def _claim_batch(batch_id, execution_key):
             item.status = ApplicationItem.Status.WAITING_RETRY
             item.save(update_fields=("status", "updated_at"))
         owner = execution_key or f"direct:{batch.pk}:{now.timestamp()}"
+        owner_token = uuid.uuid4().hex
         batch.status = ApplicationBatch.Status.RUNNING
         batch.started_at = batch.started_at or now
         batch.running_task_id = owner
+        batch.owner_token = owner_token
         batch.run_lease_until = now + timedelta(seconds=RUN_LEASE_SECONDS)
         batch.current_stage = batch.current_stage or "PRINCIPAL_BINDING"
         batch.save(
@@ -884,19 +1197,20 @@ def _claim_batch(batch_id, execution_key):
                 "status",
                 "started_at",
                 "running_task_id",
+                "owner_token",
                 "run_lease_until",
                 "current_stage",
                 "updated_at",
             )
         )
-        return batch, True, owner
+        return batch, True, owner_token
 
 
-def _release_batch_lease(batch_id, owner):
-    ApplicationBatch.objects.filter(
+def _release_batch_lease(batch_id, owner_token):
+    return ApplicationBatch.objects.filter(
         pk=batch_id,
-        running_task_id=owner,
-    ).update(running_task_id="", run_lease_until=None)
+        owner_token=owner_token,
+    ).update(running_task_id="", owner_token="", run_lease_until=None)
 
 
 def recover_expired_application_claim(batch, *, now=None, provider=None):
@@ -925,12 +1239,18 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
             and locked_batch.run_lease_until < now
         ):
             return locked_batch
+        recovery_items = list(
+            locked_batch.items.select_for_update().filter(
+                status__in=(
+                    ApplicationItem.Status.PENDING,
+                    ApplicationItem.Status.CREATING,
+                )
+            )
+        )
         selected_provider = provider
-        if selected_provider is None and identity is not None:
+        if recovery_items and selected_provider is None and identity is not None:
             selected_provider = get_provider_for_pool(identity.resource_pool)
-        for item in locked_batch.items.select_for_update().filter(
-            status=ApplicationItem.Status.CREATING
-        ):
+        for item in recovery_items:
             attempt = item.attempts.order_by("-attempt_number").first()
             cloud_uncertain = False
             cloud_exists = False
@@ -982,6 +1302,7 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
                 error_code=item.error_code,
             )
         locked_batch.running_task_id = ""
+        locked_batch.owner_token = ""
         locked_batch.run_lease_until = None
         locked_batch.current_stage = "CLAIM_RECOVERY"
         locked_batch.error_code = "CLAIM_EXPIRED"
@@ -989,6 +1310,7 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
         locked_batch.save(
             update_fields=(
                 "running_task_id",
+                "owner_token",
                 "run_lease_until",
                 "current_stage",
                 "error_code",
@@ -997,6 +1319,23 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
             )
         )
         result = refresh_batch_status(locked_batch)
+        if result.status not in {
+            ApplicationBatch.Status.RUNNING,
+            ApplicationBatch.Status.MANUAL_REQUIRED,
+        }:
+            result.status = ApplicationBatch.Status.MANUAL_REQUIRED
+            result.current_stage = "CLAIM_RECOVERY"
+            result.error_code = "CLAIM_EXPIRED_TERMINAL_STATE_UNKNOWN"
+            result.error_summary = result.error_code
+            result.save(
+                update_fields=(
+                    "status",
+                    "current_stage",
+                    "error_code",
+                    "error_summary",
+                    "updated_at",
+                )
+            )
         record_audit_event(
             actor=locked_batch.applicant,
             action="storage.application.claim_recovered",
@@ -1016,7 +1355,7 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
 
 
 def execute_application_batch(batch_id, *, execution_key=""):
-    batch, claimed, owner = _claim_batch(batch_id, execution_key)
+    batch, claimed, owner_token = _claim_batch(batch_id, execution_key)
     if not claimed:
         return batch
     try:
@@ -1031,52 +1370,82 @@ def execute_application_batch(batch_id, *, execution_key=""):
                 "resource_pool"
             ).get(user=batch.applicant)
             provider = get_provider_for_pool(identity.resource_pool)
-            _principal(batch, identity, provider)
+            _principal(batch, identity, provider, owner_token)
+            with transaction.atomic():
+                locked_batch, _items = _lock_application_claim(
+                    batch.pk,
+                    owner_token,
+                )
+                locked_batch.current_stage = "KEY_RECONCILING"
+                locked_batch.save(update_fields=("current_stage", "updated_at"))
             batch.current_stage = "KEY_RECONCILING"
-            batch.save(update_fields=("current_stage", "updated_at"))
-            _ensure_access_key(batch, identity, provider)
+            _ensure_access_key(batch, identity, provider, owner_token)
+        except StaleApplicationClaim:
+            raise
         except Exception as error:
             temporary = is_retryable_provider_error(error)
-            _mark_batch_items(
+            batch = _mark_batch_items(
                 batch,
                 error,
                 waiting=temporary,
                 stage=batch.current_stage,
+                owner_token=owner_token,
             )
             if temporary:
                 raise error
             return batch
 
-        candidates, retry_errors = _process_items(batch, provider, owner)
-        policy_error = _apply_policy(batch, identity, provider, candidates)
+        candidates, retry_errors = _process_items(
+            batch,
+            provider,
+            execution_key,
+            owner_token,
+        )
+        policy_error = _apply_policy(
+            batch,
+            identity,
+            provider,
+            candidates,
+            owner_token,
+        )
         if policy_error is not None and is_retryable_provider_error(policy_error):
             retry_errors.append(policy_error)
-        refresh_batch_status(batch)
         try:
-            _ensure_delivery(batch)
+            _ensure_delivery(batch, owner_token)
+        except StaleApplicationClaim:
+            raise
         except CredentialDeliveryError as error:
-            batch.status = ApplicationBatch.Status.MANUAL_REQUIRED
-            batch.current_stage = "DELIVERY_CREATING"
-            batch.error_code = error.error_code
-            batch.error_summary = error.error_code
-            batch.save(
-                update_fields=(
-                    "status",
-                    "current_stage",
-                    "error_code",
-                    "error_summary",
-                    "updated_at",
+            with transaction.atomic():
+                locked_batch, _items = _lock_application_claim(
+                    batch.pk,
+                    owner_token,
                 )
-            )
+                _refresh_batch_status_locked(locked_batch)
+                locked_batch.status = ApplicationBatch.Status.MANUAL_REQUIRED
+                locked_batch.current_stage = "DELIVERY_CREATING"
+                locked_batch.error_code = error.error_code
+                locked_batch.error_summary = error.error_code
+                locked_batch.save(
+                    update_fields=(
+                        "status",
+                        "current_stage",
+                        "error_code",
+                        "error_summary",
+                        "updated_at",
+                    )
+                )
+                batch = locked_batch
             return batch
+        batch = refresh_batch_status(batch, owner_token=owner_token)
         batch.refresh_from_db()
         if retry_errors:
             raise retry_errors[0]
         return batch
     finally:
-        _release_batch_lease(batch_id, owner)
-        batch.running_task_id = ""
-        batch.run_lease_until = None
+        if _release_batch_lease(batch_id, owner_token):
+            batch.running_task_id = ""
+            batch.owner_token = ""
+            batch.run_lease_until = None
 
 
 def execute_application(application_id, *, execution_key=""):

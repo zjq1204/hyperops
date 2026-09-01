@@ -1,12 +1,19 @@
-from celery import shared_task
+import logging
 
+from celery import shared_task
+from django.utils import timezone
+
+from object_storage.models import ApplicationBatch
 from object_storage.services.applications import (
     MAX_PROVIDER_RETRIES,
     execute_application_batch,
-    mark_batch_manual_required,
     is_retryable_provider_error,
+    mark_batch_manual_required,
+    recover_expired_application_claim,
 )
 from object_storage.services.provider_errors import ObjectStorageProviderError
+
+logger = logging.getLogger(__name__)
 
 
 def _batch_result(batch):
@@ -46,3 +53,35 @@ def _run_storage_application_batch(task, batch_id):
 )
 def run_storage_application_batch(self, batch_id):
     return _run_storage_application_batch(self, batch_id)
+
+
+@shared_task(name="object_storage.recover_expired_application_claims")
+def recover_expired_application_claims():
+    now = timezone.now()
+    batch_ids = list(
+        ApplicationBatch.objects.filter(
+            status=ApplicationBatch.Status.RUNNING,
+            run_lease_until__lt=now,
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    recovered_count = 0
+    failed_count = 0
+    for batch_id in batch_ids:
+        try:
+            batch = recover_expired_application_claim(batch_id, now=now)
+        except Exception:
+            failed_count += 1
+            logger.exception(
+                "Object storage claim recovery failed batch_id=%s",
+                batch_id,
+            )
+            continue
+        if not batch.running_task_id and not batch.owner_token:
+            recovered_count += 1
+    return {
+        "candidate_count": len(batch_ids),
+        "recovered_count": recovered_count,
+        "failed_count": failed_count,
+    }
