@@ -1,9 +1,22 @@
 import pytest
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import CASCADE, PROTECT, SET_NULL
 from django.db.models.deletion import ProtectedError
 
 pytestmark = pytest.mark.django_db
+
+
+def test_platform_migration_depends_only_on_committed_object_storage_migration():
+    from importlib import import_module
+
+    migration = import_module("object_storage.migrations.0005_platform_model").Migration
+
+    assert ("object_storage", "0002_object_storage_user_role") in migration.dependencies
+    assert not any(
+        app == "object_storage" and name.startswith(("0003_", "0004_"))
+        for app, name in migration.dependencies
+    )
 
 
 def test_platform_settings_are_singletons_and_use_phase_one_defaults(db):
@@ -131,6 +144,46 @@ def test_access_key_belongs_to_cloud_identity_and_protects_it(access_key_factory
     assert key._meta.get_field("cloud_identity").remote_field.on_delete is PROTECT
     with pytest.raises(ProtectedError):
         key.cloud_identity.delete()
+
+
+def test_access_key_rejects_third_provider_slot(
+    access_key_factory, cloud_identity_factory
+):
+    identity = cloud_identity_factory()
+    access_key_factory(cloud_identity=identity)
+    access_key_factory(cloud_identity=identity)
+
+    with pytest.raises(ValidationError, match="ACCESS_KEY_LIMIT_EXCEEDED"):
+        access_key_factory(cloud_identity=identity)
+
+
+def test_inactive_key_occupies_slot_but_deleted_or_retired_key_does_not(
+    access_key_factory, cloud_identity_factory
+):
+    from object_storage.models import AccessKey
+
+    assert AccessKey.CloudState.INACTIVE in AccessKey.PROVIDER_SLOT_CLOUD_STATES
+    assert AccessKey.CloudState.DELETED not in AccessKey.PROVIDER_SLOT_CLOUD_STATES
+    assert AccessKey.LocalState.RETIRED not in AccessKey.PROVIDER_SLOT_LOCAL_STATES
+
+    identity = cloud_identity_factory()
+    inactive = access_key_factory(
+        cloud_identity=identity,
+        cloud_state=AccessKey.CloudState.INACTIVE,
+    )
+    retired = access_key_factory(cloud_identity=identity)
+
+    with pytest.raises(ValidationError, match="ACCESS_KEY_LIMIT_EXCEEDED"):
+        access_key_factory(cloud_identity=identity)
+
+    retired.local_state = AccessKey.LocalState.RETIRED
+    retired.save(update_fields=("local_state",))
+    replacement = access_key_factory(cloud_identity=identity)
+    inactive.cloud_state = AccessKey.CloudState.DELETED
+    inactive.save(update_fields=("cloud_state",))
+
+    assert access_key_factory(cloud_identity=identity).pk is not None
+    assert replacement.occupies_provider_slot is True
 
 
 def test_application_batch_is_idempotent_per_applicant(application_batch_factory):

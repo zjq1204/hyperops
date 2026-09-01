@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("auth", "0012_alter_user_first_name_max_length"),
-        ("object_storage", "0004_feishu_access_group"),
+        ("object_storage", "0002_object_storage_user_role"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -327,12 +327,14 @@ class Migration(migrations.Migration):
                         choices=[
                             ("requested", "Requested"),
                             ("creating", "Creating"),
+                            ("waiting_retry", "Waiting retry"),
                             ("active", "Active"),
                             ("releasing", "Releasing"),
-                            ("pending_delete", "Pending delete"),
-                            ("delete_blocked", "Delete blocked"),
+                            ("pending_deletion", "Pending deletion"),
+                            ("deletion_blocked", "Deletion blocked"),
                             ("released", "Released"),
                             ("failed", "Failed"),
+                            ("cancelled", "Cancelled"),
                         ],
                         default="requested",
                         max_length=20,

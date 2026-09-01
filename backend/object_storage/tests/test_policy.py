@@ -4,21 +4,24 @@ pytestmark = pytest.mark.django_db
 
 
 def test_bucket_model_exposes_phase_one_quota_states():
-    from object_storage.models import Bucket
+    from object_storage.models import Bucket, QUOTA_CONSUMING_STATES
 
     quota_consuming = {
         Bucket.State.REQUESTED,
         Bucket.State.CREATING,
+        Bucket.State.WAITING_RETRY,
         Bucket.State.ACTIVE,
         Bucket.State.RELEASING,
     }
     quota_released = {
-        Bucket.State.PENDING_DELETE,
+        Bucket.State.PENDING_DELETION,
         Bucket.State.RELEASED,
-        Bucket.State.DELETE_BLOCKED,
+        Bucket.State.DELETION_BLOCKED,
         Bucket.State.FAILED,
+        Bucket.State.CANCELLED,
     }
 
+    assert set(QUOTA_CONSUMING_STATES) == quota_consuming
     assert quota_consuming.isdisjoint(quota_released)
     assert quota_consuming | quota_released == set(Bucket.State.values)
 

@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
@@ -243,12 +244,14 @@ class Bucket(TimestampedModel):
     class State(models.TextChoices):
         REQUESTED = "requested", "Requested"
         CREATING = "creating", "Creating"
+        WAITING_RETRY = "waiting_retry", "Waiting retry"
         ACTIVE = "active", "Active"
         RELEASING = "releasing", "Releasing"
-        PENDING_DELETE = "pending_delete", "Pending delete"
-        DELETE_BLOCKED = "delete_blocked", "Delete blocked"
+        PENDING_DELETION = "pending_deletion", "Pending deletion"
+        DELETION_BLOCKED = "deletion_blocked", "Deletion blocked"
         RELEASED = "released", "Released"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -315,6 +318,15 @@ class Bucket(TimestampedModel):
         return self.name
 
 
+QUOTA_CONSUMING_STATES = (
+    Bucket.State.REQUESTED,
+    Bucket.State.CREATING,
+    Bucket.State.WAITING_RETRY,
+    Bucket.State.ACTIVE,
+    Bucket.State.RELEASING,
+)
+
+
 class AccessKey(TimestampedModel):
     class CloudState(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -329,6 +341,19 @@ class AccessKey(TimestampedModel):
         RETIRING = "retiring", "Retiring"
         RETIRED = "retired", "Retired"
         ERROR = "error", "Error"
+
+    PROVIDER_SLOT_CLOUD_STATES = (
+        CloudState.ACTIVE,
+        CloudState.INACTIVE,
+        CloudState.UNKNOWN,
+    )
+    PROVIDER_SLOT_LOCAL_STATES = (
+        LocalState.ISSUING,
+        LocalState.DELIVERY_READY,
+        LocalState.ACTIVE,
+        LocalState.RETIRING,
+        LocalState.ERROR,
+    )
 
     cloud_identity = models.ForeignKey(
         CloudIdentity,
@@ -370,6 +395,35 @@ class AccessKey(TimestampedModel):
 
     def __str__(self):
         return f"****{self.access_key_last_four}"
+
+    @property
+    def occupies_provider_slot(self):
+        return (
+            self.cloud_state in self.PROVIDER_SLOT_CLOUD_STATES
+            and self.local_state in self.PROVIDER_SLOT_LOCAL_STATES
+            and self.deleted_at is None
+        )
+
+    def _validate_provider_slot_limit(self):
+        if not self.occupies_provider_slot or self.cloud_identity_id is None:
+            return
+        occupied_slots = (
+            type(self)
+            .objects.filter(
+                cloud_identity_id=self.cloud_identity_id,
+                cloud_state__in=self.PROVIDER_SLOT_CLOUD_STATES,
+                local_state__in=self.PROVIDER_SLOT_LOCAL_STATES,
+                deleted_at__isnull=True,
+            )
+            .exclude(pk=self.pk)
+            .count()
+        )
+        if occupied_slots >= 2:
+            raise ValidationError({"cloud_identity": "ACCESS_KEY_LIMIT_EXCEEDED"})
+
+    def save(self, *args, **kwargs):
+        self._validate_provider_slot_limit()
+        return super().save(*args, **kwargs)
 
 
 class ApplicationBatch(TimestampedModel):
