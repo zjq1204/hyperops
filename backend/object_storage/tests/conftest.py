@@ -1,10 +1,46 @@
 import itertools
+import os
 
 import pytest
 
+# This test package is the only scope that opts the optional app in by default.
+os.environ.setdefault("ENABLE_OBJECT_STORAGE", "true")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def object_storage_installed_app():
+    from django.apps import apps
+    from django.conf import settings
+
+    if apps.is_installed("object_storage"):
+        yield
+        return
+
+    original_installed_apps = settings.INSTALLED_APPS
+    original_enabled = settings.ENABLE_OBJECT_STORAGE
+    installed_apps = [
+        (
+            "django.contrib.admin.apps.SimpleAdminConfig"
+            if app == "django.contrib.admin"
+            else app
+        )
+        for app in original_installed_apps
+    ]
+    installed_apps.append("object_storage")
+    settings.ENABLE_OBJECT_STORAGE = True
+    settings.INSTALLED_APPS = installed_apps
+    apps.set_installed_apps(installed_apps)
+    try:
+        yield
+    finally:
+        apps.unset_installed_apps()
+        settings.INSTALLED_APPS = original_installed_apps
+        settings.ENABLE_OBJECT_STORAGE = original_enabled
+
 
 @pytest.fixture(autouse=True)
-def object_storage_test_cache(settings):
+def object_storage_test_settings(settings):
+    settings.ENABLE_OBJECT_STORAGE = True
     settings.CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -30,7 +66,10 @@ def user_factory(db, django_user_model):
 def platform_object_storage_config(db):
     from object_storage.models import PlatformObjectStorageConfig
 
-    return PlatformObjectStorageConfig.objects.create()
+    config, _created = PlatformObjectStorageConfig.objects.get_or_create(
+        singleton_key="default"
+    )
+    return config
 
 
 @pytest.fixture

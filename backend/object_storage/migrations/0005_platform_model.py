@@ -3,6 +3,49 @@
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+from django.db.migrations.operations.base import Operation
+
+
+class CreateDefaultPlatformObjectStorageConfig(Operation):
+    """Bootstrap the fixed FK target before preserving legacy pool rows."""
+
+    reduces_to_sql = False
+    reversible = True
+
+    def state_forwards(self, app_label, state):
+        pass
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        config_model = from_state.apps.get_model(
+            app_label, "PlatformObjectStorageConfig"
+        )
+        config_model.objects.using(schema_editor.connection.alias).get_or_create(
+            pk=1,
+            defaults={
+                "singleton_key": "default",
+                "naming_template": (
+                    "hyperops-{user}-{business_name}-{environment}-{suffix}"
+                ),
+                "naming_template_version": 1,
+                "default_bucket_quota": 5,
+                "delivery_lifetime_seconds": 86400,
+                "audit_retention_days": 30,
+                "pause_new_applications": True,
+                "pause_key_operations": True,
+            },
+        )
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        config_model = from_state.apps.get_model(
+            app_label, "PlatformObjectStorageConfig"
+        )
+        config_model.objects.using(schema_editor.connection.alias).filter(
+            pk=1,
+            singleton_key="default",
+        ).delete()
+
+    def describe(self):
+        return "Create the safe default platform object-storage configuration"
 
 
 class Migration(migrations.Migration):
@@ -537,6 +580,7 @@ class Migration(migrations.Migration):
                 "ordering": ["singleton_key"],
             },
         ),
+        CreateDefaultPlatformObjectStorageConfig(),
         migrations.RemoveConstraint(
             model_name="storageresourcepool",
             name="storage_pool_one_enabled_provider",

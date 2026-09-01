@@ -1,6 +1,6 @@
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import CASCADE, PROTECT, SET_NULL
 from django.db.models.deletion import ProtectedError
 
@@ -19,6 +19,42 @@ def test_platform_migration_depends_only_on_committed_object_storage_migration()
     )
 
 
+@pytest.mark.django_db(transaction=True)
+def test_platform_migration_assigns_existing_pool_to_default_config():
+    from django.db.migrations.executor import MigrationExecutor
+
+    executor = MigrationExecutor(connection)
+    executor.migrate([("object_storage", "0002_object_storage_user_role")])
+    old_apps = executor.loader.project_state(
+        [("object_storage", "0002_object_storage_user_role")]
+    ).apps
+    StorageTenant = old_apps.get_model("object_storage", "StorageTenant")
+    StorageResourcePool = old_apps.get_model("object_storage", "StorageResourcePool")
+    tenant = StorageTenant.objects.create(code="legacy", name="Legacy")
+    pool = StorageResourcePool.objects.create(
+        tenant=tenant,
+        cloud_account_id="legacy-account",
+        region="cn-hangzhou",
+        management_access_key_encrypted="legacy-ak",
+        management_secret_key_encrypted="legacy-sk",
+        credential_fingerprint="legacy-fingerprint",
+        access_key_last_four="1234",
+    )
+
+    executor = MigrationExecutor(connection)
+    executor.migrate([("object_storage", "0005_platform_model")])
+    new_apps = executor.loader.project_state(
+        [("object_storage", "0005_platform_model")]
+    ).apps
+    PlatformObjectStorageConfig = new_apps.get_model(
+        "object_storage", "PlatformObjectStorageConfig"
+    )
+    MigratedPool = new_apps.get_model("object_storage", "StorageResourcePool")
+
+    config = PlatformObjectStorageConfig.objects.get(singleton_key="default")
+    assert MigratedPool.objects.get(pk=pool.pk).config_id == config.pk
+
+
 def test_platform_settings_are_singletons_and_use_phase_one_defaults(db):
     from object_storage.models import (
         PlatformFeishuConfig,
@@ -26,7 +62,9 @@ def test_platform_settings_are_singletons_and_use_phase_one_defaults(db):
     )
 
     feishu = PlatformFeishuConfig.objects.create()
-    storage = PlatformObjectStorageConfig.objects.create()
+    storage, _created = PlatformObjectStorageConfig.objects.get_or_create(
+        singleton_key="default"
+    )
 
     assert feishu.singleton_key == "default"
     assert storage.singleton_key == "default"
@@ -183,6 +221,48 @@ def test_access_key_save_locks_cloud_identity_inside_atomic_transaction(
 
     assert CloudIdentity in locked_models
     assert lock_atomic_states == [True]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_access_key_creates_finish_at_provider_limit(
+    access_key_factory, cloud_identity_factory
+):
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL select_for_update is required for this race test")
+
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from django.db import close_old_connections
+
+    from object_storage.models import AccessKey, CloudIdentity
+
+    identity = cloud_identity_factory()
+    access_key_factory(cloud_identity=identity)
+    barrier = Barrier(2)
+
+    def create_key(number):
+        close_old_connections()
+        try:
+            barrier.wait()
+            AccessKey.objects.create(
+                cloud_identity_id=identity.pk,
+                access_key_id_encrypted=f"concurrent-ak-{number}",
+                secret_access_key_encrypted=f"concurrent-sk-{number}",
+                access_key_fingerprint=f"concurrent-fingerprint-{number}",
+                access_key_last_four=f"{number:04d}",
+            )
+            return "created"
+        except ValidationError:
+            return "rejected"
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(create_key, (1, 2)))
+
+    assert sorted(results) == ["created", "rejected"]
+    assert CloudIdentity.objects.get(pk=identity.pk).access_keys.count() == 2
 
 
 def test_access_key_bulk_create_cannot_bypass_provider_slot_limit(
