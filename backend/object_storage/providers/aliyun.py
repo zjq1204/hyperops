@@ -33,12 +33,18 @@ class AliyunObjectStorageProvider:
 
     def validate_management_identity(self, pool):
         ram = self._call(self.ram_gateway.validate_identity)
+        account_id = str(ram.get("account_id") or "")
+        if not account_id:
+            raise ObjectStorageProviderError("CLOUD_ACCOUNT_UNVERIFIED")
         oss = self._call(self.oss_gateway.validate_identity)
+        ram_request_ids = ram.get("request_ids") or (
+            (ram.get("request_id"),) if ram.get("request_id") else ()
+        )
         request_ids = tuple(
-            value for value in (ram.get("request_id"), oss.get("request_id")) if value
+            str(value) for value in (*ram_request_ids, oss.get("request_id")) if value
         )
         return ManagementCapabilities(
-            account_id=str(ram.get("account_id") or ""),
+            account_id=account_id,
             can_manage_ram=bool(ram.get("can_manage_ram")),
             can_manage_oss=bool(oss.get("can_manage_oss")),
             request_ids=request_ids,
@@ -152,6 +158,17 @@ def _request_id(response):
     return str(getattr(body, "request_id", "") or "")
 
 
+def _response_value(body, *names):
+    for name in names:
+        if isinstance(body, dict):
+            value = body.get(name)
+        else:
+            value = getattr(body, name, None)
+        if value:
+            return str(value)
+    return ""
+
+
 def _policy_name(user_name):
     digest = hashlib.sha256(user_name.encode("utf-8")).hexdigest()[:16]
     return f"HyperOpsObjectAccess-{digest}"
@@ -163,12 +180,65 @@ class AliyunRamGateway:
         self.access_key_secret = access_key_secret
 
     def validate_identity(self):
-        response = self.client.list_users(self.models.ListUsersRequest(max_items=1))
+        from alibabacloud_tea_openapi import models as open_api_models
+        from alibabacloud_tea_util import models as util_models
+
+        sts_response = self.sts_client.call_api(
+            open_api_models.Params(
+                action="GetCallerIdentity",
+                version="2015-04-01",
+                protocol="HTTPS",
+                pathname="/",
+                method="POST",
+                auth_type="AK",
+                style="RPC",
+                req_body_type="json",
+                body_type="json",
+            ),
+            open_api_models.OpenApiRequest(),
+            util_models.RuntimeOptions(
+                connect_timeout=10000,
+                read_timeout=10000,
+            ),
+        )
+        sts_body = (
+            sts_response.get("body", {})
+            if isinstance(sts_response, dict)
+            else getattr(sts_response, "body", None)
+        )
+        account_id = _response_value(sts_body, "AccountId", "account_id")
+        sts_request_id = _response_value(sts_body, "RequestId", "request_id")
+        if not account_id:
+            raise ObjectStorageProviderError(
+                "CLOUD_ACCOUNT_UNVERIFIED",
+                request_id=sts_request_id,
+            )
+
+        ram_response = self.client.list_users(self.models.ListUsersRequest(max_items=1))
         return {
-            "account_id": str(getattr(response.body, "account_id", "") or ""),
+            "account_id": account_id,
             "can_manage_ram": True,
-            "request_id": _request_id(response),
+            "request_ids": tuple(
+                value for value in (sts_request_id, _request_id(ram_response)) if value
+            ),
         }
+
+    @property
+    def sts_client(self):
+        if not hasattr(self, "_sts_client"):
+            from alibabacloud_tea_openapi.client import Client
+            from alibabacloud_tea_openapi.models import Config
+
+            self._sts_client = Client(
+                Config(
+                    access_key_id=self.access_key_id,
+                    access_key_secret=self.access_key_secret,
+                    endpoint="sts.aliyuncs.com",
+                    connect_timeout=10000,
+                    read_timeout=10000,
+                )
+            )
+        return self._sts_client
 
     @property
     def models(self):

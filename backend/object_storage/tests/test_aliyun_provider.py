@@ -103,6 +103,8 @@ def test_validate_management_identity_returns_safe_capabilities():
 
 
 def test_validate_management_identity_never_falls_back_to_configured_account_id():
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
     provider, ram, _oss = _provider()
     ram.validate_identity = lambda: {
         "account_id": "",
@@ -110,52 +112,55 @@ def test_validate_management_identity_never_falls_back_to_configured_account_id(
         "request_id": "ram-request-missing-account",
     }
 
-    capabilities = provider.validate_management_identity(
-        SimpleNamespace(cloud_account_id="locally-configured-account")
-    )
+    with pytest.raises(ObjectStorageProviderError, match="CLOUD_ACCOUNT_UNVERIFIED"):
+        provider.validate_management_identity(
+            SimpleNamespace(cloud_account_id="locally-configured-account")
+        )
 
-    assert capabilities.account_id == ""
 
-
-def test_ram_gateway_never_echoes_a_locally_configured_account_id(monkeypatch):
+def test_ram_gateway_rejects_sts_response_without_account_id(monkeypatch):
     import inspect
 
     from object_storage.providers.aliyun import AliyunRamGateway
+    from object_storage.services.provider_errors import ObjectStorageProviderError
 
     assert "account_id" not in inspect.signature(AliyunRamGateway).parameters
     gateway = AliyunRamGateway(
         access_key_id="management-ak",
         access_key_secret="management-sk",
     )
-    gateway._client = SimpleNamespace(
-        list_users=lambda _request: SimpleNamespace(
-            body=SimpleNamespace(request_id="ram-request-no-account")
-        )
-    )
-    monkeypatch.setattr(
-        AliyunRamGateway,
-        "models",
-        SimpleNamespace(ListUsersRequest=lambda **kwargs: kwargs),
+    gateway._sts_client = SimpleNamespace(
+        call_api=lambda _params, _request, _runtime: {
+            "body": {"RequestId": "sts-request-no-account"}
+        }
     )
 
-    result = gateway.validate_identity()
+    with pytest.raises(ObjectStorageProviderError, match="CLOUD_ACCOUNT_UNVERIFIED"):
+        gateway.validate_identity()
 
-    assert result["account_id"] == ""
 
-
-def test_ram_gateway_uses_account_id_returned_by_cloud(monkeypatch):
+def test_ram_gateway_uses_sts_caller_identity_and_then_checks_ram(monkeypatch):
     from object_storage.providers.aliyun import AliyunRamGateway
 
+    calls = []
     gateway = AliyunRamGateway(
         access_key_id="management-ak",
         access_key_secret="management-sk",
     )
+    gateway._sts_client = SimpleNamespace(
+        call_api=lambda params, request, runtime: calls.append(
+            (params, request, runtime)
+        )
+        or {
+            "body": {
+                "AccountId": "cloud-account-123",
+                "RequestId": "sts-request-with-account",
+            }
+        }
+    )
     gateway._client = SimpleNamespace(
         list_users=lambda _request: SimpleNamespace(
-            body=SimpleNamespace(
-                account_id="cloud-account-123",
-                request_id="ram-request-with-account",
-            )
+            body=SimpleNamespace(request_id="ram-request-with-account")
         )
     )
     monkeypatch.setattr(
@@ -167,6 +172,23 @@ def test_ram_gateway_uses_account_id_returned_by_cloud(monkeypatch):
     result = gateway.validate_identity()
 
     assert result["account_id"] == "cloud-account-123"
+    assert result["request_ids"] == (
+        "sts-request-with-account",
+        "ram-request-with-account",
+    )
+    params, request, runtime = calls[0]
+    assert params.action == "GetCallerIdentity"
+    assert params.version == "2015-04-01"
+    assert params.protocol == "HTTPS"
+    assert params.pathname == "/"
+    assert params.method == "POST"
+    assert params.auth_type == "AK"
+    assert params.style == "RPC"
+    assert params.req_body_type == "json"
+    assert params.body_type == "json"
+    assert request.body is None
+    assert runtime.connect_timeout == 10000
+    assert runtime.read_timeout == 10000
 
 
 def test_create_bucket_uses_fixed_region_and_platform_defaults():
