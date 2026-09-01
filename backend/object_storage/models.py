@@ -100,8 +100,11 @@ class PlatformObjectStorageConfig(TimestampedModel):
                 name="storage_platform_delivery_lifetime_range",
             ),
             models.CheckConstraint(
-                condition=Q(audit_retention_days=30),
-                name="storage_platform_audit_retention_phase_one",
+                condition=Q(
+                    audit_retention_days__gte=1,
+                    audit_retention_days__lte=3650,
+                ),
+                name="storage_platform_audit_retention_range",
             ),
         ]
 

@@ -802,8 +802,11 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="platformobjectstorageconfig",
             constraint=models.CheckConstraint(
-                condition=models.Q(("audit_retention_days", 30)),
-                name="storage_platform_audit_retention_phase_one",
+                condition=models.Q(
+                    ("audit_retention_days__gte", 1),
+                    ("audit_retention_days__lte", 3650),
+                ),
+                name="storage_platform_audit_retention_range",
             ),
         ),
         migrations.AddField(

@@ -90,7 +90,8 @@ def test_platform_storage_settings_enforce_approved_ranges(db):
         {"default_bucket_quota": 0},
         {"delivery_lifetime_seconds": 599},
         {"delivery_lifetime_seconds": 604801},
-        {"audit_retention_days": 29},
+        {"audit_retention_days": 0},
+        {"audit_retention_days": 3651},
     )
     for values in invalid_values:
         with pytest.raises(IntegrityError), transaction.atomic():

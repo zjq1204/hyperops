@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import string
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -18,6 +19,28 @@ from object_storage.models import (
 )
 
 DEFAULT_SINGLETON_KEY = "default"
+OBJECT_STORAGE_CONFIG_FIELDS = frozenset(
+    {
+        "naming_template",
+        "naming_template_version",
+        "default_bucket_quota",
+        "delivery_lifetime_seconds",
+        "audit_retention_days",
+        "pause_new_applications",
+        "pause_key_operations",
+    }
+)
+NAMING_TEMPLATE_FIELDS = frozenset(
+    {
+        "prefix",
+        "user",
+        "business_name",
+        "project",
+        "environment",
+        "purpose",
+        "suffix",
+    }
+)
 
 
 class PlatformConfigurationError(RuntimeError):
@@ -80,6 +103,70 @@ def _default_pool_validator(pool):
     from object_storage.providers.aliyun import build_aliyun_provider
 
     return build_aliyun_provider(pool).validate_management_identity(pool)
+
+
+def _storage_field_updates(object_storage_fields, keyword_fields):
+    updates = {}
+    if object_storage_fields is not None:
+        if not isinstance(object_storage_fields, dict):
+            raise PlatformConfigurationError("INVALID_PLATFORM_CONFIG")
+        updates.update(object_storage_fields)
+    duplicate_fields = set(updates).intersection(keyword_fields)
+    if duplicate_fields:
+        raise PlatformConfigurationError("DUPLICATE_PLATFORM_CONFIG_FIELD")
+    updates.update(keyword_fields)
+    unsupported = set(updates).difference(OBJECT_STORAGE_CONFIG_FIELDS)
+    if unsupported:
+        raise PlatformConfigurationError("UNSUPPORTED_PLATFORM_CONFIG_FIELD")
+    return updates
+
+
+def _validate_storage_field_values(updates):
+    for field, value in updates.items():
+        if field == "naming_template":
+            valid = _is_valid_naming_template(value)
+        elif field == "naming_template_version":
+            valid = (
+                isinstance(value, int) and not isinstance(value, bool) and value >= 1
+            )
+        elif field == "default_bucket_quota":
+            valid = (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and 1 <= value <= 32767
+            )
+        elif field == "delivery_lifetime_seconds":
+            valid = (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and 600 <= value <= 604800
+            )
+        elif field == "audit_retention_days":
+            valid = (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and 1 <= value <= 3650
+            )
+        else:
+            valid = isinstance(value, bool)
+        if not valid:
+            raise PlatformConfigurationError("INVALID_PLATFORM_CONFIG")
+
+
+def _is_valid_naming_template(value):
+    if not isinstance(value, str) or not value or len(value) > 255:
+        return False
+    fields = []
+    try:
+        for _literal, field, format_spec, conversion in string.Formatter().parse(value):
+            if field is None:
+                continue
+            if format_spec or conversion or field not in NAMING_TEMPLATE_FIELDS:
+                return False
+            fields.append(field)
+    except ValueError:
+        return False
+    return "suffix" in fields
 
 
 def validate_feishu_config(config=None, *, validator=None):
@@ -192,13 +279,26 @@ def validate_and_save_platform_config(
     resource_pool=None,
     feishu_validator=None,
     pool_validator=None,
+    object_storage_fields=None,
+    **storage_fields,
 ):
     """Validate configured providers and persist only safe status metadata."""
 
-    del object_storage_config  # Reserved for future non-provider config checks.
-    feishu_result = validate_feishu_config(feishu_config, validator=feishu_validator)
+    object_storage_config = object_storage_config or get_object_storage_config()
+    updates = _storage_field_updates(object_storage_fields, storage_fields)
+    _validate_storage_field_values(updates)
+    if updates:
+        for field, value in updates.items():
+            setattr(object_storage_config, field, value)
+        object_storage_config.save(update_fields=tuple(updates) + ("updated_at",))
+
+    feishu_result = None
+    if feishu_config is not None or feishu_validator is not None:
+        feishu_result = validate_feishu_config(
+            feishu_config, validator=feishu_validator
+        )
     pool_result = None
-    if resource_pool is not None:
+    if resource_pool is not None or pool_validator is not None:
         pool_result = validate_resource_pool(resource_pool, validator=pool_validator)
     return {"feishu": feishu_result, "resource_pool": pool_result}
 
@@ -300,13 +400,31 @@ def update_resource_pool(pool, *, provider=None, cloud_account_id=None, region=N
         provider != pool.provider or cloud_account_id != pool.cloud_account_id
     ):
         raise PlatformConfigurationError("RESOURCE_POOL_ID_LOCKED")
+    changes = {}
     if provider != pool.provider:
-        pool.provider = provider
+        changes["provider"] = provider
     if cloud_account_id != pool.cloud_account_id:
-        pool.cloud_account_id = cloud_account_id
-    if region is not None:
-        pool.region = region
-    pool.save()
+        changes["cloud_account_id"] = cloud_account_id
+    if region is not None and region != pool.region:
+        changes["region"] = region
+    if not changes:
+        return pool
+    for field, value in changes.items():
+        setattr(pool, field, value)
+    pool.validation_status = StorageResourcePool.ValidationStatus.PENDING
+    pool.validation_error_code = ""
+    pool.last_validated_at = None
+    pool.enabled = False
+    pool.save(
+        update_fields=tuple(changes)
+        + (
+            "validation_status",
+            "validation_error_code",
+            "last_validated_at",
+            "enabled",
+            "updated_at",
+        )
+    )
     return pool
 
 
@@ -347,9 +465,10 @@ def replace_management_credentials(
     pool.management_secret_key_encrypted = candidate.management_secret_key_encrypted
     pool.credential_fingerprint = candidate.credential_fingerprint
     pool.access_key_last_four = candidate.access_key_last_four
-    pool.validation_status = StorageResourcePool.ValidationStatus.VALID
+    pool.validation_status = StorageResourcePool.ValidationStatus.PENDING
     pool.validation_error_code = ""
-    pool.last_validated_at = timezone.now()
+    pool.last_validated_at = None
+    pool.enabled = False
     pool.save(
         update_fields=(
             "management_access_key_encrypted",
@@ -359,6 +478,7 @@ def replace_management_credentials(
             "validation_status",
             "validation_error_code",
             "last_validated_at",
+            "enabled",
             "updated_at",
         )
     )

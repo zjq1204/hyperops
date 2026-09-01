@@ -9,6 +9,35 @@ _SENSITIVE_METADATA_KEY = re.compile(
     r"(?:secret|ciphertext|cipher|encrypted|envelope|token|password|authorization|private[_-]?key)",
     re.IGNORECASE,
 )
+_SENSITIVE_VALUE_PATTERNS = (
+    re.compile(r"(?i)(?:\bauthorization\s*:|\bbearer\s+|\bbasic\s+)"),
+    re.compile(r"(?i)-----BEGIN [^-]*PRIVATE KEY-----"),
+    re.compile(r"(?i)\bv1:aesgcm:"),
+    re.compile(r"(?i)\bLTAI[A-Za-z0-9_-]{8,}\b"),
+    re.compile(r"^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$"),
+    re.compile(
+        r"(?i)(?:^|[\s:_-])(secret|token|password|access[_-]?key|private[_-]?key)"
+        r"(?:$|[\s:_-])"
+    ),
+)
+_SENSITIVE_NORMALIZED_KEYS = frozenset(
+    {
+        "apikey",
+        "auth",
+        "authorizationheader",
+        "credential",
+        "credentials",
+        "sk",
+    }
+)
+
+
+def _is_sensitive_metadata_key(key):
+    key = str(key)
+    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
+    return bool(_SENSITIVE_METADATA_KEY.search(key)) or (
+        normalized in _SENSITIVE_NORMALIZED_KEYS
+    )
 
 
 def sanitize_audit_metadata(metadata):
@@ -23,13 +52,15 @@ def sanitize_audit_metadata(metadata):
         if isinstance(value, dict):
             cleaned = {}
             for key, child in value.items():
-                if _SENSITIVE_METADATA_KEY.search(str(key)):
+                if _is_sensitive_metadata_key(key):
                     raise ValueError("sensitive audit metadata is not allowed")
                 cleaned[str(key)] = walk(child)
             return cleaned
         if isinstance(value, (list, tuple)):
             return [walk(child) for child in value]
-        if isinstance(value, str) and value.startswith("v1:aesgcm:"):
+        if isinstance(value, str) and any(
+            pattern.search(value) for pattern in _SENSITIVE_VALUE_PATTERNS
+        ):
             raise ValueError("sensitive audit metadata is not allowed")
         return value
 
