@@ -8,6 +8,7 @@ from object_storage.services.applications import (
     MAX_PROVIDER_RETRIES,
     execute_application_batch,
     is_retryable_provider_error,
+    mark_claim_recovery_enqueue_failed,
     mark_batch_manual_required,
     recover_expired_application_claim,
 )
@@ -67,7 +68,10 @@ def recover_expired_application_claims():
         .values_list("pk", flat=True)
     )
     recovered_count = 0
+    enqueued_count = 0
+    failed_enqueue_count = 0
     failed_count = 0
+    recovered_batch_ids = []
     for batch_id in batch_ids:
         try:
             batch = recover_expired_application_claim(batch_id, now=now)
@@ -80,8 +84,30 @@ def recover_expired_application_claims():
             continue
         if not batch.running_task_id and not batch.owner_token:
             recovered_count += 1
+            recovered_batch_ids.append(batch_id)
+    for batch_id in recovered_batch_ids:
+        try:
+            run_storage_application_batch.delay(batch_id)
+        except Exception:
+            failed_enqueue_count += 1
+            logger.exception(
+                "Object storage recovered claim enqueue failed batch_id=%s",
+                batch_id,
+            )
+            try:
+                mark_claim_recovery_enqueue_failed(batch_id)
+            except Exception:
+                logger.exception(
+                    "Object storage recovered claim manual fallback failed "
+                    "batch_id=%s",
+                    batch_id,
+                )
+            continue
+        enqueued_count += 1
     return {
         "candidate_count": len(batch_ids),
         "recovered_count": recovered_count,
+        "enqueued_count": enqueued_count,
+        "failed_enqueue_count": failed_enqueue_count,
         "failed_count": failed_count,
     }

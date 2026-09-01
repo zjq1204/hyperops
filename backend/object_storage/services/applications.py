@@ -26,6 +26,7 @@ from object_storage.services.credentials import (
     CredentialRotationError,
     create_delivery_ticket,
     encrypt_issued_access_key,
+    fingerprint_access_key,
     persist_new_access_key,
     provider_access_key,
 )
@@ -688,6 +689,104 @@ def _provider_items(result):
     return tuple(getattr(result, "items", result))
 
 
+def _mark_stale_key_cleanup_uncertain(batch_id, issued):
+    error_code = "STALE_CLAIM_KEY_CLEANUP_UNCERTAIN"
+    access_key_id = str(issued.access_key_id)
+    with transaction.atomic():
+        batch = (
+            ApplicationBatch.objects.select_for_update()
+            .select_related("applicant")
+            .get(pk=batch_id)
+        )
+        items = list(
+            batch.items.select_for_update().filter(
+                status__in=(
+                    ApplicationItem.Status.PENDING,
+                    ApplicationItem.Status.CREATING,
+                    ApplicationItem.Status.WAITING_RETRY,
+                )
+            )
+        )
+        for item in items:
+            item.status = ApplicationItem.Status.MANUAL_REQUIRED
+            item.current_stage = "KEY_RECONCILING"
+            item.error_code = error_code
+            item.error_summary = error_code
+            item.save(
+                update_fields=(
+                    "status",
+                    "current_stage",
+                    "error_code",
+                    "error_summary",
+                    "updated_at",
+                )
+            )
+        batch.status = ApplicationBatch.Status.MANUAL_REQUIRED
+        batch.pending_count = 0
+        batch.failed_count = batch.items.filter(
+            status__in=(
+                ApplicationItem.Status.FAILED,
+                ApplicationItem.Status.CANCELLED,
+                ApplicationItem.Status.MANUAL_REQUIRED,
+                ApplicationItem.Status.DELETE_BLOCKED,
+            )
+        ).count()
+        batch.running_task_id = ""
+        batch.owner_token = ""
+        batch.run_lease_until = None
+        batch.current_stage = "KEY_RECONCILING"
+        batch.error_code = error_code
+        batch.error_summary = error_code
+        batch.finished_at = batch.finished_at or timezone.now()
+        batch.save(
+            update_fields=(
+                "status",
+                "pending_count",
+                "failed_count",
+                "running_task_id",
+                "owner_token",
+                "run_lease_until",
+                "current_stage",
+                "error_code",
+                "error_summary",
+                "finished_at",
+                "updated_at",
+            )
+        )
+        record_audit_event(
+            actor=batch.applicant,
+            action="storage.application.stale_claim_key_cleanup_uncertain",
+            target_type="ApplicationBatch",
+            target_id=batch.pk,
+            result="manual_required",
+            safe_metadata={
+                "application_id": batch.pk,
+                "error_code": error_code,
+                "fingerprint": fingerprint_access_key(access_key_id),
+                "last_four": access_key_id[-4:],
+            },
+        )
+    return batch
+
+
+def _cleanup_stale_created_key(batch, identity, provider, issued):
+    access_key_id = str(issued.access_key_id)
+    exact_key = SimpleNamespace(
+        cloud_identity=identity,
+        access_key_id=access_key_id,
+    )
+    try:
+        provider.delete_access_key(exact_key)
+        remaining_fingerprints = {
+            key.fingerprint
+            for key in _provider_items(provider.list_access_keys(identity))
+        }
+        if fingerprint_access_key(access_key_id) in remaining_fingerprints:
+            raise RuntimeError("stale access key still present after cleanup")
+    except Exception:
+        _mark_stale_key_cleanup_uncertain(batch.pk, issued)
+
+
 def _valid_local_key(batch, identity, provider, owner_token):
     cloud_keys = _provider_items(
         _call_provider_with_claim(
@@ -718,12 +817,10 @@ def _valid_local_key(batch, identity, provider, owner_token):
 
 
 def _persist_batch_access_key(batch, identity, provider, owner_token):
-    issued = _call_provider_with_claim(
-        batch.pk,
-        owner_token,
-        lambda: provider.create_access_key(identity),
-    )
+    _assert_application_claim(batch.pk, owner_token)
+    issued = provider.create_access_key(identity)
     try:
+        _assert_application_claim(batch.pk, owner_token)
         encrypted_key = encrypt_issued_access_key(issued)
         with transaction.atomic():
             locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
@@ -756,8 +853,14 @@ def _persist_batch_access_key(batch, identity, provider, owner_token):
                 },
             )
     except StaleApplicationClaim:
+        _cleanup_stale_created_key(batch, identity, provider, issued)
         raise
     except Exception as persistence_error:
+        try:
+            _assert_application_claim(batch.pk, owner_token)
+        except StaleApplicationClaim:
+            _cleanup_stale_created_key(batch, identity, provider, issued)
+            raise
         exact_key = SimpleNamespace(
             cloud_identity=identity,
             access_key_id=str(issued.access_key_id),
@@ -1352,6 +1455,83 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
             },
         )
         return result
+
+
+def mark_claim_recovery_enqueue_failed(batch_id):
+    error_code = "CLAIM_RECOVERY_ENQUEUE_FAILED"
+    with transaction.atomic():
+        batch = (
+            ApplicationBatch.objects.select_for_update()
+            .select_related("applicant")
+            .get(pk=batch_id)
+        )
+        items = list(
+            batch.items.select_for_update().filter(
+                status__in=(
+                    ApplicationItem.Status.PENDING,
+                    ApplicationItem.Status.CREATING,
+                    ApplicationItem.Status.WAITING_RETRY,
+                )
+            )
+        )
+        for item in items:
+            item.status = ApplicationItem.Status.MANUAL_REQUIRED
+            item.current_stage = "CLAIM_RECOVERY"
+            item.error_code = error_code
+            item.error_summary = error_code
+            item.save(
+                update_fields=(
+                    "status",
+                    "current_stage",
+                    "error_code",
+                    "error_summary",
+                    "updated_at",
+                )
+            )
+        batch.status = ApplicationBatch.Status.MANUAL_REQUIRED
+        batch.pending_count = 0
+        batch.failed_count = batch.items.filter(
+            status__in=(
+                ApplicationItem.Status.FAILED,
+                ApplicationItem.Status.CANCELLED,
+                ApplicationItem.Status.MANUAL_REQUIRED,
+                ApplicationItem.Status.DELETE_BLOCKED,
+            )
+        ).count()
+        batch.running_task_id = ""
+        batch.owner_token = ""
+        batch.run_lease_until = None
+        batch.current_stage = "CLAIM_RECOVERY"
+        batch.error_code = error_code
+        batch.error_summary = error_code
+        batch.finished_at = batch.finished_at or timezone.now()
+        batch.save(
+            update_fields=(
+                "status",
+                "pending_count",
+                "failed_count",
+                "running_task_id",
+                "owner_token",
+                "run_lease_until",
+                "current_stage",
+                "error_code",
+                "error_summary",
+                "finished_at",
+                "updated_at",
+            )
+        )
+        record_audit_event(
+            actor=batch.applicant,
+            action="storage.application.claim_recovery_enqueue_failed",
+            target_type="ApplicationBatch",
+            target_id=batch.pk,
+            result="manual_required",
+            safe_metadata={
+                "application_id": batch.pk,
+                "error_code": error_code,
+            },
+        )
+        return batch
 
 
 def execute_application_batch(batch_id, *, execution_key=""):

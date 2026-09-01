@@ -168,6 +168,7 @@ def test_claim_recovery_task_scans_only_expired_running_batches(
         run_lease_until=now - timedelta(minutes=1),
     )
     recovery_calls = []
+    enqueue_calls = []
 
     def recover(batch_id, *, now):
         recovery_calls.append((batch_id, now))
@@ -179,13 +180,83 @@ def test_claim_recovery_task_scans_only_expired_running_batches(
         recover,
         raising=False,
     )
+    monkeypatch.setattr(
+        tasks.run_storage_application_batch,
+        "delay",
+        lambda batch_id: enqueue_calls.append(batch_id),
+    )
 
     result = tasks.recover_expired_application_claims()
 
     assert [batch_id for batch_id, _now in recovery_calls] == [expired.pk]
+    assert enqueue_calls == [expired.pk]
     assert result == {
         "candidate_count": 1,
         "recovered_count": 1,
+        "enqueued_count": 1,
+        "failed_enqueue_count": 0,
+        "failed_count": 0,
+    }
+
+
+@pytest.mark.django_db
+def test_claim_recovery_enqueue_failure_marks_batch_manual_and_audits(
+    user_factory, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage import tasks
+    from object_storage.models import ApplicationBatch, AuditEvent
+
+    user = user_factory()
+    batch = ApplicationBatch.objects.create(
+        applicant=user,
+        idempotency_key="recovered-enqueue-failure",
+        status=ApplicationBatch.Status.RUNNING,
+        running_task_id="expired-worker",
+        owner_token="expired-owner-token",
+        run_lease_until=timezone.now() - timedelta(minutes=1),
+    )
+
+    def recover(batch_id, *, now):
+        del now
+        ApplicationBatch.objects.filter(pk=batch_id).update(
+            running_task_id="",
+            owner_token="",
+            run_lease_until=None,
+        )
+        return ApplicationBatch.objects.get(pk=batch_id)
+
+    monkeypatch.setattr(tasks, "recover_expired_application_claim", recover)
+    monkeypatch.setattr(
+        tasks.run_storage_application_batch,
+        "delay",
+        lambda _batch_id: (_ for _ in ()).throw(RuntimeError("broker unavailable")),
+    )
+
+    result = tasks.recover_expired_application_claims()
+
+    batch.refresh_from_db()
+    audit = AuditEvent.objects.get(
+        action="storage.application.claim_recovery_enqueue_failed"
+    )
+    assert batch.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert batch.error_code == "CLAIM_RECOVERY_ENQUEUE_FAILED"
+    assert batch.running_task_id == ""
+    assert batch.owner_token == ""
+    assert audit.target_id == str(batch.pk)
+    assert audit.result == "manual_required"
+    assert audit.safe_metadata == {
+        "application_id": batch.pk,
+        "error_code": "CLAIM_RECOVERY_ENQUEUE_FAILED",
+    }
+    assert result == {
+        "candidate_count": 1,
+        "recovered_count": 1,
+        "enqueued_count": 0,
+        "failed_enqueue_count": 1,
         "failed_count": 0,
     }
 

@@ -641,6 +641,108 @@ def test_stale_worker_cannot_write_success_policy_or_delivery_after_claim_switch
     assert DeliveryTicket.objects.filter(application_batch=batch).exists()
 
 
+def test_stale_worker_deletes_exact_key_created_before_post_call_fence(
+    batch_context, monkeypatch
+):
+    from object_storage.models import AccessKey, ApplicationBatch, DeliveryTicket
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    original_create_key = provider.create_access_key
+
+    def create_key_and_switch_claim(identity):
+        issued = original_create_key(identity)
+        ApplicationBatch.objects.filter(pk=batch.pk).update(
+            running_task_id="replacement-worker",
+            owner_token="replacement-owner-token",
+        )
+        return issued
+
+    provider.create_access_key = create_key_and_switch_claim
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    with pytest.raises(applications.StaleApplicationClaim):
+        applications.execute_application_batch(batch.pk, execution_key="stale-worker")
+
+    batch.refresh_from_db()
+    assert provider.deleted_keys == ["LTAI-batch-key-1"]
+    assert provider.cloud_keys == []
+    assert AccessKey.objects.count() == 0
+    assert batch.issued_access_key_id is None
+    assert not DeliveryTicket.objects.filter(application_batch=batch).exists()
+
+
+def test_stale_key_cleanup_failure_marks_manual_without_deleting_other_key(
+    batch_context, monkeypatch
+):
+    from object_storage.models import (
+        AccessKey,
+        ApplicationBatch,
+        ApplicationItem,
+        AuditEvent,
+        DeliveryTicket,
+    )
+    from object_storage.services import applications
+    from object_storage.services.credentials import fingerprint_access_key
+
+    _user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    original_create_key = provider.create_access_key
+    existing_key = SimpleNamespace(
+        access_key_id="LTAI-existing-key",
+        secret_access_key="existing-secret",
+        request_id="existing-request",
+    )
+
+    def create_key_and_switch_claim(identity):
+        issued = original_create_key(identity)
+        provider.cloud_keys.append(existing_key)
+        ApplicationBatch.objects.filter(pk=batch.pk).update(
+            running_task_id="replacement-worker",
+            owner_token="replacement-owner-token",
+        )
+        return issued
+
+    def fail_exact_delete(key):
+        provider.calls.append(("delete_key", key.access_key_id))
+        raise RuntimeError("delete result unknown")
+
+    provider.create_access_key = create_key_and_switch_claim
+    provider.delete_access_key = fail_exact_delete
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    with pytest.raises(applications.StaleApplicationClaim):
+        applications.execute_application_batch(batch.pk, execution_key="stale-worker")
+
+    batch.refresh_from_db()
+    item = batch.items.get()
+    audit = AuditEvent.objects.get(
+        action="storage.application.stale_claim_key_cleanup_uncertain"
+    )
+    assert batch.status == ApplicationBatch.Status.MANUAL_REQUIRED
+    assert batch.error_code == "STALE_CLAIM_KEY_CLEANUP_UNCERTAIN"
+    assert batch.running_task_id == ""
+    assert batch.owner_token == ""
+    assert item.status == ApplicationItem.Status.MANUAL_REQUIRED
+    assert item.error_code == "STALE_CLAIM_KEY_CLEANUP_UNCERTAIN"
+    assert provider.calls.count(("delete_key", "LTAI-batch-key-1")) == 1
+    assert [key.access_key_id for key in provider.cloud_keys] == [
+        "LTAI-batch-key-1",
+        existing_key.access_key_id,
+    ]
+    assert AccessKey.objects.count() == 0
+    assert not DeliveryTicket.objects.filter(application_batch=batch).exists()
+    assert audit.safe_metadata == {
+        "application_id": batch.pk,
+        "error_code": "STALE_CLAIM_KEY_CLEANUP_UNCERTAIN",
+        "fingerprint": fingerprint_access_key("LTAI-batch-key-1"),
+        "last_four": "ey-1",
+    }
+
+
 def test_unexpired_running_lease_is_still_a_worker_noop(batch_context, monkeypatch):
     from datetime import timedelta
 
