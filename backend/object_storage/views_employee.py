@@ -31,7 +31,6 @@ from object_storage.serializers import (
     BucketActionSerializer,
     BucketEmployeeSerializer,
     CloudIdentityEmployeeSerializer,
-    DeliveryTokenSerializer,
     KeyActionSerializer,
 )
 from object_storage.services.applications import (
@@ -45,9 +44,9 @@ from object_storage.services.credentials import (
     CredentialRotationError,
     consume_delivery_token,
     create_delivery_ticket,
-    digest_delivery_token,
     disable_access_key,
     enable_access_key,
+    get_ephemeral_delivery_token,
     revoke_access_key,
     rotate_access_key_for_actor,
 )
@@ -480,8 +479,11 @@ class EmployeeCredentialDeliveryView(NoStoreEmployeeMutationAPIView):
     idempotency_sensitive = True
 
     def post(self, request, key_id):
-        serializer = DeliveryTokenSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if request.data:
+            return _error(
+                "DELIVERY_REQUEST_BODY_UNSUPPORTED",
+                status.HTTP_400_BAD_REQUEST,
+            )
         key = get_object_or_404(
             AccessKey.objects.select_related("cloud_identity"),
             pk=key_id,
@@ -490,13 +492,25 @@ class EmployeeCredentialDeliveryView(NoStoreEmployeeMutationAPIView):
         ticket = DeliveryTicket.objects.filter(
             access_key=key,
             user=request.user,
-            token_digest=digest_delivery_token(serializer.validated_data["token"]),
+            status=DeliveryTicket.Status.READY,
         ).first()
         if ticket is None:
-            return _error("DELIVERY_TOKEN_INVALID", status.HTTP_404_NOT_FOUND)
+            consumed = DeliveryTicket.objects.filter(
+                access_key=key,
+                user=request.user,
+                status=DeliveryTicket.Status.CONSUMED,
+            ).exists()
+            error_code = (
+                "DELIVERY_TOKEN_CONSUMED" if consumed else "DELIVERY_TOKEN_UNAVAILABLE"
+            )
+            return _error(error_code, status.HTTP_409_CONFLICT)
         try:
+            raw_token = get_ephemeral_delivery_token(
+                application_batch=ticket.application_batch,
+                user=request.user,
+            )
             secret = consume_delivery_token(
-                raw_token=serializer.validated_data["token"],
+                raw_token=raw_token,
                 user=request.user,
                 application_batch=ticket.application_batch,
             )

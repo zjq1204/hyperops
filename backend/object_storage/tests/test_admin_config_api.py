@@ -136,11 +136,40 @@ def test_feishu_enable_requires_validated_complete_platform_config(admin_client)
     )
 
     assert incomplete.status_code == 400
-    assert _payload(incomplete)["field_errors"]["enabled"] == [
-        "FEISHU_CONFIG_NOT_VALIDATED"
-    ]
+    assert _payload(incomplete)["field_errors"]["enabled"] == ["VALIDATION_REQUIRED"]
     assert enabled.status_code == 200
     assert _payload(enabled)["enabled"] is True
+
+
+def test_feishu_connection_change_cannot_remain_enabled(admin_client):
+    from django.contrib.auth.models import Group
+    from object_storage.models import PlatformFeishuConfig
+
+    client, _admin = admin_client
+    group = Group.objects.create(name="Enabled Feishu Users")
+    config = PlatformFeishuConfig.objects.create(
+        singleton_key="default",
+        app_id="cli_validated",
+        app_secret_encrypted="encrypted-secret",
+        oauth_callback_url="https://example.test/feishu/callback",
+        access_group=group,
+        validation_status=PlatformFeishuConfig.ValidationStatus.VALID,
+        enabled=True,
+    )
+
+    response = client.patch(
+        "/api/v1/object-storage/management/feishu-settings/",
+        {"app_id": "cli_changed", "enabled": True},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="feishu-change-while-enabled",
+    )
+
+    config.refresh_from_db()
+    assert response.status_code == 400
+    assert _payload(response)["field_errors"]["enabled"] == ["VALIDATION_REQUIRED"]
+    assert config.app_id == "cli_validated"
+    assert config.validation_status == PlatformFeishuConfig.ValidationStatus.VALID
+    assert config.enabled is True
 
 
 def test_resource_pool_connection_validation_never_returns_provider_exception(

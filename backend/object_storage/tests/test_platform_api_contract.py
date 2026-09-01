@@ -148,7 +148,7 @@ def test_idempotency_in_progress_fails_closed(admin_client, settings, monkeypatc
 
 
 def test_sensitive_idempotency_never_persists_response_body(
-    admin_client, cloud_identity_factory, access_key_factory
+    admin_client, cloud_identity_factory, access_key_factory, monkeypatch
 ):
     from object_storage.models import ApiIdempotencyRecord
 
@@ -157,14 +157,79 @@ def test_sensitive_idempotency_never_persists_response_body(
     key.access_key_id_encrypted = encrypt_secret("LTAI-contract-reveal")
     key.secret_access_key_encrypted = encrypt_secret("contract-reveal-secret")
     key.save(update_fields=("access_key_id_encrypted", "secret_access_key_encrypted"))
+    calls = []
+
+    def reveal(**kwargs):
+        calls.append(kwargs)
+        return {
+            "access_key_id": "LTAI-contract-reveal",
+            "secret_access_key": "contract-reveal-secret",
+        }
+
+    monkeypatch.setattr("object_storage.views_admin.reveal_access_key", reveal)
+    url = f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/"
     response = client.post(
-        f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/",
+        url,
         {"reason": "incident investigation"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-reveal-1",
+    )
+    replay = client.post(
+        url,
+        {"reason": "incident investigation"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-reveal-1",
+    )
+    reused = client.post(
+        url,
+        {"reason": "different investigation"},
         content_type="application/json",
         HTTP_IDEMPOTENCY_KEY="sensitive-reveal-1",
     )
 
     assert response.status_code == 200
-    assert not ApiIdempotencyRecord.objects.filter(
-        actor=admin, idempotency_key="sensitive-reveal-1", response_body__isnull=False
-    ).exists()
+    assert replay.status_code == 409
+    assert replay.json()["data"]["error_code"] == ("IDEMPOTENCY_RESULT_NOT_REPLAYABLE")
+    assert reused.status_code == 409
+    assert reused.json()["data"]["error_code"] == "IDEMPOTENCY_KEY_REUSED"
+    assert len(calls) == 1
+    record = ApiIdempotencyRecord.objects.get(
+        actor=admin, idempotency_key="sensitive-reveal-1"
+    )
+    assert record.status == ApiIdempotencyRecord.Status.COMPLETED
+    assert record.response_body is None
+    assert "contract-reveal-secret" not in str(record.__dict__)
+
+
+def test_sensitive_idempotency_in_progress_fails_closed(
+    admin_client, cloud_identity_factory, access_key_factory, monkeypatch
+):
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    key = access_key_factory(cloud_identity=cloud_identity_factory())
+    body = '{"reason":"incident investigation"}'
+    url = f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/"
+    ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope=f"POST:{url}",
+        idempotency_key="sensitive-in-progress",
+        payload_digest=hashlib.sha256(body.encode()).hexdigest(),
+    )
+    calls = []
+    monkeypatch.setattr(
+        "object_storage.views_admin.reveal_access_key",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    response = client.post(
+        url,
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-in-progress",
+    )
+
+    assert response.status_code == 409
+    assert response.json()["data"]["error_code"] == "IDEMPOTENCY_IN_PROGRESS"
+    assert response["Cache-Control"] == "no-store"
+    assert calls == []

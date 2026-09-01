@@ -173,10 +173,6 @@ class ApplicationBatchCreateSerializer(serializers.Serializer):
         return attrs
 
 
-class DeliveryTokenSerializer(serializers.Serializer):
-    token = serializers.CharField(trim_whitespace=False, max_length=256)
-
-
 class BucketActionSerializer(serializers.Serializer):
     bucket_name = serializers.CharField(max_length=63)
     confirmed = serializers.BooleanField()

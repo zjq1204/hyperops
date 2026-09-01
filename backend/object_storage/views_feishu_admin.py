@@ -53,9 +53,15 @@ def _record_failure(request, error_code):
     )
 
 
-class FeishuSyncPreviewView(RequireIdempotencyKeyMixin, APIView):
+class FeishuSyncMutationView(RequireIdempotencyKeyMixin, APIView):
     permission_classes = [HasObjectStorageAdminAccess]
     idempotency_sensitive = True
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        return _no_store(super().finalize_response(request, response, *args, **kwargs))
+
+
+class FeishuSyncPreviewView(FeishuSyncMutationView):
 
     def post(self, request):
         if _has_legacy_scope_params(request):
@@ -78,9 +84,7 @@ class FeishuSyncPreviewView(RequireIdempotencyKeyMixin, APIView):
         return _no_store(Response(payload))
 
 
-class FeishuSyncConfirmView(RequireIdempotencyKeyMixin, APIView):
-    permission_classes = [HasObjectStorageAdminAccess]
-    idempotency_sensitive = True
+class FeishuSyncConfirmView(FeishuSyncMutationView):
 
     def post(self, request):
         if _has_legacy_scope_params(request):

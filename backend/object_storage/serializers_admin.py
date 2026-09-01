@@ -105,6 +105,13 @@ class PlatformFeishuConfigAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         instance = self.instance
         enabled = attrs.get("enabled", instance.enabled if instance else False)
+        connection_changed = bool(attrs.get("app_secret")) or any(
+            field in attrs
+            and (instance is None or attrs[field] != getattr(instance, field))
+            for field in ("app_id", "oauth_callback_url")
+        )
+        if enabled and connection_changed:
+            raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
         if enabled:
             app_id = attrs.get("app_id", instance.app_id if instance else "")
             secret = attrs.get(

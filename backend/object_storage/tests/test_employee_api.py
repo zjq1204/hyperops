@@ -198,61 +198,99 @@ def test_single_key_actions_are_owner_scoped_and_require_idempotency(
 
 def test_delivery_token_and_consume_are_no_store(
     employee_context,
-    application_batch_factory,
-    cloud_identity_factory,
-    access_key_factory,
+    monkeypatch,
 ):
     from object_storage.models import ApiIdempotencyRecord, DeliveryTicket
-    from object_storage.crypto import encrypt_secret
-    from object_storage.services.credentials import digest_delivery_token
-    from django.core.cache import cache
-    from django.utils import timezone
-    from datetime import timedelta
+    from object_storage.services import applications
+    from object_storage.services.applications import create_application_batch
+    from object_storage.services.naming import render_bucket_name
+    from object_storage.tests.test_application_service import FakeProvider
 
     client, user, pool, config = employee_context
-    identity = cloud_identity_factory(user=user, resource_pool=pool)
-    key = access_key_factory(cloud_identity=identity)
-    key.access_key_id_encrypted = encrypt_secret("LTAI-delivered")
-    key.secret_access_key_encrypted = encrypt_secret("delivered-secret")
-    key.save(update_fields=("access_key_id_encrypted", "secret_access_key_encrypted"))
-    batch = application_batch_factory(applicant=user, issued_access_key=key)
-    raw_token = "one-time-token"
-    ticket = DeliveryTicket.objects.create(
-        application_batch=batch,
-        access_key=key,
+    suffix = "delivery"
+    batch = create_application_batch(
         user=user,
-        token_digest=digest_delivery_token(raw_token),
-        expires_at=timezone.now() + timedelta(hours=1),
+        resource_pool=pool,
+        idempotency_key="delivery-application",
+        items=[
+            {
+                "business_name": "Delivery",
+                "project": "platform",
+                "environment": "test",
+                "purpose": "credential delivery",
+                "notes": "",
+                "initial_suffix": suffix,
+                "rendered_bucket_name": render_bucket_name(
+                    template=config.naming_template,
+                    prefix="hyperops",
+                    user=user.get_username(),
+                    business_name="Delivery",
+                    project="platform",
+                    environment="test",
+                    purpose="credential delivery",
+                    suffix=suffix,
+                ),
+            }
+        ],
+        enqueue=False,
     )
-    cache.set(f"object-storage:delivery-token:v3:{ticket.pk}", raw_token, 3600)
-    newer_batch = application_batch_factory(applicant=user, issued_access_key=key)
-    DeliveryTicket.objects.create(
-        application_batch=newer_batch,
-        access_key=key,
-        user=user,
-        token_digest=digest_delivery_token("different-token"),
-        expires_at=timezone.now() + timedelta(hours=1),
+    monkeypatch.setattr(
+        applications, "get_provider_for_pool", lambda _pool: FakeProvider()
     )
+    applications.execute_application_batch(batch.pk, execution_key="delivery:0")
+    batch.refresh_from_db()
+    key = batch.issued_access_key
+    ticket = DeliveryTicket.objects.get(application_batch=batch)
 
-    old_token_endpoint = client.get(
-        f"/api/v1/object-storage/workspace/applications/{batch.id}/delivery-token/"
+    raw_token_rejected = client.post(
+        f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
+        {"token": "client-supplied-token"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="client-token-rejected",
     )
     consumed = client.post(
         f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
-        {"token": "one-time-token"},
+        {},
         content_type="application/json",
         HTTP_IDEMPOTENCY_KEY="consume-token-1",
     )
+    same_request = client.post(
+        f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="consume-token-1",
+    )
+    consumed_again = client.post(
+        f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="consume-token-2",
+    )
 
-    assert old_token_endpoint.status_code == 404
+    assert raw_token_rejected.status_code == 400
+    assert _payload(raw_token_rejected)["error_code"] == (
+        "DELIVERY_REQUEST_BODY_UNSUPPORTED"
+    )
     assert consumed.status_code == 200
     assert consumed["Cache-Control"] == "no-store"
-    assert _payload(consumed)["access_key_id"]
-    assert _payload(consumed)["secret_access_key"]
-    assert not ApiIdempotencyRecord.objects.filter(
-        idempotency_key="consume-token-1"
-    ).exists()
-    assert config.singleton_key == "default"
+    assert _payload(consumed)["access_key_id"] == "LTAI-batch-key-1"
+    assert _payload(consumed)["secret_access_key"] == "employee-secret"
+    assert same_request.status_code == 409
+    assert _payload(same_request)["error_code"] == ("IDEMPOTENCY_RESULT_NOT_REPLAYABLE")
+    assert consumed_again.status_code in (400, 409)
+    assert _payload(consumed_again)["error_code"] in {
+        "DELIVERY_TOKEN_CONSUMED",
+        "DELIVERY_TOKEN_UNAVAILABLE",
+    }
+    record = ApiIdempotencyRecord.objects.get(
+        actor=user, idempotency_key="consume-token-1"
+    )
+    assert record.status == ApiIdempotencyRecord.Status.COMPLETED
+    assert record.response_body is None
+    assert "employee-secret" not in str(record.__dict__)
+    ticket.refresh_from_db()
+    assert ticket.status == DeliveryTicket.Status.CONSUMED
+    assert ticket.attempt_count == 1
 
 
 def test_delivery_rejects_cross_user_key_and_legacy_no_id_endpoint(
@@ -265,13 +303,13 @@ def test_delivery_rejects_cross_user_key_and_legacy_no_id_endpoint(
 
     response = client.post(
         "/api/v1/object-storage/workspace/credentials/deliver/",
-        {"token": "token"},
+        {},
         content_type="application/json",
         HTTP_IDEMPOTENCY_KEY="legacy-delivery-endpoint",
     )
     cross_user = client.post(
         f"/api/v1/object-storage/workspace/credentials/{key.id}/deliver/",
-        {"token": "token"},
+        {},
         content_type="application/json",
         HTTP_IDEMPOTENCY_KEY="cross-user-delivery",
     )

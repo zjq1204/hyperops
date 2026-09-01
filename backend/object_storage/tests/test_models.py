@@ -5,7 +5,7 @@ from django.db.models import CASCADE, PROTECT, SET_NULL
 from django.db.models.deletion import ProtectedError
 
 pytestmark = pytest.mark.django_db
-CURRENT_LEAF = ("object_storage", "0017_api_idempotency_record")
+CURRENT_LEAF = ("object_storage", "0018_api_idempotency_actor_cascade")
 
 
 def test_platform_migration_depends_on_linear_feishu_migration_chain():
@@ -569,6 +569,25 @@ def test_user_with_cloud_resources_cannot_be_deleted(bucket_factory):
 
     with pytest.raises(ProtectedError):
         bucket.owner.delete()
+
+
+def test_user_with_only_api_idempotency_records_can_be_deleted(django_user_model):
+    from django.db.models import CASCADE
+    from object_storage.models import ApiIdempotencyRecord
+
+    user = django_user_model.objects.create_user(username="idempotency-only-user")
+    record = ApiIdempotencyRecord.objects.create(
+        actor=user,
+        scope="POST:/api/v1/object-storage/test/",
+        idempotency_key="delete-user-record",
+        payload_digest="0" * 64,
+        status=ApiIdempotencyRecord.Status.COMPLETED,
+    )
+
+    assert record._meta.get_field("actor").remote_field.on_delete is CASCADE
+    user.delete()
+
+    assert not ApiIdempotencyRecord.objects.filter(pk=record.pk).exists()
 
 
 def test_feishu_identity_is_removed_with_resource_free_user(feishu_identity_factory):

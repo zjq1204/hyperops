@@ -28,7 +28,7 @@ class ApiIdempotencyRecord(TimestampedModel):
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="object_storage_api_idempotency_records",
     )
     scope = models.CharField(max_length=512)

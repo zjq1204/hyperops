@@ -46,6 +46,12 @@ class IdempotencyInProgress(APIException):
     default_code = "IDEMPOTENCY_IN_PROGRESS"
 
 
+class IdempotencyResultNotReplayable(APIException):
+    status_code = 409
+    default_detail = "The completed sensitive result cannot be replayed"
+    default_code = "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+
+
 def has_object_storage_admin_access(user):
     """Require an explicit object-storage feature, never Django staff status."""
 
@@ -172,9 +178,11 @@ class RequireIdempotencyKeyMixin:
 
     def _complete_idempotency(self, request, response):
         record = getattr(request, "_object_storage_idempotency_record", None)
-        if record is None or self.idempotency_sensitive:
+        if record is None:
             return
-        body = json.loads(json.dumps(response.data, default=str))
+        body = None
+        if not self.idempotency_sensitive:
+            body = json.loads(json.dumps(response.data, default=str))
         ApiIdempotencyRecord.objects.filter(pk=record.pk).update(
             status=ApiIdempotencyRecord.Status.COMPLETED,
             response_status=response.status_code,
@@ -196,9 +204,11 @@ class RequireIdempotencyKeyMixin:
                 )
             else:
                 handler = self.http_method_not_allowed
-            if payload_digest is not None and not self.idempotency_sensitive:
+            if payload_digest is not None:
                 record = self._lookup_or_create_idempotency(request, payload_digest)
                 if record.status == ApiIdempotencyRecord.Status.COMPLETED:
+                    if self.idempotency_sensitive:
+                        raise IdempotencyResultNotReplayable()
                     response = Response(
                         record.response_body,
                         status=record.response_status,

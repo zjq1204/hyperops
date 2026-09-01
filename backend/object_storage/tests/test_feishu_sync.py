@@ -1,7 +1,10 @@
+import itertools
+
 import pytest
 from django.core.cache import cache
 
 pytestmark = pytest.mark.django_db
+FEISHU_REQUEST_SEQUENCE = itertools.count(1)
 
 
 class FakeFeishuSyncClient:
@@ -98,7 +101,7 @@ def _payload(response):
     return body.get("data", body)
 
 
-def _preview(client, monkeypatch, identities=None, error=None):
+def _preview(client, monkeypatch, identities=None, error=None, idempotency_key=None):
     from object_storage import views_feishu_admin
 
     monkeypatch.setattr(
@@ -110,6 +113,9 @@ def _preview(client, monkeypatch, identities=None, error=None):
         "/api/v1/object-storage/management/feishu/sync/preview/",
         {},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY=(
+            idempotency_key or f"feishu-preview-{next(FEISHU_REQUEST_SEQUENCE)}"
+        ),
     )
 
 
@@ -264,11 +270,13 @@ def test_confirm_only_updates_existing_identities_and_marks_missing_outside_scop
         "/api/v1/object-storage/management/feishu/sync/confirm/",
         {"confirmation_token": token},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sync-missing-business-key",
     )
     response = client.post(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
         {"confirmation_token": token, "idempotency_key": "sync-1"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sync-confirm-1",
     )
 
     existing.refresh_from_db()
@@ -563,11 +571,13 @@ def test_confirm_token_is_single_use_and_idempotency_is_required(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
         {"confirmation_token": token, "idempotency_key": "sync-replay"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sync-consume-first",
     )
     replay = client.post(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
         {"confirmation_token": token, "idempotency_key": "sync-replay-2"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sync-consume-second",
     )
 
     assert first.status_code == 200
@@ -587,6 +597,7 @@ def test_consumed_token_is_still_rejected_after_31_seconds(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
         {"confirmation_token": token, "idempotency_key": "first-key"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sync-delayed-first",
     )
     current_time = base.time.time()
     monkeypatch.setattr(base.time, "time", lambda: current_time + 31)
@@ -595,6 +606,7 @@ def test_consumed_token_is_still_rejected_after_31_seconds(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
         {"confirmation_token": token, "idempotency_key": "second-key"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sync-delayed-second",
     )
 
     assert first.status_code == 200
@@ -662,6 +674,7 @@ def test_same_idempotency_key_rejects_a_different_preview_snapshot(
             "idempotency_key": "same-key",
         },
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="snapshot-confirm-first",
     )
     second_response = client.post(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
@@ -670,6 +683,7 @@ def test_same_idempotency_key_rejects_a_different_preview_snapshot(
             "idempotency_key": "same-key",
         },
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="snapshot-confirm-second",
     )
 
     assert first_response.status_code == 200
@@ -697,8 +711,82 @@ def test_same_idempotency_key_and_snapshot_returns_the_original_result(
     )
 
     assert first.status_code == 200
-    assert replay.status_code == 200
-    assert _payload(replay) == _payload(first)
+    assert replay.status_code == 409
+    assert _payload(replay)["error_code"] == "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+
+
+def test_sensitive_sync_idempotency_claims_without_persisting_payloads(
+    client, feishu_config, platform_admin, monkeypatch
+):
+    from object_storage import views_feishu_admin
+    from object_storage.models import ApiIdempotencyRecord
+
+    client.force_login(platform_admin)
+    sync_client = FakeFeishuSyncClient([])
+    provider_calls = []
+
+    def get_client():
+        provider_calls.append("preview")
+        return sync_client
+
+    monkeypatch.setattr(views_feishu_admin, "get_feishu_client", get_client)
+    preview_url = "/api/v1/object-storage/management/feishu/sync/preview/"
+    first_preview = client.post(
+        preview_url,
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-preview",
+    )
+    replay_preview = client.post(
+        preview_url,
+        {},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-preview",
+    )
+    token = _payload(first_preview)["confirmation_token"]
+    real_confirm = views_feishu_admin.confirm_sync
+    confirm_calls = []
+
+    def confirm(**kwargs):
+        confirm_calls.append(kwargs)
+        return real_confirm(**kwargs)
+
+    monkeypatch.setattr(views_feishu_admin, "confirm_sync", confirm)
+    confirm_body = {"confirmation_token": token, "idempotency_key": "sync-business"}
+    first_confirm = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        confirm_body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-confirm",
+    )
+    replay_confirm = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        confirm_body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-confirm",
+    )
+
+    assert first_preview.status_code == 200
+    assert replay_preview.status_code == 409
+    assert replay_preview["Cache-Control"] == "no-store"
+    assert _payload(replay_preview)["error_code"] == (
+        "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+    )
+    assert provider_calls == ["preview"]
+    assert first_confirm.status_code == 200
+    assert replay_confirm.status_code == 409
+    assert replay_confirm["Cache-Control"] == "no-store"
+    assert _payload(replay_confirm)["error_code"] == (
+        "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+    )
+    assert len(confirm_calls) == 1
+    records = ApiIdempotencyRecord.objects.filter(
+        actor=platform_admin,
+        idempotency_key__in=("sensitive-preview", "sensitive-confirm"),
+    )
+    assert records.count() == 2
+    assert all(record.response_body is None for record in records)
+    assert token not in str(list(records.values()))
 
 
 def test_sync_endpoints_reject_tenant_body_and_query_parameters(
@@ -714,16 +802,19 @@ def test_sync_endpoints_reject_tenant_body_and_query_parameters(
         "/api/v1/object-storage/management/feishu/sync/preview/",
         {"tenant_code": "legacy"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="legacy-preview-body",
     )
     preview_query = client.post(
         "/api/v1/object-storage/management/feishu/sync/preview/?tenant_id=1",
         {},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="legacy-preview-query",
     )
     confirm_query = client.post(
         "/api/v1/object-storage/management/feishu/sync/confirm/?tenant=legacy",
         {"confirmation_token": "invalid", "idempotency_key": "tenant-check"},
         content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="legacy-confirm-query",
     )
 
     for response in (preview_body, preview_query, confirm_query):
