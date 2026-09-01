@@ -43,7 +43,15 @@ def _run_storage_application_batch(task, batch_id):
         retries = int(getattr(task.request, "retries", 0) or 0)
         if is_retryable_provider_error(error) and retries < MAX_PROVIDER_RETRIES:
             raise task.retry(exc=error, countdown=2 ** (retries + 1))
-        batch = mark_batch_manual_required(batch_id, error)
+        batch = mark_batch_manual_required(
+            batch_id,
+            error,
+            expected_claim_version=getattr(
+                error,
+                "application_claim_version",
+                None,
+            ),
+        )
         return _batch_result(batch)
 
 
@@ -84,7 +92,11 @@ def recover_expired_application_claims():
                 batch_id,
             )
             continue
-        if not batch.running_task_id and not batch.owner_token:
+        if (
+            recovery_generation is not None
+            and not batch.running_task_id
+            and not batch.owner_token
+        ):
             recovered_count += 1
             recovered_batches.append((batch_id, recovery_generation))
     for batch_id, recovery_generation in recovered_batches:

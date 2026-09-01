@@ -488,6 +488,72 @@ def test_expired_running_lease_has_explicit_recovery_path(batch_context, monkeyp
     assert result.running_task_id == ""
 
 
+def test_claim_recovery_returns_no_generation_when_claim_is_still_active(
+    batch_context,
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+    claimed_batch, claimed, owner_token = applications._claim_batch(
+        batch.pk,
+        "active-worker",
+    )
+    assert claimed is True
+    claimed_batch.run_lease_until = timezone.now() + timedelta(minutes=1)
+    claimed_batch.save(update_fields=("run_lease_until",))
+
+    recovered, recovery_generation = applications.recover_expired_application_claim(
+        batch.pk,
+        now=timezone.now(),
+    )
+
+    assert recovered.pk == batch.pk
+    assert recovered.owner_token == owner_token
+    assert recovery_generation is None
+
+
+def test_stale_final_failure_cannot_overwrite_replacement_claim(batch_context):
+    from object_storage.models import ApplicationBatch, ApplicationItem
+    from object_storage.services import applications
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    _user, _pool, create = batch_context
+    batch = create()
+    old_claim, claimed, old_owner_token = applications._claim_batch(
+        batch.pk,
+        "old-worker",
+    )
+    assert claimed is True
+    old_generation = old_claim.claim_version
+    assert applications._release_batch_lease(batch.pk, old_owner_token) == 1
+
+    replacement, claimed, replacement_token = applications._claim_batch(
+        batch.pk,
+        "replacement-worker",
+    )
+    assert claimed is True
+    error = ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
+
+    result = applications.mark_batch_manual_required(
+        batch.pk,
+        error,
+        expected_claim_version=old_generation,
+    )
+
+    result.refresh_from_db()
+    item = ApplicationItem.objects.get(batch=batch)
+    assert result.status == ApplicationBatch.Status.RUNNING
+    assert result.claim_version == replacement.claim_version
+    assert result.running_task_id == "replacement-worker"
+    assert result.owner_token == replacement_token
+    assert item.status == ApplicationItem.Status.PENDING
+
+
 def test_claim_recovery_moves_unstarted_items_to_waiting_retry(
     batch_context, monkeypatch
 ):

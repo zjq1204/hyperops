@@ -1344,7 +1344,7 @@ def recover_expired_application_claim(batch, *, now=None, provider=None):
             and locked_batch.run_lease_until
             and locked_batch.run_lease_until < now
         ):
-            return locked_batch
+            return locked_batch, None
         recovery_items = list(
             locked_batch.items.select_for_update().filter(
                 status__in=(
@@ -1585,6 +1585,7 @@ def execute_application_batch(batch_id, *, execution_key=""):
                 owner_token=owner_token,
             )
             if temporary:
+                error.application_claim_version = batch.claim_version
                 raise error
             return batch
 
@@ -1632,6 +1633,7 @@ def execute_application_batch(batch_id, *, execution_key=""):
         batch = refresh_batch_status(batch, owner_token=owner_token)
         batch.refresh_from_db()
         if retry_errors:
+            retry_errors[0].application_claim_version = batch.claim_version
             raise retry_errors[0]
         return batch
     finally:
@@ -1645,15 +1647,23 @@ def execute_application(application_id, *, execution_key=""):
     return execute_application_batch(application_id, execution_key=execution_key)
 
 
-def mark_batch_manual_required(batch_id, error):
-    batch = ApplicationBatch.objects.get(pk=batch_id)
-    _mark_batch_items(
-        batch,
-        error,
-        waiting=False,
-        stage=batch.current_stage or "APPLICATION_EXECUTION",
-    )
-    return batch
+def mark_batch_manual_required(batch_id, error, *, expected_claim_version):
+    with transaction.atomic():
+        batch = ApplicationBatch.objects.select_for_update().get(pk=batch_id)
+        if not (
+            expected_claim_version is not None
+            and batch.claim_version == expected_claim_version
+            and not batch.running_task_id
+            and not batch.owner_token
+        ):
+            return batch
+        _mark_batch_items(
+            batch,
+            error,
+            waiting=False,
+            stage=batch.current_stage or "APPLICATION_EXECUTION",
+        )
+        return batch
 
 
 def _cancel_manual(batch, item, error):

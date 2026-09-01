@@ -48,24 +48,26 @@ def test_transient_batch_failure_becomes_manual_after_three_retries(monkeypatch)
         request=SimpleNamespace(id="task-id", retries=3),
         retry=lambda **kwargs: retry_calls.append(kwargs),
     )
+    error = ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
+    error.application_claim_version = 7
     monkeypatch.setattr(
         tasks,
         "execute_application_batch",
-        lambda batch_id, **kwargs: (_ for _ in ()).throw(
-            ObjectStorageProviderError("PROVIDER_TIMEOUT", retryable=True)
-        ),
+        lambda batch_id, **kwargs: (_ for _ in ()).throw(error),
     )
     monkeypatch.setattr(
         tasks,
         "mark_batch_manual_required",
-        lambda batch_id, error: manual_calls.append((batch_id, error.error_code))
+        lambda batch_id, error, expected_claim_version: manual_calls.append(
+            (batch_id, error.error_code, expected_claim_version)
+        )
         or _batch(batch_id, "manual_required"),
     )
 
     result = tasks._run_storage_application_batch(runner, 10)
 
     assert retry_calls == []
-    assert manual_calls == [(10, "PROVIDER_TIMEOUT")]
+    assert manual_calls == [(10, "PROVIDER_TIMEOUT", 7)]
     assert result == {
         "batch_id": 10,
         "status": "manual_required",
@@ -98,14 +100,16 @@ def test_permanent_batch_failure_does_not_retry(monkeypatch):
     monkeypatch.setattr(
         tasks,
         "mark_batch_manual_required",
-        lambda batch_id, error: manual_calls.append((batch_id, error.error_code))
+        lambda batch_id, error, expected_claim_version: manual_calls.append(
+            (batch_id, error.error_code, expected_claim_version)
+        )
         or _batch(batch_id, "manual_required"),
     )
 
     result = tasks._run_storage_application_batch(runner, 10)
 
     assert retry_calls == []
-    assert manual_calls == [(10, "PROVIDER_PERMISSION_DENIED")]
+    assert manual_calls == [(10, "PROVIDER_PERMISSION_DENIED", None)]
     assert result["status"] == "manual_required"
 
 
