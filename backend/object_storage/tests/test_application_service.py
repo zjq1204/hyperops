@@ -937,6 +937,64 @@ def test_application_worker_cannot_supersede_active_cancel_claim(
     )
 
 
+def test_suspension_claim_blocks_interleaved_application_key_creation(
+    batch_context, user_factory, monkeypatch
+):
+    from object_storage.models import AccessKey, ApplicationBatch, CloudIdentity
+    from object_storage.services import applications
+    from object_storage.services.credentials import encrypt_issued_access_key
+    from object_storage.services.lifecycle import suspend_user_resources
+
+    user, _pool, create = batch_context
+    batch = create()
+    identity = CloudIdentity.objects.get(user=user)
+    existing = AccessKey.objects.create(
+        cloud_identity=identity,
+        local_state=AccessKey.LocalState.ACTIVE,
+        cloud_state=AccessKey.CloudState.DELETED,
+        **encrypt_issued_access_key(
+            SimpleNamespace(
+                access_key_id="LTAI-suspension-existing",
+                secret_access_key="existing-secret",
+            )
+        ),
+    )
+
+    class InterleavingSuspendProvider(FakeProvider):
+        worker_status = ""
+
+        def deactivate_access_key(self, key):
+            self.calls.append(("deactivate_key", key.access_key_id))
+            result = applications.execute_application_batch(
+                batch.pk,
+                execution_key="worker-during-suspension",
+            )
+            self.worker_status = result.status
+
+    provider = InterleavingSuspendProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    suspended = suspend_user_resources(
+        user=user,
+        actor=user_factory(is_staff=True, is_superuser=True),
+        provider=provider,
+        enqueue=False,
+        reason="security suspension",
+    )
+
+    suspended.refresh_from_db()
+    existing.refresh_from_db()
+    batch.refresh_from_db()
+    assert suspended.state == CloudIdentity.State.SUSPENDED
+    assert existing.local_state == AccessKey.LocalState.DISABLED
+    assert provider.worker_status in {
+        ApplicationBatch.Status.FAILED,
+        ApplicationBatch.Status.MANUAL_REQUIRED,
+    }
+    assert not any(call[0] == "create_key" for call in provider.calls)
+    assert suspended.credential_operation_token == ""
+
+
 def test_claim_recovery_marks_terminal_state_without_delivery_manual(
     batch_context,
 ):
@@ -1150,7 +1208,10 @@ def test_stale_key_cleanup_failure_marks_manual_without_deleting_other_key(
         "LTAI-batch-key-1",
         existing_key.access_key_id,
     ]
-    assert AccessKey.objects.count() == 0
+    retained_key = AccessKey.objects.get()
+    assert retained_key.cloud_state == AccessKey.CloudState.UNKNOWN
+    assert retained_key.local_state == AccessKey.LocalState.ERROR
+    assert retained_key.operation_token
     assert not DeliveryTicket.objects.filter(application_batch=batch).exists()
     assert audit.safe_metadata == {
         "application_id": batch.pk,

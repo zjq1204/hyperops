@@ -58,6 +58,13 @@ class LifecycleProvider:
         self.configuration_options.append(kwargs)
         return SimpleNamespace(request_id="config-request")
 
+    def get_bucket_configuration(self, bucket):
+        self.calls.append(("read-configuration", bucket.name))
+        snapshot = bucket.applied_config_snapshot or bucket.desired_config_snapshot
+        from object_storage.providers.base import BucketConfiguration
+
+        return BucketConfiguration.from_snapshot(snapshot)
+
     def deactivate_access_key(self, key):
         self.calls.append(("disable-key", key.pk))
 
@@ -441,11 +448,11 @@ def test_expired_bucket_configuration_claim_fails_closed_after_reconciliation(
     recover_expired_bucket_configuration_claim(bucket.pk, provider=provider)
 
     bucket.refresh_from_db()
-    assert provider.calls == [("find", bucket.name)]
+    assert provider.calls == [("read-configuration", bucket.name)]
     assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
-    assert bucket.config_error_code == "BUCKET_CONFIGURATION_CLAIM_EXPIRED"
-    assert bucket.configuration_operation_token == ""
-    assert bucket.configuration_operation_lease_until is None
+    assert bucket.config_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.configuration_operation_token == "expired-config-token"
+    assert bucket.configuration_operation_lease_until is not None
 
 
 def test_expired_release_claim_reconciles_without_replaying_cloud_mutation(
@@ -478,9 +485,9 @@ def test_expired_release_claim_reconciles_without_replaying_cloud_mutation(
     bucket.refresh_from_db()
     assert provider.calls == [("find", bucket.name), ("inspect", bucket.name)]
     assert bucket.state == Bucket.State.DELETION_BLOCKED
-    assert bucket.deletion_error_code == "BUCKET_ACTION_CLAIM_EXPIRED"
-    assert bucket.action_owner_token == ""
-    assert bucket.action_lease_until is None
+    assert bucket.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.action_owner_token == "expired-release-token"
+    assert bucket.action_lease_until is not None
     assert not any(call[0] in {"policy", "delete"} for call in provider.calls)
 
 
@@ -519,9 +526,328 @@ def test_expired_delete_claim_fails_closed_when_ownership_is_uncertain(
     bucket.refresh_from_db()
     assert provider.calls == [("find", bucket.name)]
     assert bucket.state == Bucket.State.DELETION_BLOCKED
-    assert bucket.deletion_error_code == "BUCKET_ACTION_CLAIM_EXPIRED"
-    assert bucket.action_owner_token == ""
-    assert bucket.action_lease_until is None
+    assert bucket.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.action_owner_token == "expired-delete-token"
+    assert bucket.action_lease_until is not None
+
+
+def test_frozen_bucket_claims_reject_normal_mutations(bucket_factory, user_factory):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        BucketConfigurationError,
+        LifecycleError,
+        delete_bucket,
+        update_bucket_configuration,
+    )
+
+    actor = _feature_admin(user_factory)
+    config_bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    config_bucket.config_state = Bucket.ConfigurationState.UNKNOWN
+    config_bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    config_bucket.configuration_operation_token = "frozen-config-token"
+    config_bucket.save(
+        update_fields=(
+            "config_state",
+            "config_error_code",
+            "configuration_operation_token",
+            "updated_at",
+        )
+    )
+    action_bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    action_bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    action_bucket.action_owner_token = "frozen-action-token"
+    action_bucket.action_type = "delete"
+    action_bucket.save(
+        update_fields=(
+            "state",
+            "deletion_error_code",
+            "action_owner_token",
+            "action_type",
+            "updated_at",
+        )
+    )
+    expired_config_bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    expired_config_bucket.configuration_operation_token = "expired-config-token"
+    expired_config_bucket.configuration_operation_lease_until = (
+        timezone.now() - timedelta(seconds=1)
+    )
+    expired_config_bucket.save(
+        update_fields=(
+            "configuration_operation_token",
+            "configuration_operation_lease_until",
+            "updated_at",
+        )
+    )
+    provider = LifecycleProvider()
+
+    with pytest.raises(
+        BucketConfigurationError, match="MANUAL_RECONCILIATION_REQUIRED"
+    ):
+        update_bucket_configuration(
+            bucket=config_bucket,
+            actor=actor,
+            desired={"acl": "private"},
+            provider=provider,
+            enqueue=False,
+        )
+    with pytest.raises(
+        BucketConfigurationError, match="MANUAL_RECONCILIATION_REQUIRED"
+    ):
+        update_bucket_configuration(
+            bucket=expired_config_bucket,
+            actor=actor,
+            desired={"acl": "private", "versioning": True},
+            provider=provider,
+            enqueue=False,
+        )
+    with pytest.raises(LifecycleError, match="MANUAL_RECONCILIATION_REQUIRED"):
+        delete_bucket(
+            bucket=action_bucket,
+            actor=actor,
+            reason="confirmed after incident",
+            bucket_name=action_bucket.name,
+            confirmed=True,
+            immediate=True,
+            provider=provider,
+        )
+
+    assert provider.calls == []
+
+
+def test_explicit_bucket_configuration_reconciliation_unfreezes_exact_match(
+    bucket_factory, user_factory
+):
+    from object_storage.models import AuditEvent, Bucket
+    from object_storage.services.lifecycle import (
+        reconcile_bucket_configuration_uncertainty,
+    )
+
+    desired = {
+        "acl": "private",
+        "storage_class": "Standard",
+        "encryption": "AES256",
+        "versioning": False,
+        "lifecycle": {},
+    }
+    bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    bucket.desired_config_snapshot = desired
+    bucket.applied_config_snapshot = {}
+    bucket.config_state = Bucket.ConfigurationState.UNKNOWN
+    bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.configuration_operation_token = "frozen-config-token"
+    bucket.save(
+        update_fields=(
+            "desired_config_snapshot",
+            "applied_config_snapshot",
+            "config_state",
+            "config_error_code",
+            "configuration_operation_token",
+            "updated_at",
+        )
+    )
+    provider = LifecycleProvider()
+
+    reconciled = reconcile_bucket_configuration_uncertainty(
+        bucket=bucket,
+        actor=_feature_admin(user_factory),
+        provider=provider,
+        reason="provider request confirmed complete",
+    )
+
+    assert reconciled.config_state == Bucket.ConfigurationState.APPLIED
+    assert reconciled.applied_config_snapshot == desired
+    assert reconciled.configuration_operation_token == ""
+    assert AuditEvent.objects.filter(
+        action="storage.bucket.configuration.reconciled",
+        target_id=str(bucket.pk),
+        reason="provider request confirmed complete",
+    ).exists()
+
+
+def test_bucket_configuration_manual_acknowledgement_requires_reason_and_audits(
+    bucket_factory, user_factory
+):
+    from object_storage.models import AuditEvent, Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        acknowledge_bucket_configuration_uncertainty,
+    )
+
+    desired = {"acl": "private"}
+    bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    bucket.desired_config_snapshot = desired
+    bucket.config_state = Bucket.ConfigurationState.UNKNOWN
+    bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.configuration_operation_token = "frozen-config-token"
+    bucket.save(
+        update_fields=(
+            "desired_config_snapshot",
+            "config_state",
+            "config_error_code",
+            "configuration_operation_token",
+            "updated_at",
+        )
+    )
+    actor = _feature_admin(user_factory)
+
+    with pytest.raises(LifecycleError, match="RECONCILIATION_REASON_REQUIRED"):
+        acknowledge_bucket_configuration_uncertainty(
+            bucket=bucket,
+            actor=actor,
+            reason="",
+            resolved_snapshot=desired,
+        )
+
+    acknowledged = acknowledge_bucket_configuration_uncertainty(
+        bucket=bucket,
+        actor=actor,
+        reason="cloud request verified outside platform",
+        resolved_snapshot=desired,
+    )
+
+    assert acknowledged.configuration_operation_token == ""
+    assert acknowledged.config_state == Bucket.ConfigurationState.APPLIED
+    assert AuditEvent.objects.filter(
+        action="storage.bucket.configuration.acknowledged",
+        target_id=str(bucket.pk),
+        reason="cloud request verified outside platform",
+    ).exists()
+
+
+def test_explicit_bucket_lifecycle_reconciliation_only_finalizes_absence(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import reconcile_bucket_action_uncertainty
+
+    bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.action_owner_token = "frozen-delete-token"
+    bucket.action_type = "delete"
+    bucket.save(
+        update_fields=(
+            "state",
+            "deletion_error_code",
+            "action_owner_token",
+            "action_type",
+            "updated_at",
+        )
+    )
+
+    class AbsentProvider(LifecycleProvider):
+        def find_owned_bucket(self, selected):
+            self.calls.append(("find", selected.name))
+            return SimpleNamespace(exists=False, owned=False, marker="")
+
+    reconciled = reconcile_bucket_action_uncertainty(
+        bucket=bucket,
+        actor=_feature_admin(user_factory),
+        provider=AbsentProvider(),
+        reason="provider confirms bucket absent",
+    )
+
+    assert reconciled.state == Bucket.State.RELEASED
+    assert reconciled.action_owner_token == ""
+    assert reconciled.deletion_error_code == ""
+
+
+def test_late_bucket_configuration_result_cannot_overwrite_expiry_freeze(
+    bucket_factory, user_factory, monkeypatch
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        _apply_bucket_configuration,
+        recover_expired_bucket_configuration_claim,
+        update_bucket_configuration,
+    )
+
+    bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    actor = _feature_admin(user_factory)
+    scheduled = []
+    monkeypatch.setattr(
+        "object_storage.tasks.update_bucket_configuration_task.delay",
+        lambda bucket_id, **kwargs: scheduled.append((bucket_id, kwargs)),
+    )
+    update_bucket_configuration(
+        bucket=bucket,
+        actor=actor,
+        desired={"acl": "private", "versioning": True},
+    )
+    generation = scheduled[0][1]["configuration_generation"]
+    token = scheduled[0][1]["operation_token"]
+
+    class LateProvider(LifecycleProvider):
+        def update_bucket_configuration(self, selected, configuration, **kwargs):
+            Bucket.objects.filter(pk=selected.pk).update(
+                configuration_operation_lease_until=timezone.now()
+                - timedelta(seconds=1)
+            )
+            recover_expired_bucket_configuration_claim(
+                selected.pk,
+                provider=self,
+            )
+            self.calls.append(("late-configure", selected.name))
+            return SimpleNamespace(request_id="late-success")
+
+    provider = LateProvider()
+    _apply_bucket_configuration(
+        bucket.pk,
+        configuration_generation=generation,
+        operation_token=token,
+        provider=provider,
+        actor=actor,
+    )
+
+    bucket.refresh_from_db()
+    assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
+    assert bucket.config_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.configuration_operation_token
+    assert bucket.applied_config_snapshot != bucket.desired_config_snapshot
+
+
+def test_late_release_result_cannot_overwrite_expiry_freeze(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        recover_expired_bucket_action_claim,
+        release_bucket,
+    )
+
+    owner = user_factory()
+    bucket = bucket_factory(owner=owner, state=Bucket.State.ACTIVE)
+
+    class LateReleaseProvider(LifecycleProvider):
+        recovering = False
+
+        def inspect_bucket_emptiness(self, selected):
+            if self.recovering:
+                return super().inspect_bucket_emptiness(selected)
+            Bucket.objects.filter(pk=selected.pk).update(
+                action_lease_until=timezone.now() - timedelta(seconds=1)
+            )
+            self.recovering = True
+            try:
+                recover_expired_bucket_action_claim(selected.pk, provider=self)
+            finally:
+                self.recovering = False
+            return super().inspect_bucket_emptiness(selected)
+
+    provider = LateReleaseProvider()
+    release_bucket(
+        bucket=bucket,
+        actor=owner,
+        bucket_name=bucket.name,
+        confirmed=True,
+        provider=provider,
+        enqueue=False,
+    )
+
+    bucket.refresh_from_db()
+    assert bucket.state == Bucket.State.DELETION_BLOCKED
+    assert bucket.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.action_owner_token
+    assert not any(call[0] == "policy" for call in provider.calls)
 
 
 def test_recover_rejects_when_quota_is_full(
@@ -1184,9 +1510,12 @@ def test_suspension_schedules_async_key_disable_and_reactivation_does_not_restor
 ):
     from object_storage.models import AccessKey, CloudIdentity
     from object_storage.services.lifecycle import (
+        _disable_identity_keys,
+        LifecycleError,
         reactivate_user_resources,
         suspend_user_resources,
     )
+    from object_storage.services import credentials
 
     owner = user_factory()
     identity = cloud_identity_factory(user=owner, state=CloudIdentity.State.ACTIVE)
@@ -1205,14 +1534,93 @@ def test_suspension_schedules_async_key_disable_and_reactivation_does_not_restor
     key.refresh_from_db()
     assert identity.state == CloudIdentity.State.SUSPENDED
     assert key.local_state == AccessKey.LocalState.ACTIVE
-    assert scheduled == [(identity.pk, {"actor_id": admin.pk, "reason": ""})]
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == identity.pk
+    assert scheduled[0][1]["actor_id"] == admin.pk
+    assert scheduled[0][1]["reason"] == ""
+    assert scheduled[0][1]["operation_generation"] == 1
+    assert scheduled[0][1]["operation_token"]
 
-    key.local_state = AccessKey.LocalState.DISABLED
-    key.cloud_state = AccessKey.CloudState.INACTIVE
-    key.save(update_fields=("local_state", "cloud_state", "updated_at"))
+    with pytest.raises(LifecycleError, match="RESOURCE_OPERATION_IN_PROGRESS"):
+        reactivate_user_resources(user=owner, actor=admin)
+
+    monkeypatch.setattr(
+        credentials,
+        "provider_access_key",
+        lambda selected: SimpleNamespace(
+            pk=selected.pk,
+            cloud_identity=selected.cloud_identity,
+            access_key_id=selected.pk,
+        ),
+    )
+    _disable_identity_keys(
+        identity.pk,
+        provider=LifecycleProvider(),
+        actor=admin,
+        operation_generation=scheduled[0][1]["operation_generation"],
+        operation_token=scheduled[0][1]["operation_token"],
+    )
     reactivate_user_resources(user=owner, actor=admin)
     key.refresh_from_db()
     assert key.local_state == AccessKey.LocalState.DISABLED
+
+
+def test_completed_suspend_claim_rejects_duplicate_old_task(
+    cloud_identity_factory, access_key_factory, user_factory, monkeypatch
+):
+    from object_storage.models import AccessKey, CloudIdentity
+    from object_storage.services import credentials
+    from object_storage.services.credentials import CredentialRotationError
+    from object_storage.services.lifecycle import (
+        _disable_identity_keys,
+        suspend_user_resources,
+    )
+
+    owner = user_factory()
+    identity = cloud_identity_factory(user=owner, state=CloudIdentity.State.ACTIVE)
+    access_key_factory(
+        cloud_identity=identity,
+        local_state=AccessKey.LocalState.ACTIVE,
+    )
+    scheduled = []
+    monkeypatch.setattr(
+        "object_storage.tasks.suspend_user_resources_task.delay",
+        lambda identity_id, **kwargs: scheduled.append((identity_id, kwargs)),
+    )
+    monkeypatch.setattr(
+        credentials,
+        "provider_access_key",
+        lambda selected: SimpleNamespace(
+            pk=selected.pk,
+            cloud_identity=selected.cloud_identity,
+            access_key_id=selected.pk,
+        ),
+    )
+    admin = _admin(user_factory)
+    suspend_user_resources(user=owner, actor=admin)
+    operation = scheduled[0][1]
+    provider = LifecycleProvider()
+    _disable_identity_keys(
+        identity.pk,
+        provider=provider,
+        actor=admin,
+        operation_generation=operation["operation_generation"],
+        operation_token=operation["operation_token"],
+    )
+    first_calls = list(provider.calls)
+
+    with pytest.raises(
+        CredentialRotationError, match="CREDENTIAL_OPERATION_SUPERSEDED"
+    ):
+        _disable_identity_keys(
+            identity.pk,
+            provider=provider,
+            actor=admin,
+            operation_generation=operation["operation_generation"],
+            operation_token=operation["operation_token"],
+        )
+
+    assert provider.calls == first_calls
 
 
 def test_suspended_identity_blocks_object_storage_member_permission(

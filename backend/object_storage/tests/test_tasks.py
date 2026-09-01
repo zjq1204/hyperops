@@ -290,14 +290,21 @@ def test_resource_operation_recovery_task_scans_all_expired_claim_domains(
     result = periodic_tasks.recover_expired_resource_operations_task(now=now)
 
     orphan.refresh_from_db()
+    orphan.cloud_identity.refresh_from_db()
     assert calls == [
         ("config", config_bucket.pk),
         ("action", action_bucket.pk),
         ("credential", identity.pk),
     ]
-    assert orphan.operation_token == ""
-    assert orphan.operation_error_code == "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+    assert orphan.operation_token == "orphan-key-token"
+    assert orphan.operation_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
     assert orphan.local_state == AccessKey.LocalState.ERROR
+    assert orphan.cloud_identity.state == CloudIdentity.State.ERROR
+    assert orphan.cloud_identity.credential_operation_token == "orphan-key-token"
+    assert (
+        orphan.cloud_identity.credential_operation_error_code
+        == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    )
     assert result == {
         "bucket_configuration_count": 1,
         "bucket_action_count": 1,

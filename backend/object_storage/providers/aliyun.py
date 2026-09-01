@@ -72,6 +72,34 @@ def _lifecycle_configuration(models, snapshot):
     return models.BucketLifecycle([_lifecycle_rule(models, item) for item in rows])
 
 
+def _lifecycle_snapshot(result):
+    rules = []
+    for rule in getattr(result, "rules", None) or []:
+        item = {
+            "id": str(getattr(rule, "id", "") or ""),
+            "prefix": str(getattr(rule, "prefix", "") or ""),
+            "status": str(getattr(rule, "status", "") or "Enabled"),
+        }
+        expiration = getattr(rule, "expiration", None)
+        if expiration is not None and getattr(expiration, "days", None) is not None:
+            item["expiration_days"] = int(expiration.days)
+        abort = getattr(rule, "abort_multipart_upload", None)
+        if abort is not None and getattr(abort, "days", None) is not None:
+            item["abort_multipart_upload_days"] = int(abort.days)
+        transitions = []
+        for transition in getattr(rule, "storage_transitions", None) or []:
+            transitions.append(
+                {
+                    "days": int(transition.days),
+                    "storage_class": str(transition.storage_class),
+                }
+            )
+        if transitions:
+            item["storage_transitions"] = transitions
+        rules.append(item)
+    return {"rules": rules} if rules else {}
+
+
 class AliyunObjectStorageProvider:
     def __init__(self, *, ram_gateway, oss_gateway):
         self.ram_gateway = ram_gateway
@@ -260,6 +288,21 @@ class AliyunObjectStorageProvider:
             key.access_key_id,
         )
         return AccessKeyMutation(request_id=str(result.get("request_id") or ""))
+
+    def get_bucket_configuration(self, bucket):
+        ownership = self.find_owned_bucket(bucket)
+        if not ownership.exists:
+            raise ObjectStorageProviderError("NO_SUCH_BUCKET")
+        if not ownership.owned:
+            raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
+        result = self._call(
+            self.oss_gateway.get_bucket_configuration,
+            bucket_name=bucket.name,
+        )
+        configuration = result.get("configuration")
+        if isinstance(configuration, BucketConfiguration):
+            return configuration
+        return BucketConfiguration.from_snapshot(configuration or {})
 
     def update_bucket_configuration(
         self,
@@ -747,6 +790,37 @@ class AliyunOssGateway:
             if delete_lifecycle is not None:
                 delete_lifecycle()
         return {"request_id": str(getattr(result, "request_id", "") or "")}
+
+    def get_bucket_configuration(self, *, bucket_name):
+        bucket = self._bucket(bucket_name)
+        info = bucket.get_bucket_info()
+        lifecycle = {}
+        try:
+            lifecycle = _lifecycle_snapshot(bucket.get_bucket_lifecycle())
+        except Exception as exc:
+            if str(getattr(exc, "code", "")) != "NoSuchLifecycle":
+                raise
+        acl = str(getattr(info, "acl", "") or "").replace("-", "_")
+        if acl not in {"private", "public_read"}:
+            raise ValueError("BUCKET_ACL_STATE_UNKNOWN")
+        storage_class = str(getattr(info, "storage_class", "") or "")
+        if not storage_class:
+            raise ValueError("BUCKET_STORAGE_CLASS_STATE_UNKNOWN")
+        encryption_rule = getattr(info, "bucket_encryption_rule", None)
+        encryption = str(getattr(encryption_rule, "sse_algorithm", "") or "")
+        if encryption not in {"AES256", "KMS"}:
+            raise ValueError("BUCKET_ENCRYPTION_STATE_UNKNOWN")
+        versioning_status = str(getattr(info, "versioning_status", "") or "Suspended")
+        return {
+            "configuration": {
+                "acl": acl,
+                "storage_class": storage_class,
+                "encryption": encryption,
+                "versioning": versioning_status.lower() == "enabled",
+                "lifecycle": lifecycle,
+            },
+            "request_id": str(getattr(info, "request_id", "") or ""),
+        }
 
 
 def build_aliyun_provider(pool):

@@ -142,29 +142,45 @@ def recover_expired_resource_operations_task(*, now=None):
     for key_id in orphan_ids:
         with transaction.atomic():
             key = AccessKey.objects.select_for_update().get(pk=key_id)
+            identity = CloudIdentity.objects.select_for_update().get(
+                pk=key.cloud_identity_id
+            )
             if not (
                 key.operation_token
                 and key.operation_lease_until
                 and key.operation_lease_until <= now
-                and not key.cloud_identity.credential_operation_token
+                and not identity.credential_operation_token
             ):
                 continue
             key.cloud_state = AccessKey.CloudState.UNKNOWN
             key.local_state = AccessKey.LocalState.ERROR
-            key.operation_token = ""
-            key.operation_type = ""
-            key.operation_acquired_at = None
-            key.operation_lease_until = None
-            key.operation_error_code = "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+            key.operation_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
             key.save(
                 update_fields=(
                     "cloud_state",
                     "local_state",
-                    "operation_token",
-                    "operation_type",
-                    "operation_acquired_at",
-                    "operation_lease_until",
                     "operation_error_code",
+                    "updated_at",
+                )
+            )
+            identity.state = CloudIdentity.State.ERROR
+            identity.credential_operation_generation += 1
+            identity.credential_operation_token = key.operation_token
+            identity.credential_operation_type = key.operation_type
+            identity.credential_operation_key_id = key.pk
+            identity.credential_operation_acquired_at = key.operation_acquired_at
+            identity.credential_operation_lease_until = key.operation_lease_until
+            identity.credential_operation_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+            identity.save(
+                update_fields=(
+                    "state",
+                    "credential_operation_generation",
+                    "credential_operation_token",
+                    "credential_operation_type",
+                    "credential_operation_key_id",
+                    "credential_operation_acquired_at",
+                    "credential_operation_lease_until",
+                    "credential_operation_error_code",
                     "updated_at",
                 )
             )

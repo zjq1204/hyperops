@@ -199,11 +199,24 @@ def update_bucket_configuration_task(
 
 
 @shared_task(name="object_storage.suspend_user_resources")
-def suspend_user_resources_task(identity_id, *, actor_id=None, reason=""):
+def suspend_user_resources_task(
+    identity_id,
+    *,
+    actor_id=None,
+    reason="",
+    operation_generation=None,
+    operation_token=None,
+):
     from django.contrib.auth import get_user_model
 
     from object_storage.services.lifecycle import _disable_identity_keys
 
     actor = get_user_model().objects.get(pk=actor_id) if actor_id else None
-    identity = _disable_identity_keys(identity_id, actor=actor, reason=reason)
+    identity = _disable_identity_keys(
+        identity_id,
+        actor=actor,
+        reason=reason,
+        operation_generation=operation_generation,
+        operation_token=operation_token,
+    )
     return {"identity_id": identity.pk, "state": identity.state}

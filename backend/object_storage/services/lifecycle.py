@@ -20,6 +20,8 @@ from object_storage.services.provider_errors import ObjectStorageProviderError
 
 RETENTION_DAYS = 7
 OPERATION_LEASE_SECONDS = 300
+UNCERTAIN_MUTATION_ERROR = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+MANUAL_RECONCILIATION_ERROR = "MANUAL_RECONCILIATION_REQUIRED"
 
 
 class LifecycleError(RuntimeError):
@@ -60,7 +62,7 @@ def recover_expired_bucket_configuration_claim(bucket_id, *, provider=None, now=
         claim_generation = bucket.configuration_claim_generation
     selected_provider = provider or _provider(bucket)
     try:
-        selected_provider.find_owned_bucket(bucket)
+        selected_provider.get_bucket_configuration(bucket)
     except Exception:
         pass
     with transaction.atomic():
@@ -73,19 +75,13 @@ def recover_expired_bucket_configuration_claim(bucket_id, *, provider=None, now=
         ):
             return locked
         locked.config_state = Bucket.ConfigurationState.UNKNOWN
-        locked.config_error_code = "BUCKET_CONFIGURATION_CLAIM_EXPIRED"
+        locked.config_error_code = UNCERTAIN_MUTATION_ERROR
         locked.config_error_summary = locked.config_error_code
-        locked.configuration_operation_token = ""
-        locked.configuration_operation_acquired_at = None
-        locked.configuration_operation_lease_until = None
         locked.save(
             update_fields=(
                 "config_state",
                 "config_error_code",
                 "config_error_summary",
-                "configuration_operation_token",
-                "configuration_operation_acquired_at",
-                "configuration_operation_lease_until",
                 "updated_at",
             )
         )
@@ -126,7 +122,7 @@ def recover_expired_bucket_action_claim(bucket_id, *, provider=None, now=None):
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket_id)
         if not (
-            _action_matches(locked, generation, token, action_type)
+            _action_claim_owned(locked, generation, token, action_type)
             and locked.action_lease_until
             and locked.action_lease_until <= now
         ):
@@ -138,9 +134,10 @@ def recover_expired_bucket_action_claim(bucket_id, *, provider=None, now=None):
             locked.deletion_error_summary = ""
         else:
             locked.state = Bucket.State.DELETION_BLOCKED
-            locked.deletion_error_code = "BUCKET_ACTION_CLAIM_EXPIRED"
+            locked.deletion_error_code = UNCERTAIN_MUTATION_ERROR
             locked.deletion_error_summary = locked.deletion_error_code
-        _clear_action_claim(locked)
+        if locked.state == Bucket.State.RELEASED:
+            _clear_action_claim(locked)
         locked.save(
             update_fields=(
                 "state",
@@ -155,6 +152,253 @@ def recover_expired_bucket_action_claim(bucket_id, *, provider=None, now=None):
             )
         )
         return locked
+
+
+def _assert_manual_reconciliation_actor(actor, reason):
+    if not _is_admin(actor):
+        raise LifecycleError("ADMIN_REQUIRED")
+    if not str(reason or "").strip():
+        raise LifecycleError("RECONCILIATION_REASON_REQUIRED")
+
+
+def reconcile_bucket_configuration_uncertainty(
+    *, bucket, actor, provider=None, reason=""
+):
+    """Read cloud configuration and unfreeze only an exact known snapshot."""
+
+    _assert_manual_reconciliation_actor(actor, reason)
+    with transaction.atomic():
+        locked = (
+            Bucket.objects.select_for_update()
+            .select_related("resource_pool")
+            .get(pk=bucket.pk)
+        )
+        if not (
+            locked.configuration_operation_token
+            and locked.config_state == Bucket.ConfigurationState.UNKNOWN
+            and locked.config_error_code == UNCERTAIN_MUTATION_ERROR
+        ):
+            raise BucketConfigurationError("BUCKET_CONFIGURATION_NOT_FROZEN")
+        token = locked.configuration_operation_token
+        desired = dict(locked.desired_config_snapshot)
+        applied = dict(locked.applied_config_snapshot)
+    selected_provider = provider or _provider(locked)
+    observed = selected_provider.get_bucket_configuration(locked).as_snapshot()
+    if observed not in (desired, applied):
+        return Bucket.objects.get(pk=locked.pk)
+    with transaction.atomic():
+        current = Bucket.objects.select_for_update().get(pk=locked.pk)
+        if not (
+            current.configuration_operation_token == token
+            and current.config_error_code == UNCERTAIN_MUTATION_ERROR
+        ):
+            return current
+        current.applied_config_snapshot = observed
+        current.config_state = (
+            Bucket.ConfigurationState.APPLIED
+            if observed == desired
+            else Bucket.ConfigurationState.RETRYABLE_ERROR
+        )
+        current.config_error_code = (
+            "" if observed == desired else "BUCKET_CONFIGURATION_RECONCILED_TO_APPLIED"
+        )
+        current.config_error_summary = current.config_error_code
+        current.configuration_operation_token = ""
+        current.configuration_operation_acquired_at = None
+        current.configuration_operation_lease_until = None
+        current.save(
+            update_fields=(
+                "applied_config_snapshot",
+                "config_state",
+                "config_error_code",
+                "config_error_summary",
+                "configuration_operation_token",
+                "configuration_operation_acquired_at",
+                "configuration_operation_lease_until",
+                "updated_at",
+            )
+        )
+    record_audit_event(
+        actor=actor,
+        action="storage.bucket.configuration.reconciled",
+        target_type="Bucket",
+        target_id=locked.pk,
+        result="succeeded",
+        reason=reason,
+        safe_metadata={"bucket_name": locked.name},
+    )
+    return Bucket.objects.get(pk=locked.pk)
+
+
+def acknowledge_bucket_configuration_uncertainty(
+    *, bucket, actor, reason, resolved_snapshot
+):
+    """Resolve a frozen configuration after external administrator verification."""
+
+    _assert_manual_reconciliation_actor(actor, reason)
+    snapshot = _configuration_from_desired(resolved_snapshot).as_snapshot()
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        if not (
+            locked.configuration_operation_token
+            and locked.config_error_code == UNCERTAIN_MUTATION_ERROR
+        ):
+            raise BucketConfigurationError("BUCKET_CONFIGURATION_NOT_FROZEN")
+        desired = _configuration_from_desired(
+            locked.desired_config_snapshot
+        ).as_snapshot()
+        applied = (
+            _configuration_from_desired(locked.applied_config_snapshot).as_snapshot()
+            if locked.applied_config_snapshot
+            else None
+        )
+        if snapshot not in (desired, applied):
+            raise BucketConfigurationError("BUCKET_CONFIGURATION_RESOLUTION_INVALID")
+        locked.applied_config_snapshot = snapshot
+        locked.config_state = (
+            Bucket.ConfigurationState.APPLIED
+            if snapshot == desired
+            else Bucket.ConfigurationState.RETRYABLE_ERROR
+        )
+        locked.config_error_code = (
+            "" if snapshot == desired else "BUCKET_CONFIGURATION_RECONCILED_TO_APPLIED"
+        )
+        locked.config_error_summary = locked.config_error_code
+        locked.configuration_operation_token = ""
+        locked.configuration_operation_acquired_at = None
+        locked.configuration_operation_lease_until = None
+        locked.save(
+            update_fields=(
+                "applied_config_snapshot",
+                "config_state",
+                "config_error_code",
+                "config_error_summary",
+                "configuration_operation_token",
+                "configuration_operation_acquired_at",
+                "configuration_operation_lease_until",
+                "updated_at",
+            )
+        )
+    record_audit_event(
+        actor=actor,
+        action="storage.bucket.configuration.acknowledged",
+        target_type="Bucket",
+        target_id=locked.pk,
+        result="succeeded",
+        reason=reason,
+        safe_metadata={"bucket_name": locked.name},
+    )
+    return Bucket.objects.get(pk=locked.pk)
+
+
+def reconcile_bucket_action_uncertainty(*, bucket, actor, provider=None, reason=""):
+    """Read ownership/emptiness and finalize only a proven absent bucket."""
+
+    _assert_manual_reconciliation_actor(actor, reason)
+    with transaction.atomic():
+        locked = (
+            Bucket.objects.select_for_update()
+            .select_related("resource_pool")
+            .get(pk=bucket.pk)
+        )
+        if not (
+            locked.action_owner_token
+            and locked.deletion_error_code == UNCERTAIN_MUTATION_ERROR
+        ):
+            raise LifecycleError("BUCKET_ACTION_NOT_FROZEN")
+        token = locked.action_owner_token
+    selected_provider = provider or _provider(locked)
+    ownership = selected_provider.find_owned_bucket(locked)
+    exists = bool(ownership if isinstance(ownership, bool) else ownership.exists)
+    if exists:
+        owned = bool(ownership if isinstance(ownership, bool) else ownership.owned)
+        if owned:
+            selected_provider.inspect_bucket_emptiness(locked)
+        return Bucket.objects.get(pk=locked.pk)
+    with transaction.atomic():
+        current = Bucket.objects.select_for_update().get(pk=locked.pk)
+        if not (
+            current.action_owner_token == token
+            and current.deletion_error_code == UNCERTAIN_MUTATION_ERROR
+        ):
+            return current
+        current.state = Bucket.State.RELEASED
+        current.pending_delete_at = None
+        current.deletion_error_code = ""
+        current.deletion_error_summary = ""
+        _clear_action_claim(current)
+        current.save(
+            update_fields=(
+                "state",
+                "pending_delete_at",
+                "deletion_error_code",
+                "deletion_error_summary",
+                "action_owner_token",
+                "action_type",
+                "action_acquired_at",
+                "action_lease_until",
+                "updated_at",
+            )
+        )
+    record_audit_event(
+        actor=actor,
+        action="storage.bucket.action.reconciled",
+        target_type="Bucket",
+        target_id=locked.pk,
+        result="succeeded",
+        reason=reason,
+        safe_metadata={"bucket_name": locked.name, "status": "absent"},
+    )
+    return Bucket.objects.get(pk=locked.pk)
+
+
+def acknowledge_bucket_action_uncertainty(*, bucket, actor, reason, resolved_state):
+    """Resolve a frozen lifecycle action after external cloud verification."""
+
+    _assert_manual_reconciliation_actor(actor, reason)
+    if resolved_state not in {
+        Bucket.State.ACTIVE,
+        Bucket.State.PENDING_DELETION,
+        Bucket.State.DELETION_BLOCKED,
+        Bucket.State.RELEASED,
+    }:
+        raise LifecycleError("BUCKET_ACTION_RESOLUTION_INVALID")
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        if not (
+            locked.action_owner_token
+            and locked.deletion_error_code == UNCERTAIN_MUTATION_ERROR
+        ):
+            raise LifecycleError("BUCKET_ACTION_NOT_FROZEN")
+        locked.state = resolved_state
+        if resolved_state == Bucket.State.RELEASED:
+            locked.pending_delete_at = None
+        locked.deletion_error_code = ""
+        locked.deletion_error_summary = ""
+        _clear_action_claim(locked)
+        locked.save(
+            update_fields=(
+                "state",
+                "pending_delete_at",
+                "deletion_error_code",
+                "deletion_error_summary",
+                "action_owner_token",
+                "action_type",
+                "action_acquired_at",
+                "action_lease_until",
+                "updated_at",
+            )
+        )
+    record_audit_event(
+        actor=actor,
+        action="storage.bucket.action.acknowledged",
+        target_type="Bucket",
+        target_id=locked.pk,
+        result="succeeded",
+        reason=reason,
+        safe_metadata={"bucket_name": locked.name, "status": resolved_state},
+    )
+    return Bucket.objects.get(pk=locked.pk)
 
 
 def _assert_actor(bucket, actor, *, allow_background=False):
@@ -205,11 +449,20 @@ def _set_deletion_error(bucket, error_code, *, state=Bucket.State.DELETION_BLOCK
     )
 
 
-def _action_matches(bucket, generation, owner_token, action_type):
+def _action_claim_owned(bucket, generation, owner_token, action_type):
     return bool(
         bucket.action_generation == generation
         and bucket.action_owner_token == owner_token
         and bucket.action_type == action_type
+    )
+
+
+def _action_matches(bucket, generation, owner_token, action_type):
+    return bool(
+        _action_claim_owned(bucket, generation, owner_token, action_type)
+        and bucket.deletion_error_code != UNCERTAIN_MUTATION_ERROR
+        and bucket.action_lease_until
+        and bucket.action_lease_until > timezone.now()
     )
 
 
@@ -227,12 +480,13 @@ def _claim_bucket_action(
             .select_related("owner", "cloud_identity", "resource_pool")
             .get(pk=bucket_id)
         )
+        if locked.deletion_error_code == UNCERTAIN_MUTATION_ERROR:
+            raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
         if locked.action_owner_token:
-            if (
-                locked.action_lease_until
-                and locked.action_lease_until <= timezone.now()
+            if not locked.action_lease_until or (
+                locked.action_lease_until <= timezone.now()
             ):
-                raise LifecycleError("RESOURCE_OPERATION_CLAIM_EXPIRED")
+                raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
             if locked.action_type == action_type:
                 return (
                     locked,
@@ -419,6 +673,10 @@ def _release_bucket_cloud(
             )
         raise LifecycleError("BUCKET_NOT_EMPTY")
 
+    current = Bucket.objects.get(pk=bucket.pk)
+    if not _action_matches(current, action_generation, owner_token, "release"):
+        return current
+
     try:
         _reconcile_policy(bucket, provider)
     except Exception as error:
@@ -480,12 +738,13 @@ def recover_bucket(*, bucket, actor, bucket_name, confirmed, provider=None, reas
     _assert_confirmation(bucket, bucket_name, confirmed)
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        if locked.deletion_error_code == UNCERTAIN_MUTATION_ERROR:
+            raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
         if locked.action_owner_token:
-            if (
-                locked.action_lease_until
-                and locked.action_lease_until <= timezone.now()
+            if not locked.action_lease_until or (
+                locked.action_lease_until <= timezone.now()
             ):
-                raise LifecycleError("RESOURCE_OPERATION_CLAIM_EXPIRED")
+                raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
             if locked.action_type == "recover":
                 return locked
             raise LifecycleError("RESOURCE_OPERATION_IN_PROGRESS")
@@ -815,6 +1074,13 @@ def update_bucket_configuration(
         raise BucketConfigurationError("ADMIN_REQUIRED")
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        if locked.config_error_code == UNCERTAIN_MUTATION_ERROR:
+            raise BucketConfigurationError(MANUAL_RECONCILIATION_ERROR)
+        if locked.configuration_operation_token and (
+            not locked.configuration_operation_lease_until
+            or locked.configuration_operation_lease_until <= timezone.now()
+        ):
+            raise BucketConfigurationError(MANUAL_RECONCILIATION_ERROR)
         if _retry:
             if locked.config_state == Bucket.ConfigurationState.UNKNOWN:
                 raise BucketConfigurationError("BUCKET_CONFIGURATION_STATE_UNKNOWN")
@@ -896,6 +1162,7 @@ def _apply_bucket_configuration(
     if (
         initial.configuration_operation_token == operation_token
         and initial.configuration_claim_generation == configuration_generation
+        and initial.config_error_code != UNCERTAIN_MUTATION_ERROR
         and initial.configuration_operation_lease_until
         and initial.configuration_operation_lease_until <= timezone.now()
     ):
@@ -908,6 +1175,9 @@ def _apply_bucket_configuration(
         if not (
             locked.configuration_operation_token == operation_token
             and locked.configuration_claim_generation == configuration_generation
+            and locked.config_error_code != UNCERTAIN_MUTATION_ERROR
+            and locked.configuration_operation_lease_until
+            and locked.configuration_operation_lease_until > timezone.now()
         ):
             return locked
         operation_token = uuid.uuid4().hex
@@ -932,6 +1202,9 @@ def _apply_bucket_configuration(
             )
             if not (
                 locked.configuration_operation_token == operation_token
+                and locked.config_error_code != UNCERTAIN_MUTATION_ERROR
+                and locked.configuration_operation_lease_until
+                and locked.configuration_operation_lease_until > timezone.now()
                 and (
                     not first_iteration
                     or locked.configuration_claim_generation == configuration_generation
@@ -976,6 +1249,9 @@ def _apply_bucket_configuration(
                 if not (
                     locked.configuration_operation_token == operation_token
                     and locked.configuration_claim_generation == target_generation
+                    and locked.config_error_code != UNCERTAIN_MUTATION_ERROR
+                    and locked.configuration_operation_lease_until
+                    and locked.configuration_operation_lease_until > timezone.now()
                 ):
                     return locked
                 newer_generation = locked.configuration_generation != target_generation
@@ -1022,6 +1298,9 @@ def _apply_bucket_configuration(
             if not (
                 locked.configuration_operation_token == operation_token
                 and locked.configuration_claim_generation == target_generation
+                and locked.config_error_code != UNCERTAIN_MUTATION_ERROR
+                and locked.configuration_operation_lease_until
+                and locked.configuration_operation_lease_until > timezone.now()
             ):
                 return locked
             locked.applied_config_snapshot = desired
@@ -1096,8 +1375,22 @@ def suspend_user_resources(*, user, actor, provider=None, enqueue=True, reason="
     if not _is_admin(actor):
         raise LifecycleError("ADMIN_REQUIRED")
     identity = CloudIdentity.objects.get(user=user)
-    identity.state = CloudIdentity.State.SUSPENDED
-    identity.save(update_fields=("state", "updated_at"))
+    from object_storage.services.credentials import _claim_credential_operation
+
+    identity, generation, token, _claimed = _claim_credential_operation(
+        identity.pk,
+        operation_type="suspend",
+    )
+    with transaction.atomic():
+        locked = CloudIdentity.objects.select_for_update().get(pk=identity.pk)
+        if not (
+            locked.credential_operation_generation == generation
+            and locked.credential_operation_token == token
+            and locked.credential_operation_type == "suspend"
+        ):
+            raise LifecycleError("RESOURCE_OPERATION_IN_PROGRESS")
+        locked.state = CloudIdentity.State.SUSPENDED
+        locked.save(update_fields=("state", "updated_at"))
     if enqueue:
         from object_storage.tasks import suspend_user_resources_task
 
@@ -1105,19 +1398,31 @@ def suspend_user_resources(*, user, actor, provider=None, enqueue=True, reason="
             identity.pk,
             actor_id=getattr(actor, "pk", None),
             reason=reason,
+            operation_generation=generation,
+            operation_token=token,
         )
-        return identity
+        return locked
     return _disable_identity_keys(
-        identity.pk, provider=provider, actor=actor, reason=reason
+        identity.pk,
+        provider=provider,
+        actor=actor,
+        reason=reason,
+        operation_generation=generation,
+        operation_token=token,
     )
 
 
 def reactivate_user_resources(*, user, actor, reason=""):
     if not _is_admin(actor):
         raise LifecycleError("ADMIN_REQUIRED")
-    identity = CloudIdentity.objects.get(user=user)
-    identity.state = CloudIdentity.State.ACTIVE
-    identity.save(update_fields=("state", "updated_at"))
+    with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(user=user)
+        if identity.credential_operation_error_code == UNCERTAIN_MUTATION_ERROR:
+            raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
+        if identity.credential_operation_token:
+            raise LifecycleError("RESOURCE_OPERATION_IN_PROGRESS")
+        identity.state = CloudIdentity.State.ACTIVE
+        identity.save(update_fields=("state", "updated_at"))
     record_audit_event(
         actor=actor,
         action="storage.user.reactivated",
@@ -1130,34 +1435,131 @@ def reactivate_user_resources(*, user, actor, reason=""):
     return identity
 
 
-def _disable_identity_keys(identity_id, *, provider=None, actor=None, reason=""):
-    identity = CloudIdentity.objects.get(pk=identity_id)
+def _disable_identity_keys(
+    identity_id,
+    *,
+    provider=None,
+    actor=None,
+    reason="",
+    operation_generation=None,
+    operation_token=None,
+):
+    from object_storage.services.credentials import (
+        UNCERTAIN_MUTATION_ERROR,
+        _claim_credential_operation,
+        _credential_operation_matches,
+        _finish_credential_operation,
+        assert_credential_operation_claim,
+        provider_access_key,
+    )
+
+    identity, generation, token, _owns_claim = _claim_credential_operation(
+        identity_id,
+        operation_type="suspend",
+        owner_token=operation_token,
+        owner_generation=operation_generation,
+    )
+    with transaction.atomic():
+        locked = CloudIdentity.objects.select_for_update().get(pk=identity_id)
+        if not _credential_operation_matches(locked, generation, token, "suspend"):
+            raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
+        locked.state = CloudIdentity.State.SUSPENDED
+        locked.save(update_fields=("state", "updated_at"))
     if provider is None:
         from object_storage.providers.aliyun import build_aliyun_provider
 
         provider = build_aliyun_provider(identity.resource_pool)
-    for key in identity.access_keys.filter(
-        local_state__in=(
-            AccessKey.LocalState.ISSUING,
-            AccessKey.LocalState.DELIVERY_READY,
-            AccessKey.LocalState.ACTIVE,
-        ),
-        deleted_at__isnull=True,
-    ).order_by("pk"):
-        from object_storage.services.credentials import provider_access_key
-
-        provider.deactivate_access_key(provider_access_key(key))
-        key.cloud_state = AccessKey.CloudState.INACTIVE
-        key.local_state = AccessKey.LocalState.DISABLED
-        key.deactivated_at = timezone.now()
-        key.save(
-            update_fields=(
-                "cloud_state",
-                "local_state",
-                "deactivated_at",
-                "updated_at",
-            )
+    key_ids = list(
+        identity.access_keys.filter(
+            local_state__in=(
+                AccessKey.LocalState.ISSUING,
+                AccessKey.LocalState.DELIVERY_READY,
+                AccessKey.LocalState.ACTIVE,
+            ),
+            deleted_at__isnull=True,
         )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    failures = []
+    for key_id in key_ids:
+        with transaction.atomic():
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity_id
+            )
+            key = AccessKey.objects.select_for_update().get(pk=key_id)
+            if not _credential_operation_matches(
+                locked_identity, generation, token, "suspend"
+            ):
+                raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
+            now = timezone.now()
+            locked_identity.credential_operation_key_id = key.pk
+            locked_identity.save(
+                update_fields=("credential_operation_key_id", "updated_at")
+            )
+            key.operation_generation += 1
+            key.operation_token = token
+            key.operation_type = "suspend"
+            key.operation_acquired_at = now
+            key.operation_lease_until = locked_identity.credential_operation_lease_until
+            key.operation_error_code = ""
+            key.save(
+                update_fields=(
+                    "operation_generation",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "operation_error_code",
+                    "updated_at",
+                )
+            )
+        try:
+            assert_credential_operation_claim(identity_id, generation, token, "suspend")
+            provider.deactivate_access_key(provider_access_key(key))
+        except Exception as error:
+            failures.append(error)
+        with transaction.atomic():
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity_id
+            )
+            key = AccessKey.objects.select_for_update().get(pk=key_id)
+            if not _credential_operation_matches(
+                locked_identity, generation, token, "suspend"
+            ):
+                raise LifecycleError(MANUAL_RECONCILIATION_ERROR)
+            key.operation_token = ""
+            key.operation_type = ""
+            key.operation_acquired_at = None
+            key.operation_lease_until = None
+            if failures:
+                key.cloud_state = AccessKey.CloudState.UNKNOWN
+                key.local_state = AccessKey.LocalState.ERROR
+                key.operation_error_code = UNCERTAIN_MUTATION_ERROR
+            else:
+                key.cloud_state = AccessKey.CloudState.INACTIVE
+                key.local_state = AccessKey.LocalState.DISABLED
+                key.deactivated_at = timezone.now()
+            key.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "deactivated_at",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "operation_error_code",
+                    "updated_at",
+                )
+            )
+    if failures:
+        from object_storage.services.credentials import _freeze_credential_operation
+
+        _freeze_credential_operation(identity_id, generation, token, "suspend")
+        raise failures[0]
+    _finish_credential_operation(identity_id, generation, token, "suspend")
+    identity = CloudIdentity.objects.get(pk=identity_id)
     record_audit_event(
         actor=actor,
         action="storage.user.suspended",

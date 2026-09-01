@@ -23,6 +23,7 @@ def test_provider_protocol_exposes_only_business_operations():
         "activate_access_key",
         "deactivate_access_key",
         "delete_access_key",
+        "get_bucket_configuration",
         "update_bucket_configuration",
     }
 

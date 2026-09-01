@@ -114,6 +114,13 @@ class FakeOssGateway:
         self.updated_configuration = (bucket_name, configuration)
         return {"request_id": "oss-request-update"}
 
+    def get_bucket_configuration(self, *, bucket_name):
+        configuration = self.updated_configuration[1]
+        return {
+            "configuration": configuration,
+            "request_id": "oss-request-read-configuration",
+        }
+
     def reset_bucket(self):
         self.created = None
 
@@ -394,6 +401,124 @@ def test_delete_and_update_always_reconcile_ownership_before_mutation():
         BucketConfiguration(acl="private"),
     )
     assert updated.request_id == "oss-request-update"
+
+
+def test_read_bucket_configuration_reconciles_ownership_and_returns_snapshot():
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="managed-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+    configuration = BucketConfiguration(
+        acl="public_read",
+        storage_class="IA",
+        encryption="KMS",
+        versioning=True,
+        lifecycle={"rules": [{"id": "archive"}]},
+    )
+
+    with pytest.raises(ObjectStorageProviderError, match="NO_SUCH_BUCKET"):
+        provider.get_bucket_configuration(bucket)
+
+    oss.created = {"bucket_name": bucket.name, "marker": bucket.cloud_marker}
+    oss.updated_configuration = (bucket.name, configuration)
+
+    observed = provider.get_bucket_configuration(bucket)
+
+    assert observed == configuration
+
+
+def test_oss_gateway_reads_complete_bucket_configuration_without_mutation(
+    monkeypatch,
+):
+    from object_storage.providers.aliyun import AliyunOssGateway
+
+    lifecycle = SimpleNamespace(
+        rules=[
+            SimpleNamespace(
+                id="archive",
+                prefix="logs/",
+                status="Enabled",
+                expiration=SimpleNamespace(days=30),
+                abort_multipart_upload=SimpleNamespace(days=7),
+                storage_transitions=[SimpleNamespace(days=14, storage_class="IA")],
+            )
+        ]
+    )
+
+    class ReadOnlyBucket:
+        def get_bucket_info(self):
+            return SimpleNamespace(
+                acl="public-read",
+                storage_class="IA",
+                bucket_encryption_rule=SimpleNamespace(sse_algorithm="KMS"),
+                versioning_status="Enabled",
+                request_id="read-config-request",
+            )
+
+        def get_bucket_lifecycle(self):
+            return lifecycle
+
+    gateway = AliyunOssGateway(
+        access_key_id="unused",
+        access_key_secret="unused",
+        region="cn-hangzhou",
+    )
+    monkeypatch.setattr(gateway, "_bucket", lambda _name: ReadOnlyBucket())
+
+    result = gateway.get_bucket_configuration(bucket_name="managed-bucket")
+
+    assert result == {
+        "configuration": {
+            "acl": "public_read",
+            "storage_class": "IA",
+            "encryption": "KMS",
+            "versioning": True,
+            "lifecycle": {
+                "rules": [
+                    {
+                        "id": "archive",
+                        "prefix": "logs/",
+                        "status": "Enabled",
+                        "expiration_days": 30,
+                        "abort_multipart_upload_days": 7,
+                        "storage_transitions": [{"days": 14, "storage_class": "IA"}],
+                    }
+                ]
+            },
+        },
+        "request_id": "read-config-request",
+    }
+
+
+def test_oss_gateway_configuration_read_fails_closed_without_encryption(monkeypatch):
+    from object_storage.providers.aliyun import AliyunOssGateway
+
+    class UncertainBucket:
+        def get_bucket_info(self):
+            return SimpleNamespace(
+                acl="private",
+                storage_class="Standard",
+                bucket_encryption_rule=None,
+                versioning_status="Suspended",
+            )
+
+        def get_bucket_lifecycle(self):
+            return SimpleNamespace(rules=[])
+
+    gateway = AliyunOssGateway(
+        access_key_id="unused",
+        access_key_secret="unused",
+        region="cn-hangzhou",
+    )
+    monkeypatch.setattr(gateway, "_bucket", lambda _name: UncertainBucket())
+
+    with pytest.raises(ValueError, match="BUCKET_ENCRYPTION_STATE_UNKNOWN"):
+        gateway.get_bucket_configuration(bucket_name="managed-bucket")
 
 
 @pytest.mark.parametrize(

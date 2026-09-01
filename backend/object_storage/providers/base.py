@@ -166,6 +166,8 @@ class ObjectStorageProvider(Protocol):
 
     def delete_access_key(self, key): ...
 
+    def get_bucket_configuration(self, bucket): ...
+
     def update_bucket_configuration(
         self,
         bucket,

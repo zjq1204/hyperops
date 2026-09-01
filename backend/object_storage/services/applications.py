@@ -25,11 +25,15 @@ from object_storage.services.audit import record_audit_event
 from object_storage.services.credentials import (
     CredentialDeliveryError,
     CredentialRotationError,
+    _claim_credential_operation,
+    _finish_credential_operation,
     create_delivery_ticket,
+    delete_access_key_under_claim,
     encrypt_issued_access_key,
     fingerprint_access_key,
     persist_new_access_key,
     provider_access_key,
+    revoke_access_key,
 )
 from object_storage.services.naming import (
     BucketNameCandidate,
@@ -777,24 +781,6 @@ def _mark_stale_key_cleanup_uncertain(batch_id, issued):
     return batch
 
 
-def _cleanup_stale_created_key(batch, identity, provider, issued):
-    access_key_id = str(issued.access_key_id)
-    exact_key = SimpleNamespace(
-        cloud_identity=identity,
-        access_key_id=access_key_id,
-    )
-    try:
-        provider.delete_access_key(exact_key)
-        remaining_fingerprints = {
-            key.fingerprint
-            for key in _provider_items(provider.list_access_keys(identity))
-        }
-        if fingerprint_access_key(access_key_id) in remaining_fingerprints:
-            raise RuntimeError("stale access key still present after cleanup")
-    except Exception:
-        _mark_stale_key_cleanup_uncertain(batch.pk, issued)
-
-
 def _valid_local_key(batch, identity, provider, owner_token):
     cloud_keys = _provider_items(
         _call_provider_with_claim(
@@ -828,20 +814,21 @@ def _persist_batch_access_key(batch, identity, provider, owner_token):
     _assert_application_claim(batch.pk, owner_token)
     ensure_key_operations_allowed()
     _assert_application_claim(batch.pk, owner_token)
-    issued = provider.create_access_key(identity)
+    claimed_identity, generation, token, _owns_claim = _claim_credential_operation(
+        identity.pk,
+        operation_type="application_create",
+    )
     try:
-        _assert_application_claim(batch.pk, owner_token)
-        encrypted_key = encrypt_issued_access_key(issued)
+        access_key = persist_new_access_key(
+            identity=claimed_identity,
+            provider=provider,
+            operation_token=token,
+            operation_generation=generation,
+            operation_type="application_create",
+            encryptor=encrypt_issued_access_key,
+        )
         with transaction.atomic():
             locked_batch, _items = _lock_application_claim(batch.pk, owner_token)
-            locked_identity = CloudIdentity.objects.select_for_update().get(
-                pk=identity.pk
-            )
-            access_key = AccessKey.objects.create(
-                cloud_identity=locked_identity,
-                local_state=AccessKey.LocalState.DELIVERY_READY,
-                **encrypted_key,
-            )
             locked_batch.issued_access_key = access_key
             locked_batch.key_created_by_batch = True
             locked_batch.save(
@@ -863,35 +850,29 @@ def _persist_batch_access_key(batch, identity, provider, owner_token):
                 },
             )
     except StaleApplicationClaim:
-        _cleanup_stale_created_key(batch, identity, provider, issued)
-        raise
-    except Exception as persistence_error:
+        access_key_id = provider_access_key(access_key).access_key_id
         try:
-            _assert_application_claim(batch.pk, owner_token)
-        except StaleApplicationClaim:
-            _cleanup_stale_created_key(batch, identity, provider, issued)
-            raise
-        exact_key = SimpleNamespace(
-            cloud_identity=identity,
-            access_key_id=str(issued.access_key_id),
-        )
-        try:
-            _call_provider_with_claim(
-                batch.pk,
-                owner_token,
-                lambda: provider.delete_access_key(exact_key),
+            delete_access_key_under_claim(
+                access_key=access_key,
+                provider=provider,
+                operation_generation=generation,
+                operation_token=token,
+                operation_type="application_create",
             )
-        except StaleApplicationClaim:
-            raise
-        except Exception as cleanup_error:
-            raise CredentialRotationError(
-                "KEY_COMPENSATION_FAILED",
-                manual_required=True,
-            ) from cleanup_error
-        raise CredentialRotationError(
-            "KEY_LOCAL_PERSISTENCE_FAILED",
-            manual_required=True,
-        ) from persistence_error
+            access_key.delete()
+        except Exception:
+            _mark_stale_key_cleanup_uncertain(
+                batch.pk,
+                SimpleNamespace(access_key_id=access_key_id),
+            )
+        raise
+    finally:
+        _finish_credential_operation(
+            identity.pk,
+            generation,
+            token,
+            "application_create",
+        )
     batch.issued_access_key = access_key
     batch.key_created_by_batch = True
     return access_key
@@ -1731,6 +1712,11 @@ def execute_application_batch(batch_id, *, execution_key=""):
             identity = batch.cloud_identity or CloudIdentity.objects.select_related(
                 "resource_pool"
             ).get(user=batch.applicant)
+            if identity.state == CloudIdentity.State.SUSPENDED or (
+                identity.credential_operation_token
+                and identity.credential_operation_type == "suspend"
+            ):
+                raise CredentialRotationError("IDENTITY_SUSPENDED")
             provider = get_provider_for_pool(identity.resource_pool)
             _principal(batch, identity, provider, owner_token)
             with transaction.atomic():
@@ -2134,7 +2120,12 @@ def cancel_application_batch(batch_id):
                 for item in _provider_items(provider.list_access_keys(identity))
             }
             if cleanup_key.access_key_fingerprint in cloud_fingerprints:
-                provider.delete_access_key(provider_access_key(cleanup_key))
+                revoke_access_key(
+                    access_key=cleanup_key,
+                    actor=batch.applicant,
+                    provider=provider,
+                    reason="application cancellation cleanup",
+                )
         except Exception as error:
             cleanup_error = error
     principal_deleted = False
