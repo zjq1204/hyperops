@@ -7,16 +7,22 @@ from django.db.models.deletion import ProtectedError
 pytestmark = pytest.mark.django_db
 
 
-def test_platform_migration_depends_only_on_committed_object_storage_migration():
+def test_platform_migration_depends_on_linear_feishu_migration_chain():
     from importlib import import_module
 
     migration = import_module("object_storage.migrations.0005_platform_model").Migration
 
-    assert ("object_storage", "0002_object_storage_user_role") in migration.dependencies
-    assert not any(
-        app == "object_storage" and name.startswith(("0003_", "0004_"))
-        for app, name in migration.dependencies
-    )
+    assert ("object_storage", "0004_feishu_access_group") in migration.dependencies
+
+
+def test_user_bucket_quota_migration_extends_platform_model_migration():
+    from importlib import import_module
+
+    migration = import_module(
+        "object_storage.migrations.0006_user_bucket_quota"
+    ).Migration
+
+    assert migration.dependencies == [("object_storage", "0005_platform_model")]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -96,6 +102,24 @@ def test_platform_storage_settings_enforce_approved_ranges(db):
     for values in invalid_values:
         with pytest.raises(IntegrityError), transaction.atomic():
             PlatformObjectStorageConfig.objects.create(**values)
+
+
+def test_user_bucket_quota_is_one_to_one_positive_and_protected(user_factory):
+    from object_storage.models import UserBucketQuota
+
+    user = user_factory()
+    quota = UserBucketQuota.objects.create(user=user, bucket_quota=8)
+
+    assert quota.bucket_quota == 8
+    assert quota.created_at is not None
+    assert quota.updated_at is not None
+    assert quota._meta.get_field("user").remote_field.on_delete is PROTECT
+    with pytest.raises(IntegrityError), transaction.atomic():
+        UserBucketQuota.objects.create(user=user, bucket_quota=9)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        UserBucketQuota.objects.create(user=user_factory(), bucket_quota=0)
+    with pytest.raises(ProtectedError):
+        user.delete()
 
 
 def test_resource_pool_belongs_to_platform_storage_config(

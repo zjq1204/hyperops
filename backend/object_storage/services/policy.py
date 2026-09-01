@@ -1,12 +1,13 @@
+from dataclasses import dataclass
+
+from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from object_storage.models import StorageBucket, StorageMembership
-
-QUOTA_CONSUMING_STATES = (
-    StorageBucket.State.REQUESTED,
-    StorageBucket.State.CREATING,
-    StorageBucket.State.ACTIVE,
-    StorageBucket.State.RELEASING,
+from object_storage.models import (
+    Bucket,
+    PlatformObjectStorageConfig,
+    QUOTA_CONSUMING_STATES,
+    UserBucketQuota,
 )
 
 BUCKET_ACTIONS = ("oss:ListObjects",)
@@ -14,6 +15,9 @@ OBJECT_ACTIONS = (
     "oss:GetObject",
     "oss:PutObject",
     "oss:DeleteObject",
+    "oss:InitiateMultipartUpload",
+    "oss:UploadPart",
+    "oss:CompleteMultipartUpload",
     "oss:AbortMultipartUpload",
     "oss:ListParts",
 )
@@ -23,40 +27,78 @@ class BucketQuotaExceeded(RuntimeError):
     pass
 
 
-def count_quota_consuming_buckets(membership):
-    return StorageBucket.objects.filter(
-        tenant=membership.tenant,
-        owner=membership,
+@dataclass(frozen=True)
+class BucketCapacity:
+    limit: int
+    used: int
+    requested: int
+    remaining: int
+
+
+def count_quota_consuming_buckets(user):
+    return Bucket.objects.filter(
+        owner=user,
         state__in=QUOTA_CONSUMING_STATES,
     ).count()
 
 
-@transaction.atomic
-def enforce_bucket_quota(membership):
-    locked_membership = (
-        StorageMembership.objects.select_for_update()
-        .select_related("tenant")
-        .get(pk=membership.pk)
+def effective_bucket_quota(user, *, platform_config=None):
+    override = (
+        UserBucketQuota.objects.filter(user=user)
+        .values_list("bucket_quota", flat=True)
+        .first()
     )
-    current_count = count_quota_consuming_buckets(locked_membership)
-    if current_count >= locked_membership.tenant.default_bucket_quota:
+    if override is not None:
+        return override
+    config = platform_config or PlatformObjectStorageConfig.objects.get(
+        singleton_key="default"
+    )
+    return config.default_bucket_quota
+
+
+@transaction.atomic
+def ensure_bucket_capacity(user, *, requested=1, platform_config=None):
+    if isinstance(requested, bool) or not isinstance(requested, int) or requested < 1:
+        raise ValueError("REQUESTED_BUCKET_COUNT_INVALID")
+    locked_user = get_user_model().objects.select_for_update().get(pk=user.pk)
+    used = count_quota_consuming_buckets(locked_user)
+    limit = effective_bucket_quota(locked_user, platform_config=platform_config)
+    if used + requested > limit:
         raise BucketQuotaExceeded("BUCKET_QUOTA_EXCEEDED")
-    return locked_membership
+    return BucketCapacity(
+        limit=limit,
+        used=used,
+        requested=requested,
+        remaining=limit - used - requested,
+    )
 
 
-def _active_buckets(buckets):
+def enforce_bucket_quota(user, *, requested=1, platform_config=None):
+    return ensure_bucket_capacity(
+        user,
+        requested=requested,
+        platform_config=platform_config,
+    )
+
+
+def _active_buckets(buckets, *, owner=None):
     if hasattr(buckets, "filter"):
-        return list(buckets.filter(state=StorageBucket.State.ACTIVE))
+        active = buckets.filter(state=Bucket.State.ACTIVE)
+        if owner is not None:
+            active = active.filter(owner=owner)
+        return list(active)
     return [
         bucket
         for bucket in buckets
-        if getattr(bucket, "state", StorageBucket.State.ACTIVE)
-        == StorageBucket.State.ACTIVE
+        if getattr(bucket, "state", Bucket.State.ACTIVE) == Bucket.State.ACTIVE
+        and (owner is None or getattr(bucket, "owner_id", None) == owner.pk)
     ]
 
 
-def build_object_policy(buckets):
-    active_buckets = sorted(_active_buckets(buckets), key=lambda item: item.name)
+def build_object_policy(buckets, *, owner=None):
+    active_buckets = sorted(
+        _active_buckets(buckets, owner=owner), key=lambda item: item.name
+    )
     bucket_resources = [f"acs:oss:*:*:{bucket.name}" for bucket in active_buckets]
     object_resources = [f"acs:oss:*:*:{bucket.name}/*" for bucket in active_buckets]
     return {

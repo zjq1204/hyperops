@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Protocol
 
 
@@ -8,6 +8,7 @@ class ManagementCapabilities:
     can_manage_ram: bool
     can_manage_oss: bool
     request_ids: tuple[str, ...] = ()
+    error_category: str = ""
 
     def as_dict(self):
         return asdict(self)
@@ -19,12 +20,26 @@ class PersonalPrincipal:
     user_name: str
     created: bool
     request_id: str = ""
+    error_category: str = ""
 
 
 @dataclass(frozen=True)
 class BucketMutation:
     created: bool = False
     request_id: str = ""
+    error_category: str = ""
+
+
+@dataclass(frozen=True)
+class OwnedBucket:
+    exists: bool
+    owned: bool
+    cloud_resource_id: str = ""
+    request_id: str = ""
+    error_category: str = ""
+
+    def __bool__(self):
+        return self.exists and self.owned
 
 
 @dataclass(frozen=True)
@@ -35,6 +50,13 @@ class BucketEmptiness:
     delete_marker_count: int = 0
     multipart_upload_count: int = 0
     request_id: str = ""
+    error_category: str = ""
+
+
+@dataclass(frozen=True)
+class PolicyMutation:
+    request_id: str = ""
+    error_category: str = ""
 
 
 @dataclass(frozen=True)
@@ -44,13 +66,53 @@ class AccessKeyMetadata:
     last_four: str
     status: str
     created_at: str = ""
+    request_id: str = ""
+    error_category: str = ""
+
+
+@dataclass(frozen=True)
+class AccessKeyCollection:
+    keys: tuple[AccessKeyMetadata, ...]
+    request_id: str = ""
+    error_category: str = ""
+
+    def __iter__(self):
+        return iter(self.keys)
+
+    def __len__(self):
+        return len(self.keys)
+
+    def __getitem__(self, index):
+        return self.keys[index]
 
 
 @dataclass(frozen=True)
 class IssuedAccessKey:
     access_key_id: str
-    secret_access_key: str
+    secret_access_key: str = field(repr=False)
     request_id: str = ""
+    error_category: str = ""
+
+
+@dataclass(frozen=True)
+class AccessKeyMutation:
+    request_id: str = ""
+    error_category: str = ""
+
+
+@dataclass(frozen=True)
+class BucketConfiguration:
+    acl: str = "private"
+
+    def __post_init__(self):
+        if self.acl not in {"private", "public_read"}:
+            raise ValueError("BUCKET_ACL_UNSUPPORTED")
+
+
+@dataclass(frozen=True)
+class BucketConfigurationMutation:
+    request_id: str = ""
+    error_category: str = ""
 
 
 class ObjectStorageProvider(Protocol):
@@ -72,6 +134,10 @@ class ObjectStorageProvider(Protocol):
 
     def create_access_key(self, identity): ...
 
+    def activate_access_key(self, key): ...
+
     def deactivate_access_key(self, key): ...
 
     def delete_access_key(self, key): ...
+
+    def update_bucket_configuration(self, bucket, configuration): ...

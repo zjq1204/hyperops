@@ -3,12 +3,17 @@ import json
 
 from object_storage.crypto import decrypt_secret
 from object_storage.providers.base import (
+    AccessKeyCollection,
     AccessKeyMetadata,
+    AccessKeyMutation,
+    BucketConfigurationMutation,
     BucketEmptiness,
     BucketMutation,
     IssuedAccessKey,
     ManagementCapabilities,
+    OwnedBucket,
     PersonalPrincipal,
+    PolicyMutation,
 )
 from object_storage.services.provider_errors import (
     ObjectStorageProviderError,
@@ -79,10 +84,22 @@ class AliyunObjectStorageProvider:
         )
 
     def find_owned_bucket(self, bucket):
-        return self._call(
+        result = self._call(
             self.oss_gateway.find_bucket,
             bucket_name=bucket.name,
             marker=bucket.cloud_marker,
+        )
+        if isinstance(result, bool):
+            return OwnedBucket(
+                exists=result,
+                owned=result,
+                cloud_resource_id=bucket.name if result else "",
+            )
+        return OwnedBucket(
+            exists=bool(result.get("exists")),
+            owned=bool(result.get("owned")),
+            cloud_resource_id=str(result.get("cloud_resource_id") or ""),
+            request_id=str(result.get("request_id") or ""),
         )
 
     def inspect_bucket_emptiness(self, bucket):
@@ -109,16 +126,26 @@ class AliyunObjectStorageProvider:
     def reconcile_object_policy(self, identity, buckets):
         from object_storage.services.policy import build_object_policy
 
-        policy = build_object_policy(buckets)
-        return self._call(
+        policy = build_object_policy(buckets, owner=getattr(identity, "user", None))
+        result = self._call(
             self.ram_gateway.apply_policy,
             identity.ram_user_name,
             policy,
         )
+        return PolicyMutation(request_id=str(result.get("request_id") or ""))
 
     def list_access_keys(self, identity):
-        rows = self._call(self.ram_gateway.list_access_keys, identity.ram_user_name)
-        return tuple(
+        result = self._call(
+            self.ram_gateway.list_access_keys,
+            identity.ram_user_name,
+        )
+        if isinstance(result, dict):
+            rows = result.get("items") or ()
+            request_id = str(result.get("request_id") or "")
+        else:
+            rows = result
+            request_id = ""
+        keys = tuple(
             AccessKeyMetadata(
                 access_key_id=str(row.get("access_key_id") or ""),
                 fingerprint=_fingerprint(str(row.get("access_key_id") or "")),
@@ -128,6 +155,7 @@ class AliyunObjectStorageProvider:
             )
             for row in rows
         )
+        return AccessKeyCollection(keys=keys, request_id=request_id)
 
     def create_access_key(self, identity):
         result = self._call(self.ram_gateway.create_access_key, identity.ram_user_name)
@@ -137,19 +165,37 @@ class AliyunObjectStorageProvider:
             request_id=str(result.get("request_id") or ""),
         )
 
-    def deactivate_access_key(self, key):
-        return self._call(
+    def _update_access_key_status(self, key, status):
+        result = self._call(
             self.ram_gateway.update_access_key,
             key.cloud_identity.ram_user_name,
             key.access_key_id,
-            "Inactive",
+            status,
         )
+        return AccessKeyMutation(request_id=str(result.get("request_id") or ""))
+
+    def activate_access_key(self, key):
+        return self._update_access_key_status(key, "Active")
+
+    def deactivate_access_key(self, key):
+        return self._update_access_key_status(key, "Inactive")
 
     def delete_access_key(self, key):
-        return self._call(
+        result = self._call(
             self.ram_gateway.delete_access_key,
             key.cloud_identity.ram_user_name,
             key.access_key_id,
+        )
+        return AccessKeyMutation(request_id=str(result.get("request_id") or ""))
+
+    def update_bucket_configuration(self, bucket, configuration):
+        result = self._call(
+            self.oss_gateway.update_bucket_configuration,
+            bucket_name=bucket.name,
+            configuration=configuration,
+        )
+        return BucketConfigurationMutation(
+            request_id=str(result.get("request_id") or "")
         )
 
 
@@ -337,14 +383,17 @@ class AliyunRamGateway:
         )
         container = getattr(response.body, "access_keys", None)
         rows = getattr(container, "access_key", None) or []
-        return [
-            {
-                "access_key_id": str(row.access_key_id or ""),
-                "status": str(row.status or ""),
-                "created_at": str(row.create_date or ""),
-            }
-            for row in rows
-        ]
+        return {
+            "items": [
+                {
+                    "access_key_id": str(row.access_key_id or ""),
+                    "status": str(row.status or ""),
+                    "created_at": str(row.create_date or ""),
+                }
+                for row in rows
+            ],
+            "request_id": _request_id(response),
+        }
 
     def create_access_key(self, user_name):
         response = self.client.create_access_key(
@@ -460,19 +509,42 @@ class AliyunOssGateway:
     def find_bucket(self, *, bucket_name, marker):
         bucket = self._bucket(bucket_name)
         try:
-            tags = bucket.get_bucket_tagging().tag_set.tagging_rule
+            response = bucket.get_bucket_tagging()
+            tags = response.tag_set.tagging_rule
         except Exception as exc:
             # A missing bucket is a negative reconciliation result; all other
             # provider failures retain their mapped error semantics.
             if str(getattr(exc, "code", "")) == "NoSuchBucket":
-                return False
+                return {
+                    "exists": False,
+                    "owned": False,
+                    "cloud_resource_id": "",
+                    "request_id": str(getattr(exc, "request_id", "") or ""),
+                }
             raise
         if str(tags.get("hyperops-owner") or "") != marker:
             raise ObjectStorageProviderError("BUCKET_OWNERSHIP_MISMATCH")
-        return True
+        return {
+            "exists": True,
+            "owned": True,
+            "cloud_resource_id": bucket_name,
+            "request_id": str(getattr(response, "request_id", "") or ""),
+        }
 
     def delete_bucket(self, bucket_name):
         result = self._bucket(bucket_name).delete_bucket()
+        return {"request_id": str(getattr(result, "request_id", "") or "")}
+
+    def update_bucket_configuration(self, *, bucket_name, configuration):
+        import oss2
+
+        permissions = {
+            "private": oss2.BUCKET_ACL_PRIVATE,
+            "public_read": oss2.BUCKET_ACL_PUBLIC_READ,
+        }
+        result = self._bucket(bucket_name).put_bucket_acl(
+            permissions[configuration.acl]
+        )
         return {"request_id": str(getattr(result, "request_id", "") or "")}
 
 

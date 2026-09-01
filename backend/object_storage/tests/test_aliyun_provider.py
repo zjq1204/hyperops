@@ -6,6 +6,7 @@ import pytest
 class FakeRamGateway:
     def __init__(self):
         self.policy = None
+        self.updated_key = None
 
     def validate_identity(self):
         return {
@@ -21,21 +22,29 @@ class FakeRamGateway:
             "user_name": user_name,
             "created": True,
             "request_id": "ram-request-2",
+            "sdk_body": {"secret": "must-not-leak"},
         }
 
     def apply_policy(self, user_name, policy):
         self.policy = policy
-        return {"request_id": "ram-request-3"}
+        return {
+            "request_id": "ram-request-3",
+            "sdk_body": {"secret": "must-not-leak"},
+        }
 
     def list_access_keys(self, user_name):
-        return [
-            {
-                "access_key_id": "LTAIabcdefghijkl1234",
-                "status": "Active",
-                "created_at": "2026-08-31T00:00:00Z",
-                "secret_access_key": "must-not-leak",
-            }
-        ]
+        return {
+            "items": [
+                {
+                    "access_key_id": "LTAIabcdefghijkl1234",
+                    "status": "Active",
+                    "created_at": "2026-08-31T00:00:00Z",
+                    "secret_access_key": "must-not-leak",
+                }
+            ],
+            "request_id": "ram-request-list",
+            "sdk_body": {"secret": "must-not-leak"},
+        }
 
     def create_access_key(self, user_name):
         return {
@@ -45,15 +54,17 @@ class FakeRamGateway:
         }
 
     def update_access_key(self, user_name, access_key_id, status):
-        return {"request_id": "ram-request-5"}
+        self.updated_key = (user_name, access_key_id, status)
+        return {"request_id": f"ram-request-{status.lower()}"}
 
     def delete_access_key(self, user_name, access_key_id):
-        return {"request_id": "ram-request-6"}
+        return {"request_id": "ram-request-delete"}
 
 
 class FakeOssGateway:
     def __init__(self, inspection=None):
         self.created = None
+        self.updated_configuration = None
         self.inspection = inspection or {
             "object_count": 0,
             "version_count": 0,
@@ -67,16 +78,29 @@ class FakeOssGateway:
 
     def create_bucket(self, **kwargs):
         self.created = kwargs
-        return {"created": True, "request_id": "oss-request-create"}
+        return {
+            "created": True,
+            "request_id": "oss-request-create",
+            "sdk_body": {"credential": "must-not-leak"},
+        }
 
     def find_bucket(self, *, bucket_name, marker):
-        return self.created is not None and self.created.get("marker") == marker
+        return {
+            "exists": self.created is not None,
+            "owned": self.created is not None and self.created.get("marker") == marker,
+            "cloud_resource_id": bucket_name,
+            "request_id": "oss-request-find",
+        }
 
     def inspect_bucket(self, bucket_name):
         return dict(self.inspection)
 
     def delete_bucket(self, bucket_name):
         return {"request_id": "oss-request-delete"}
+
+    def update_bucket_configuration(self, *, bucket_name, configuration):
+        self.updated_configuration = (bucket_name, configuration)
+        return {"request_id": "oss-request-update"}
 
 
 def _provider(inspection=None):
@@ -98,6 +122,7 @@ def test_validate_management_identity_returns_safe_capabilities():
         "can_manage_ram": True,
         "can_manage_oss": True,
         "request_ids": ("ram-request-1", "oss-request-1"),
+        "error_category": "",
     }
     assert "secret" not in str(payload).lower()
 
@@ -118,7 +143,7 @@ def test_validate_management_identity_never_falls_back_to_configured_account_id(
         )
 
 
-def test_ram_gateway_rejects_sts_response_without_account_id(monkeypatch):
+def test_ram_gateway_rejects_sts_response_without_account_id():
     import inspect
 
     from object_storage.providers.aliyun import AliyunRamGateway
@@ -191,15 +216,15 @@ def test_ram_gateway_uses_sts_caller_identity_and_then_checks_ram(monkeypatch):
     assert runtime.read_timeout == 10000
 
 
-def test_create_bucket_uses_fixed_region_and_platform_defaults():
+def test_create_bucket_is_private_and_returns_sanitized_mutation():
     provider, _ram, oss = _provider()
     bucket = SimpleNamespace(
-        name="tenant-user-project-abcd1234",
+        name="hyperops-user-billing-abcd1234",
         region="cn-hangzhou",
         cloud_marker="hyperops:bucket:42",
     )
 
-    provider.create_owned_bucket(bucket)
+    result = provider.create_owned_bucket(bucket)
 
     assert oss.created == {
         "bucket_name": bucket.name,
@@ -209,6 +234,119 @@ def test_create_bucket_uses_fixed_region_and_platform_defaults():
         "server_side_encryption": "AES256",
         "marker": "hyperops:bucket:42",
     }
+    assert result.created is True
+    assert result.request_id == "oss-request-create"
+    assert "sdk_body" not in repr(result)
+
+
+def test_bucket_business_operations_return_sanitized_dataclasses():
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="managed-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+    provider.create_owned_bucket(bucket)
+
+    found = provider.find_owned_bucket(bucket)
+    inspected = provider.inspect_bucket_emptiness(bucket)
+    deleted = provider.delete_owned_bucket(bucket)
+
+    assert found.exists is True
+    assert found.owned is True
+    assert found.cloud_resource_id == "managed-bucket"
+    assert found.request_id == "oss-request-find"
+    assert bool(found) is True
+    assert inspected.is_empty is True
+    assert deleted.request_id == "oss-request-delete"
+    assert oss.created["acl"] == "private"
+
+
+@pytest.mark.parametrize(
+    "inspection",
+    [
+        {"object_count": 1},
+        {"version_count": 1},
+        {"delete_marker_count": 1},
+        {"multipart_upload_count": 1},
+    ],
+)
+def test_bucket_empty_check_rejects_all_retained_content(inspection):
+    provider, _ram, _oss = _provider(inspection)
+
+    result = provider.inspect_bucket_emptiness(SimpleNamespace(name="bucket"))
+
+    assert result.is_empty is False
+
+
+def test_policy_reconciliation_returns_only_safe_metadata():
+    from object_storage.models import Bucket
+
+    provider, ram, _oss = _provider()
+    identity = SimpleNamespace(ram_user_name="hyperops-user")
+    buckets = [
+        SimpleNamespace(name="owned-a", state=Bucket.State.ACTIVE),
+        SimpleNamespace(name="owned-b", state=Bucket.State.ACTIVE),
+    ]
+
+    result = provider.reconcile_object_policy(identity, buckets)
+
+    resources = {
+        resource
+        for statement in ram.policy["Statement"]
+        for resource in statement["Resource"]
+    }
+    assert resources == {
+        "acs:oss:*:*:owned-a",
+        "acs:oss:*:*:owned-a/*",
+        "acs:oss:*:*:owned-b",
+        "acs:oss:*:*:owned-b/*",
+    }
+    assert result.request_id == "ram-request-3"
+    assert "must-not-leak" not in repr(result)
+
+
+def test_access_key_operations_return_sanitized_results():
+    provider, ram, _oss = _provider()
+    identity = SimpleNamespace(ram_user_name="user")
+    key = SimpleNamespace(
+        cloud_identity=identity,
+        access_key_id="LTAIabcdefghijkl1234",
+    )
+
+    listed = provider.list_access_keys(identity)
+    issued = provider.create_access_key(identity)
+    activated = provider.activate_access_key(key)
+    deactivated = provider.deactivate_access_key(key)
+    deleted = provider.delete_access_key(key)
+
+    assert listed.request_id == "ram-request-list"
+    assert len(listed.keys) == 1
+    assert listed.keys[0].last_four == "1234"
+    assert issued.secret_access_key == "employee-secret"
+    assert "employee-secret" not in repr(issued)
+    assert activated.request_id == "ram-request-active"
+    assert deactivated.request_id == "ram-request-inactive"
+    assert deleted.request_id == "ram-request-delete"
+    assert ram.updated_key == (
+        "user",
+        "LTAIabcdefghijkl1234",
+        "Inactive",
+    )
+    assert "must-not-leak" not in repr(listed)
+
+
+def test_bucket_configuration_delegates_supported_public_read_contract():
+    from object_storage.providers.base import BucketConfiguration
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(name="managed-bucket", region="cn-hangzhou")
+    configuration = BucketConfiguration(acl="public_read")
+
+    result = provider.update_bucket_configuration(bucket, configuration)
+
+    assert oss.updated_configuration == ("managed-bucket", configuration)
+    assert result.request_id == "oss-request-update"
 
 
 def test_oss_gateway_persists_and_reconciles_exact_owner_marker(monkeypatch):
@@ -248,61 +386,11 @@ def test_oss_gateway_persists_and_reconciles_exact_owner_marker(monkeypatch):
     assert stored == {"hyperops-owner": "hyperops:bucket:42"}
     assert gateway.find_bucket(
         bucket_name="managed-bucket", marker="hyperops:bucket:42"
-    )
+    )["owned"]
     with pytest.raises(Exception, match="BUCKET_OWNERSHIP_MISMATCH"):
         gateway.find_bucket(
             bucket_name="managed-bucket", marker="hyperops:bucket:other"
         )
-
-
-@pytest.mark.parametrize(
-    "inspection",
-    [
-        {"object_count": 1},
-        {"version_count": 1},
-        {"delete_marker_count": 1},
-        {"multipart_upload_count": 1},
-    ],
-)
-def test_bucket_empty_check_rejects_all_retained_content(inspection):
-    provider, _ram, _oss = _provider(inspection)
-
-    result = provider.inspect_bucket_emptiness(SimpleNamespace(name="bucket"))
-
-    assert result.is_empty is False
-
-
-def test_object_policy_contains_only_owned_bucket_arns():
-    provider, ram, _oss = _provider()
-    identity = SimpleNamespace(ram_user_name="hyperops-user")
-    buckets = [
-        SimpleNamespace(name="owned-a"),
-        SimpleNamespace(name="owned-b"),
-    ]
-
-    provider.reconcile_object_policy(identity, buckets)
-
-    resources = {
-        resource
-        for statement in ram.policy["Statement"]
-        for resource in statement["Resource"]
-    }
-    assert resources == {
-        "acs:oss:*:*:owned-a",
-        "acs:oss:*:*:owned-a/*",
-        "acs:oss:*:*:owned-b",
-        "acs:oss:*:*:owned-b/*",
-    }
-
-
-def test_access_key_list_never_returns_secret_material():
-    provider, _ram, _oss = _provider()
-
-    keys = provider.list_access_keys(SimpleNamespace(ram_user_name="user"))
-
-    assert len(keys) == 1
-    assert keys[0].last_four == "1234"
-    assert "must-not-leak" not in repr(keys)
 
 
 def test_provider_errors_map_to_stable_domain_codes():

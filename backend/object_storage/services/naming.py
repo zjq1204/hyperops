@@ -1,33 +1,49 @@
 import hashlib
 import re
+import secrets
 import string
 import unicodedata
+from dataclasses import dataclass
 
 ALLOWED_TEMPLATE_VARIABLES = {
-    "tenant",
+    "prefix",
     "user",
+    "business_name",
     "project",
     "environment",
     "purpose",
     "suffix",
 }
 SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
+SUFFIX_PATTERN = re.compile(r"[a-z0-9]{8}")
+BUCKET_NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
+SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
 
 
 class BucketNamingError(ValueError):
     pass
 
 
-def _stable_hash(*values, length=8):
-    payload = "\x1f".join(str(value or "").strip().casefold() for value in values)
+@dataclass(frozen=True)
+class BucketNameCandidate:
+    name: str
+    suffix: str
+
+
+def _stable_hash(value, length=8):
+    payload = str(value or "").strip().casefold()
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:length]
 
 
-def _slug(value, *, fallback_seed):
+def _slug(value):
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     ascii_value = normalized.encode("ascii", "ignore").decode("ascii").lower()
     slug = SLUG_PATTERN.sub("-", ascii_value).strip("-")
-    return slug or f"x{_stable_hash(fallback_seed)}"
+    return slug or f"x{_stable_hash(value)}"
+
+
+def generate_suffix():
+    return "".join(secrets.choice(SUFFIX_ALPHABET) for _index in range(8))
 
 
 def validate_naming_template(template):
@@ -35,8 +51,9 @@ def validate_naming_template(template):
         raise BucketNamingError("TEMPLATE_REQUIRED")
     variables = []
     try:
-        parsed = string.Formatter().parse(template)
-        for _literal, field_name, format_spec, conversion in parsed:
+        for _literal, field_name, format_spec, conversion in string.Formatter().parse(
+            template
+        ):
             if field_name is None:
                 continue
             if format_spec or conversion:
@@ -44,8 +61,7 @@ def validate_naming_template(template):
             variables.append(field_name)
     except ValueError as exc:
         raise BucketNamingError("TEMPLATE_INVALID") from exc
-    unknown = set(variables) - ALLOWED_TEMPLATE_VARIABLES
-    if unknown:
+    if set(variables) - ALLOWED_TEMPLATE_VARIABLES:
         raise BucketNamingError("UNKNOWN_TEMPLATE_VARIABLE")
     if "suffix" not in variables:
         raise BucketNamingError("SUFFIX_REQUIRED")
@@ -53,35 +69,42 @@ def validate_naming_template(template):
 
 
 def render_bucket_name(
-    *, tenant, membership, project, environment, purpose, template=None
+    *,
+    template,
+    prefix,
+    user,
+    business_name,
+    project,
+    environment,
+    purpose,
+    suffix,
 ):
-    selected_template = template or tenant.bucket_naming_template
-    validate_naming_template(selected_template)
-    suffix = _stable_hash(
-        tenant.code,
-        membership.feishu_open_id,
-        project,
-        environment,
-        purpose,
-    )
+    validate_naming_template(template)
+    if not isinstance(suffix, str) or not SUFFIX_PATTERN.fullmatch(suffix):
+        raise BucketNamingError("SUFFIX_INVALID")
+
     values = {
-        "tenant": _slug(tenant.code, fallback_seed=tenant.code),
-        "user": _slug(
-            membership.display_name,
-            fallback_seed=membership.feishu_open_id,
-        ),
-        "project": _slug(project, fallback_seed=project),
-        "environment": _slug(environment, fallback_seed=environment),
-        "purpose": _slug(purpose, fallback_seed=purpose),
+        "prefix": _slug(prefix),
+        "user": _slug(user),
+        "business_name": _slug(business_name),
+        "project": _slug(project),
+        "environment": _slug(environment),
+        "purpose": _slug(purpose),
         "suffix": suffix,
     }
-    rendered = selected_template.format(**values)
-    normalized = SLUG_PATTERN.sub("-", rendered.lower()).strip("-")
-    if len(normalized) > 63:
-        prefix_length = 63 - len(suffix) - 1
-        normalized = f"{normalized[:prefix_length].rstrip('-')}-{suffix}"
-    if len(normalized) < 3:
-        normalized = f"obj-{suffix}"
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", normalized):
-        raise BucketNamingError("RENDERED_NAME_INVALID")
-    return normalized
+    rendered = template.format(**values).lower()
+    if len(rendered) > 63:
+        raise BucketNamingError("BUCKET_NAME_TOO_LONG")
+    if len(rendered) < 3:
+        raise BucketNamingError("BUCKET_NAME_TOO_SHORT")
+    if not rendered.isascii() or not BUCKET_NAME_PATTERN.fullmatch(rendered):
+        raise BucketNamingError("BUCKET_NAME_INVALID")
+    return rendered
+
+
+def generate_bucket_name_candidate(**render_values):
+    suffix = generate_suffix()
+    return BucketNameCandidate(
+        name=render_bucket_name(suffix=suffix, **render_values),
+        suffix=suffix,
+    )

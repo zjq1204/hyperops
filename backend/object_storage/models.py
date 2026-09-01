@@ -112,6 +112,27 @@ class PlatformObjectStorageConfig(TimestampedModel):
         return "Platform object storage configuration"
 
 
+class UserBucketQuota(TimestampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="object_storage_bucket_quota",
+    )
+    bucket_quota = models.PositiveSmallIntegerField()
+
+    class Meta:
+        ordering = ["user_id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(bucket_quota__gte=1),
+                name="storage_user_bucket_quota_positive",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}:{self.bucket_quota}"
+
+
 class StorageResourcePool(TimestampedModel):
     class Provider(models.TextChoices):
         ALIYUN = "aliyun", "Alibaba Cloud"
@@ -346,9 +367,7 @@ class AccessKeyQuerySet(models.QuerySet):
     )
 
     def bulk_create(self, objs, *args, **kwargs):
-        raise AccessKeyUnsafeBulkMutationError(
-            "ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE"
-        )
+        raise AccessKeyUnsafeBulkMutationError("ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE")
 
     def update(self, **kwargs):
         if self.GUARDED_UPDATE_FIELDS.intersection(kwargs):
@@ -773,6 +792,7 @@ class AuditEvent(models.Model):
 OBJECT_STORAGE_BUSINESS_MODELS = (
     PlatformFeishuConfig,
     PlatformObjectStorageConfig,
+    UserBucketQuota,
     StorageResourcePool,
     FeishuIdentity,
     CloudIdentity,
