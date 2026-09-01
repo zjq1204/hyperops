@@ -99,6 +99,7 @@ FEATURE_ALIASES = {
         "admin_notifications",
         "admin_actions",
         "admin_monitoring",
+        "admin_object_storage",
     ),
     "jenkins": ("workspace_dashboard", "workspace_jenkins"),
     "gitlab": ("workspace_dashboard", "workspace_jenkins"),
@@ -115,6 +116,7 @@ FEATURE_ALIASES = {
         "admin_notifications",
         "admin_actions",
         "admin_monitoring",
+        "admin_object_storage",
     ),
     "gitlab_admin": (
         "admin_users",
@@ -123,6 +125,7 @@ FEATURE_ALIASES = {
         "admin_notifications",
         "admin_actions",
         "admin_monitoring",
+        "admin_object_storage",
     ),
     "llm_console": (
         "admin_users",
@@ -131,6 +134,7 @@ FEATURE_ALIASES = {
         "admin_notifications",
         "admin_actions",
         "admin_monitoring",
+        "admin_object_storage",
     ),
     "task_management_console": (
         "admin_users",
@@ -139,6 +143,7 @@ FEATURE_ALIASES = {
         "admin_notifications",
         "admin_actions",
         "admin_monitoring",
+        "admin_object_storage",
     ),
     "notification_console": (
         "admin_users",
@@ -147,6 +152,7 @@ FEATURE_ALIASES = {
         "admin_notifications",
         "admin_actions",
         "admin_monitoring",
+        "admin_object_storage",
     ),
 }
 

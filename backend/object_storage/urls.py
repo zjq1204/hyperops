@@ -7,6 +7,7 @@ from object_storage.views_auth import (
     HandoffExchangeView,
 )
 from object_storage.views_admin import (
+    AccessGroupListView,
     FeishuAppConfigView,
     FeishuAppValidationView,
     StorageResourcePoolDetailView,
@@ -39,6 +40,10 @@ from object_storage.views_employee import (
     ManagementMembershipReactivateView,
     ManagementMembershipSuspendView,
 )
+from object_storage.views_feishu_admin import (
+    FeishuSyncConfirmView,
+    FeishuSyncPreviewView,
+)
 
 app_name = "object_storage"
 
@@ -60,9 +65,24 @@ urlpatterns = [
         name="handoff_exchange",
     ),
     path(
+        "management/feishu/sync/preview/",
+        FeishuSyncPreviewView.as_view(),
+        name="management_feishu_sync_preview",
+    ),
+    path(
+        "management/feishu/sync/confirm/",
+        FeishuSyncConfirmView.as_view(),
+        name="management_feishu_sync_confirm",
+    ),
+    path(
         "management/tenants/",
         StorageTenantListCreateView.as_view(),
         name="management_tenants",
+    ),
+    path(
+        "management/access-groups/",
+        AccessGroupListView.as_view(),
+        name="management_access_groups",
     ),
     path(
         "management/tenants/<int:tenant_id>/",

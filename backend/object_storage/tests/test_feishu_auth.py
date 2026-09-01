@@ -2,14 +2,14 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from django.core.cache import cache
-
 from accounts.access import get_access_profile
 
 pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def clear_auth_cache(settings):
+def feishu_auth_settings(settings):
+    settings.ROOT_URLCONF = "object_storage.tests.urls_feishu"
     settings.CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -22,19 +22,27 @@ def clear_auth_cache(settings):
 
 
 @pytest.fixture
-def enabled_feishu_tenant(storage_tenant_factory):
-    from object_storage.models import FeishuAppConfig
+def feishu_config(db):
+    from django.contrib.auth.models import Group
 
-    tenant = storage_tenant_factory(enabled=True)
-    FeishuAppConfig.objects.create(
-        tenant=tenant,
+    from accounts.models import Role
+    from object_storage.models import PlatformFeishuConfig
+
+    group = Group.objects.create(name="Feishu Users")
+    role = Role.objects.create(
+        name="Feishu Workspace",
+        visible_features=["workspace_dashboard", "object_storage"],
+    )
+    group.platform_roles.add(role)
+    return PlatformFeishuConfig.objects.create(
+        singleton_key="default",
         app_id="cli_test_app",
         app_secret_encrypted="encrypted-feishu-secret",
         oauth_callback_url="https://hyperops.example.com/feishu/callback",
-        validation_status=FeishuAppConfig.ValidationStatus.VALID,
+        access_group=group,
+        validation_status=PlatformFeishuConfig.ValidationStatus.VALID,
         enabled=True,
     )
-    return tenant
 
 
 class FakeFeishuClient:
@@ -43,10 +51,12 @@ class FakeFeishuClient:
 
     def build_authorization_url(self, *, app_id, state, callback_url):
         assert app_id
+        assert callback_url
         return f"https://open.feishu.cn/auth?state={state}"
 
     def authenticate(self, *, code, app_config):
         assert code == "valid-code"
+        assert app_config.singleton_key == "default"
         return self.identity
 
 
@@ -61,6 +71,7 @@ def _identity(**overrides):
         "department_ids": ("department-1",),
         "is_active": True,
         "is_eligible": True,
+        "status_reason": "",
     }
     values.update(overrides)
     return FeishuIdentity(**values)
@@ -71,147 +82,120 @@ def _payload(response):
     return body.get("data", body)
 
 
-def _start_login(client, tenant):
+def _start_login(client, **payload):
     response = client.post(
         "/api/v1/object-storage/auth/feishu/start/",
-        {"tenant_code": tenant.code},
+        payload,
         content_type="application/json",
     )
-    assert response.status_code == 200
-    authorization_url = _payload(response)["authorization_url"]
-    return parse_qs(urlparse(authorization_url).query)["state"][0]
+    state = None
+    if response.status_code == 200:
+        state = parse_qs(urlparse(_payload(response)["authorization_url"]).query)[
+            "state"
+        ][0]
+    return response, state
 
 
-def _complete_callback(client, state):
+def _complete_callback(client, state, code="valid-code"):
     return client.get(
         "/api/v1/object-storage/auth/feishu/callback/",
-        {"state": state, "code": "valid-code"},
+        {"state": state, "code": code},
     )
 
 
-def test_feishu_callback_rejects_unknown_reused_and_expired_state(
-    client, enabled_feishu_tenant, monkeypatch
+def test_login_start_is_platform_singleton_and_rejects_tenant_input(
+    client, feishu_config
+):
+    response, state = _start_login(client, tenant_code="legacy-tenant")
+
+    assert response.status_code == 400
+    assert _payload(response)["error_code"] == "FEISHU_TENANT_NOT_SUPPORTED"
+    assert state is None
+
+    response, state = _start_login(client)
+
+    assert response.status_code == 200
+    assert state
+    assert response["Cache-Control"] == "no-store"
+
+
+def test_oauth_state_is_short_lived_single_use_and_bound_to_config(
+    client, feishu_config, monkeypatch
 ):
     from object_storage import views_auth
-    from object_storage.services.tenant import _cache_key
+    from object_storage.services.identity import _cache_key
 
     monkeypatch.setattr(
         views_auth,
         "get_feishu_client",
         lambda: FakeFeishuClient(_identity()),
     )
-    unknown = _complete_callback(client, "unknown-state")
-    state = _start_login(client, enabled_feishu_tenant)
+    _, state = _start_login(client)
+    cached = cache.get(_cache_key("oauth-state", state))
+
+    assert cached["config_id"] == feishu_config.id
+    assert cached["nonce"]
+
     first = _complete_callback(client, state)
     reused = _complete_callback(client, state)
-    expired_state = _start_login(client, enabled_feishu_tenant)
-    cache.delete(_cache_key("oauth-state", expired_state))
-    expired = _complete_callback(client, expired_state)
+    cache.delete(_cache_key("oauth-state", state))
+    expired = _complete_callback(client, state)
 
-    assert unknown.status_code == 400
-    assert _payload(unknown)["error_code"] == "FEISHU_STATE_INVALID"
     assert first.status_code == 200
     assert reused.status_code == 400
-    assert _payload(reused)["error_code"] == "FEISHU_STATE_INVALID"
     assert expired.status_code == 400
+    assert _payload(reused)["error_code"] == "FEISHU_STATE_INVALID"
     assert _payload(expired)["error_code"] == "FEISHU_STATE_INVALID"
+    assert reused["Cache-Control"] == "no-store"
 
 
-def test_feishu_callback_creates_one_unusable_password_user(
-    client, enabled_feishu_tenant, monkeypatch
+def test_first_login_creates_only_unusable_local_user_and_feishu_identity(
+    client, feishu_config, django_user_model, monkeypatch
 ):
     from object_storage import views_auth
-    from object_storage.models import StorageMembership
+    from object_storage.models import (
+        AccessKey,
+        Bucket,
+        CloudIdentity,
+        FeishuIdentity,
+    )
 
     monkeypatch.setattr(
         views_auth,
         "get_feishu_client",
         lambda: FakeFeishuClient(_identity()),
     )
-    state = _start_login(client, enabled_feishu_tenant)
+    before_users = django_user_model.objects.count()
 
+    _, state = _start_login(client)
     response = _complete_callback(client, state)
 
     assert response.status_code == 200
-    assert "handoff_code" in _payload(response)
-    membership = StorageMembership.objects.get(
-        tenant=enabled_feishu_tenant,
-        feishu_open_id="ou_employee_1",
-    )
-    assert membership.user.has_usable_password() is False
-    assert membership.user.is_staff is False
-    assert membership.user.is_superuser is False
-    role = membership.user.platform_roles.get()
-    assert role.name == "Object Storage User"
-    assert role.is_system is True
-    access = get_access_profile(membership.user)
-    assert access["visible_features"] == ["object_storage"]
+    identity = FeishuIdentity.objects.get(open_id="ou_employee_1")
+    identity.user.refresh_from_db()
+    assert django_user_model.objects.count() == before_users + 1
+    assert identity.user.has_usable_password() is False
+    assert identity.user.is_staff is False
+    assert identity.user.is_superuser is False
+    assert identity.user.groups.filter(pk=feishu_config.access_group_id).exists()
+    assert not identity.user.platform_roles.exists()
+    assert get_access_profile(identity.user)["visible_features"] == [
+        "workspace_dashboard",
+        "object_storage",
+    ]
+    assert CloudIdentity.objects.count() == 0
+    assert Bucket.objects.count() == 0
+    assert AccessKey.objects.count() == 0
 
 
-def test_same_tenant_and_open_id_is_idempotent(
-    client, enabled_feishu_tenant, monkeypatch
+def test_repeated_open_id_reuses_identity_and_does_not_merge_by_email(
+    client, feishu_config, django_user_model, monkeypatch
 ):
     from object_storage import views_auth
-    from object_storage.models import StorageMembership
+    from object_storage.models import FeishuIdentity
 
-    monkeypatch.setattr(
-        views_auth,
-        "get_feishu_client",
-        lambda: FakeFeishuClient(_identity()),
-    )
-    first = _complete_callback(client, _start_login(client, enabled_feishu_tenant))
-    second = _complete_callback(client, _start_login(client, enabled_feishu_tenant))
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert (
-        StorageMembership.objects.filter(
-            tenant=enabled_feishu_tenant,
-            feishu_open_id="ou_employee_1",
-        ).count()
-        == 1
-    )
-
-
-def test_same_open_id_in_another_tenant_creates_a_distinct_user(
-    client, storage_tenant_factory, monkeypatch
-):
-    from object_storage import views_auth
-    from object_storage.models import FeishuAppConfig, StorageMembership
-
-    tenants = [storage_tenant_factory(code=f"tenant-{index}") for index in (1, 2)]
-    for index, tenant in enumerate(tenants, start=1):
-        FeishuAppConfig.objects.create(
-            tenant=tenant,
-            app_id=f"app-{index}",
-            app_secret_encrypted="encrypted",
-            oauth_callback_url=f"https://example.com/callback/{index}",
-            validation_status=FeishuAppConfig.ValidationStatus.VALID,
-            enabled=True,
-        )
-    monkeypatch.setattr(
-        views_auth,
-        "get_feishu_client",
-        lambda: FakeFeishuClient(_identity()),
-    )
-
-    for tenant in tenants:
-        response = _complete_callback(client, _start_login(client, tenant))
-        assert response.status_code == 200
-
-    memberships = StorageMembership.objects.filter(feishu_open_id="ou_employee_1")
-    assert memberships.count() == 2
-    assert len({membership.user_id for membership in memberships}) == 2
-
-
-def test_feishu_name_email_never_merges_existing_local_user(
-    client, enabled_feishu_tenant, django_user_model, monkeypatch
-):
-    from object_storage import views_auth
-    from object_storage.models import StorageMembership
-
-    existing = django_user_model.objects.create_user(
-        username="Employee One",
+    existing_local = django_user_model.objects.create_user(
+        username="local-employee",
         email="employee@example.com",
     )
     monkeypatch.setattr(
@@ -220,54 +204,65 @@ def test_feishu_name_email_never_merges_existing_local_user(
         lambda: FakeFeishuClient(_identity()),
     )
 
-    response = _complete_callback(client, _start_login(client, enabled_feishu_tenant))
+    _, first_state = _start_login(client)
+    first = _complete_callback(client, first_state)
+    _, second_state = _start_login(client)
+    second = _complete_callback(client, second_state)
 
-    assert response.status_code == 200
-    membership = StorageMembership.objects.get(tenant=enabled_feishu_tenant)
-    assert membership.user_id != existing.id
-
-
-@pytest.mark.parametrize("disabled_part", ["tenant", "app"])
-def test_disabled_tenant_or_app_rejects_login(
-    client, enabled_feishu_tenant, disabled_part
-):
-    if disabled_part == "tenant":
-        enabled_feishu_tenant.enabled = False
-        enabled_feishu_tenant.save(update_fields=("enabled",))
-    else:
-        config = enabled_feishu_tenant.feishu_app_config
-        config.enabled = False
-        config.save(update_fields=("enabled",))
-
-    response = client.post(
-        "/api/v1/object-storage/auth/feishu/start/",
-        {"tenant_code": enabled_feishu_tenant.code},
-        content_type="application/json",
-    )
-
-    assert response.status_code == 404
-    assert _payload(response)["error_code"] == "FEISHU_LOGIN_UNAVAILABLE"
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert FeishuIdentity.objects.count() == 1
+    identity = FeishuIdentity.objects.get()
+    assert identity.user_id != existing_local.id
+    assert django_user_model.objects.count() == 2
 
 
-def test_inactive_or_ineligible_feishu_identity_is_rejected(
-    client, enabled_feishu_tenant, monkeypatch
+@pytest.mark.parametrize(
+    ("status_reason", "expected_code"),
+    [
+        ("outside_scope", "FEISHU_IDENTITY_OUTSIDE_SCOPE"),
+        ("deactivated", "FEISHU_IDENTITY_DEACTIVATED"),
+        ("deleted", "FEISHU_IDENTITY_DELETED"),
+    ],
+)
+def test_login_rejects_ineligible_identity_with_distinct_reason(
+    client, feishu_config, monkeypatch, status_reason, expected_code
 ):
     from object_storage import views_auth
 
     monkeypatch.setattr(
         views_auth,
         "get_feishu_client",
-        lambda: FakeFeishuClient(_identity(is_active=False)),
+        lambda: FakeFeishuClient(
+            _identity(
+                is_active=status_reason not in {"deactivated", "deleted"},
+                is_eligible=status_reason == "",
+                status_reason=status_reason,
+            )
+        ),
     )
 
-    response = _complete_callback(client, _start_login(client, enabled_feishu_tenant))
+    _, state = _start_login(client)
+    response = _complete_callback(client, state)
 
     assert response.status_code == 403
-    assert _payload(response)["error_code"] == "FEISHU_IDENTITY_INELIGIBLE"
+    assert _payload(response)["error_code"] == expected_code
+    assert response["Cache-Control"] == "no-store"
 
 
-def test_handoff_code_is_single_use_and_returns_normal_jwt_response(
-    client, enabled_feishu_tenant, monkeypatch
+def test_disabled_or_invalid_singleton_blocks_login_start(client, feishu_config):
+    feishu_config.enabled = False
+    feishu_config.save(update_fields=("enabled",))
+
+    response, _ = _start_login(client)
+
+    assert response.status_code == 404
+    assert _payload(response)["error_code"] == "FEISHU_LOGIN_UNAVAILABLE"
+    assert response["Cache-Control"] == "no-store"
+
+
+def test_handoff_exchange_is_single_use_and_no_store(
+    client, feishu_config, monkeypatch
 ):
     from object_storage import views_auth
 
@@ -276,7 +271,8 @@ def test_handoff_code_is_single_use_and_returns_normal_jwt_response(
         "get_feishu_client",
         lambda: FakeFeishuClient(_identity()),
     )
-    callback = _complete_callback(client, _start_login(client, enabled_feishu_tenant))
+    _, state = _start_login(client)
+    callback = _complete_callback(client, state)
     handoff_code = _payload(callback)["handoff_code"]
 
     first = client.post(
@@ -292,27 +288,27 @@ def test_handoff_code_is_single_use_and_returns_normal_jwt_response(
 
     assert first.status_code == 200
     assert set(_payload(first)) == {"access", "refresh", "user"}
+    assert first["Cache-Control"] == "no-store"
     assert reused.status_code == 400
     assert _payload(reused)["error_code"] == "HANDOFF_CODE_INVALID"
+    assert reused["Cache-Control"] == "no-store"
 
 
-def test_system_role_is_hidden_and_preserved_by_management_role_updates(
-    client,
-    enabled_feishu_tenant,
-    django_user_model,
-    monkeypatch,
+def test_management_role_updates_preserve_feishu_group_inheritance(
+    client, feishu_config, django_user_model, monkeypatch
 ):
     from accounts.models import Role
     from object_storage import views_auth
-    from object_storage.models import StorageMembership
+    from object_storage.models import FeishuIdentity
 
     monkeypatch.setattr(
         views_auth,
         "get_feishu_client",
         lambda: FakeFeishuClient(_identity()),
     )
-    _complete_callback(client, _start_login(client, enabled_feishu_tenant))
-    storage_user = StorageMembership.objects.get(tenant=enabled_feishu_tenant).user
+    _, state = _start_login(client)
+    assert _complete_callback(client, state).status_code == 200
+    feishu_user = FeishuIdentity.objects.get().user
     regular_role = Role.objects.create(
         name="Regular Workspace Role",
         visible_features=["workspace_dashboard"],
@@ -324,18 +320,19 @@ def test_system_role_is_hidden_and_preserved_by_management_role_updates(
     )
     client.force_login(administrator)
 
-    role_list = client.get("/api/v1/management/roles/")
-    update = client.patch(
-        f"/api/v1/management/users/{storage_user.id}/",
+    response = client.patch(
+        f"/api/v1/management/users/{feishu_user.id}/",
         {"role_ids": [regular_role.id]},
         content_type="application/json",
     )
 
-    assert role_list.status_code == 200
-    listed_names = {role["name"] for role in _payload(role_list).get("results", [])}
-    assert "Object Storage User" not in listed_names
-    assert update.status_code == 200
-    assert set(storage_user.platform_roles.values_list("name", flat=True)) == {
-        "Object Storage User",
-        "Regular Workspace Role",
+    feishu_user.refresh_from_db()
+    assert response.status_code == 200
+    assert feishu_user.groups.filter(pk=feishu_config.access_group_id).exists()
+    assert set(feishu_user.platform_roles.values_list("pk", flat=True)) == {
+        regular_role.id
     }
+    assert get_access_profile(feishu_user)["visible_features"] == [
+        "workspace_dashboard",
+        "object_storage",
+    ]

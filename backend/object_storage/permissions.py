@@ -1,12 +1,31 @@
 from django.core.exceptions import ObjectDoesNotExist
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
+
+from accounts.access import get_effective_feature_keys
+
+
+class ObjectStorageNotConfigured(PermissionDenied):
+    default_detail = "Object storage is not configured"
+    default_code = "OBJECT_STORAGE_NOT_CONFIGURED"
 
 
 class IsObjectStorageSuperuser(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and user.is_superuser)
+
+
+class HasObjectStorageAdminAccess(BasePermission):
+    """Allow users granted the object-storage administration feature."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and "admin_object_storage" in get_effective_feature_keys(user)
+        )
 
 
 class IsActiveObjectStorageMember(BasePermission):
@@ -19,9 +38,9 @@ class IsActiveObjectStorageMember(BasePermission):
         try:
             membership = user.object_storage_membership
         except (AttributeError, ObjectDoesNotExist):
-            return False
+            raise ObjectStorageNotConfigured()
         if not membership.is_active or not membership.tenant.enabled:
-            return False
+            raise ObjectStorageNotConfigured()
         request.storage_membership = membership
         return True
 
