@@ -1,6 +1,8 @@
 from django.db import migrations, models
 
-from object_storage.models import default_feishu_visible_features
+
+def default_visible_features():
+    return ["workspace_dashboard", "object_storage"]
 
 
 class Migration(migrations.Migration):
@@ -24,7 +26,7 @@ class Migration(migrations.Migration):
             name="visible_features",
             field=models.JSONField(
                 blank=True,
-                default=default_feishu_visible_features,
+                default=default_visible_features,
                 help_text="Feature keys granted to users signing in through this app.",
             ),
         ),
