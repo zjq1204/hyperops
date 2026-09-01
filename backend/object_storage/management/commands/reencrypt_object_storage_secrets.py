@@ -13,7 +13,7 @@ from object_storage.crypto import (
 )
 
 SECRET_FIELD_TARGETS = (
-    ("FeishuAppConfig", ("app_secret_encrypted",)),
+    ("PlatformFeishuConfig", ("app_secret_encrypted",)),
     (
         "StorageResourcePool",
         (
@@ -22,7 +22,7 @@ SECRET_FIELD_TARGETS = (
         ),
     ),
     (
-        "StorageAccessKey",
+        "AccessKey",
         ("access_key_id_encrypted", "secret_access_key_encrypted"),
     ),
 )

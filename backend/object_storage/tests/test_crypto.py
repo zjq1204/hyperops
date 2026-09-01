@@ -131,7 +131,11 @@ def test_reencrypt_command_rewraps_all_configured_secret_fields(
         Command,
         "get_secret_field_targets",
         lambda self: (
-            ("object_storage.FeishuAppConfig", FakeAppModel, ("app_secret_encrypted",)),
+            (
+                "object_storage.PlatformFeishuConfig",
+                FakeAppModel,
+                ("app_secret_encrypted",),
+            ),
             (
                 "object_storage.StorageResourcePool",
                 FakePoolModel,
@@ -215,3 +219,24 @@ def test_reencrypt_command_requires_explicit_confirmation():
 
     with pytest.raises(CommandError, match="--confirm"):
         Command(stdout=StringIO()).handle(confirm=False, batch_size=100)
+
+
+def test_reencrypt_command_targets_platform_secret_models():
+    from object_storage.management.commands.reencrypt_object_storage_secrets import (
+        SECRET_FIELD_TARGETS,
+    )
+
+    assert SECRET_FIELD_TARGETS == (
+        ("PlatformFeishuConfig", ("app_secret_encrypted",)),
+        (
+            "StorageResourcePool",
+            (
+                "management_access_key_encrypted",
+                "management_secret_key_encrypted",
+            ),
+        ),
+        (
+            "AccessKey",
+            ("access_key_id_encrypted", "secret_access_key_encrypted"),
+        ),
+    )

@@ -23,8 +23,8 @@ def delete_expired_audit_events_task():
     now = timezone.now()
     deleted_count, cutoff = delete_expired_audit_events(now=now)
     logger.info(
-        "对象存储审计记录清理完成 | operation=cleanup_audit_events "
-        "range_start=%s range_end=%s count=%s",
+        "object_storage.audit_cleanup completed | operation=cleanup_audit_events "
+        "range_start=%s range_end=%s deleted_count=%s",
         cutoff.isoformat(),
         now.isoformat(),
         deleted_count,
