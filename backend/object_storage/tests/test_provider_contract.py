@@ -29,15 +29,15 @@ def test_provider_protocol_exposes_only_business_operations():
 
 def test_provider_results_are_sanitized_dataclasses_with_error_categories():
     from object_storage.providers.base import (
-        AccessKeyCollection,
         AccessKeyMetadata,
         AccessKeyMutation,
+        BucketOwnership,
         BucketConfigurationMutation,
         BucketEmptiness,
         BucketMutation,
         IssuedAccessKey,
         ManagementCapabilities,
-        OwnedBucket,
+        KeyListResult,
         PersonalPrincipal,
         PolicyMutation,
     )
@@ -46,11 +46,11 @@ def test_provider_results_are_sanitized_dataclasses_with_error_categories():
         ManagementCapabilities,
         PersonalPrincipal,
         BucketMutation,
-        OwnedBucket,
+        BucketOwnership,
         BucketEmptiness,
         PolicyMutation,
         AccessKeyMetadata,
-        AccessKeyCollection,
+        KeyListResult,
         IssuedAccessKey,
         AccessKeyMutation,
         BucketConfigurationMutation,

@@ -59,7 +59,7 @@ def test_effective_quota_uses_override_before_platform_default(
     assert effective_bucket_quota(user) == 9
 
 
-def test_ensure_bucket_capacity_supports_one_atomic_batch(
+def test_check_bucket_capacity_supports_one_read_only_batch(
     bucket_factory,
     cloud_identity_factory,
     platform_object_storage_config,
@@ -67,7 +67,7 @@ def test_ensure_bucket_capacity_supports_one_atomic_batch(
     from object_storage.models import Bucket
     from object_storage.services.policy import (
         BucketQuotaExceeded,
-        ensure_bucket_capacity,
+        check_bucket_capacity,
     )
 
     identity = cloud_identity_factory()
@@ -83,35 +83,39 @@ def test_ensure_bucket_capacity_supports_one_atomic_batch(
             state=state,
         )
 
-    capacity = ensure_bucket_capacity(identity.user, requested=3)
+    capacity = check_bucket_capacity(identity.user, requested_count=3)
 
     assert capacity.limit == 5
     assert capacity.used == 2
     assert capacity.requested == 3
     assert capacity.remaining == 0
     with pytest.raises(BucketQuotaExceeded, match="BUCKET_QUOTA_EXCEEDED"):
-        ensure_bucket_capacity(identity.user, requested=4)
+        check_bucket_capacity(identity.user, requested_count=4)
 
 
-def test_ensure_bucket_capacity_rejects_non_positive_batch(user_factory):
-    from object_storage.services.policy import ensure_bucket_capacity
+def test_check_bucket_capacity_rejects_non_positive_batch(user_factory):
+    from object_storage.services.policy import check_bucket_capacity
 
     with pytest.raises(ValueError, match="REQUESTED_BUCKET_COUNT_INVALID"):
-        ensure_bucket_capacity(user_factory(), requested=0)
+        check_bucket_capacity(user_factory(), requested_count=0)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ensure_bucket_capacity_locks_user_inside_atomic_block(
+def test_reserve_bucket_capacity_runs_callback_under_user_lock(
+    cloud_identity_factory,
+    bucket_factory,
     user_factory,
     monkeypatch,
 ):
     from django.contrib.auth import get_user_model
     from django.db.models.query import QuerySet
 
-    from object_storage.services.policy import ensure_bucket_capacity
+    from object_storage.models import Bucket
+    from object_storage.services.policy import reserve_bucket_capacity
 
-    user = user_factory()
+    identity = cloud_identity_factory(user=user_factory())
     lock_observations = []
+    callback_observations = []
     original_select_for_update = QuerySet.select_for_update
 
     def tracked_select_for_update(queryset, *args, **kwargs):
@@ -122,9 +126,62 @@ def test_ensure_bucket_capacity_locks_user_inside_atomic_block(
 
     monkeypatch.setattr(QuerySet, "select_for_update", tracked_select_for_update)
 
-    ensure_bucket_capacity(user, requested=1)
+    def reserve(locked_user, capacity):
+        callback_observations.append(
+            (
+                locked_user.pk,
+                capacity.requested,
+                transaction.get_connection().in_atomic_block,
+            )
+        )
+        return bucket_factory(
+            cloud_identity=identity,
+            name="locked-reservation",
+            state=Bucket.State.REQUESTED,
+        )
+
+    reserved = reserve_bucket_capacity(
+        identity.user,
+        requested_count=1,
+        reserve_callback=reserve,
+    )
 
     assert lock_observations == [(get_user_model(), True)]
+    assert callback_observations == [(identity.user.pk, 1, True)]
+    assert reserved.state == Bucket.State.REQUESTED
+
+
+def test_reserved_bucket_makes_second_reservation_fail(
+    cloud_identity_factory,
+    bucket_factory,
+    platform_object_storage_config,
+):
+    from object_storage.models import Bucket
+    from object_storage.services.policy import (
+        BucketQuotaExceeded,
+        reserve_bucket_capacity,
+    )
+
+    identity = cloud_identity_factory()
+    platform_object_storage_config.default_bucket_quota = 1
+    platform_object_storage_config.save(update_fields=("default_bucket_quota",))
+
+    reserve_bucket_capacity(
+        identity.user,
+        requested_count=1,
+        reserve_callback=lambda _user, _capacity: bucket_factory(
+            cloud_identity=identity,
+            name="first-reservation",
+            state=Bucket.State.REQUESTED,
+        ),
+    )
+
+    with pytest.raises(BucketQuotaExceeded, match="BUCKET_QUOTA_EXCEEDED"):
+        reserve_bucket_capacity(
+            identity.user,
+            requested_count=1,
+            reserve_callback=lambda _user, _capacity: None,
+        )
 
 
 def test_object_policy_is_stable_and_scoped_to_active_owned_buckets(
@@ -213,6 +270,7 @@ def test_object_policy_owner_scope_excludes_another_users_active_bucket(
     serialized = str(policy)
     assert "owned-bucket" in serialized
     assert "foreign-bucket" not in serialized
+    assert build_object_policy([]) == {"Version": "1", "Statement": []}
 
 
 def test_object_policy_allows_complete_object_and_multipart_workflow():

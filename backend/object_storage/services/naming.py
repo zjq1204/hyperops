@@ -108,3 +108,33 @@ def generate_bucket_name_candidate(**render_values):
         name=render_bucket_name(suffix=suffix, **render_values),
         suffix=suffix,
     )
+
+
+def create_bucket_with_unique_name(*, create_callback, **render_values):
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    for _attempt in range(3):
+        candidate = generate_bucket_name_candidate(**render_values)
+        try:
+            return create_callback(candidate)
+        except ObjectStorageProviderError as exc:
+            if exc.error_code != "BUCKET_NAME_CONFLICT":
+                raise
+            last_conflict = exc
+    raise last_conflict
+
+
+def remaining_business_name_length(template, context, suffix):
+    variables = validate_naming_template(template)
+    if not isinstance(suffix, str) or not SUFFIX_PATTERN.fullmatch(suffix):
+        raise BucketNamingError("SUFFIX_INVALID")
+    occurrences = variables.count("business_name")
+    if occurrences == 0:
+        return 0
+    values = {
+        name: _slug(context.get(name, ""))
+        for name in ALLOWED_TEMPLATE_VARIABLES - {"business_name", "suffix"}
+    }
+    values.update({"business_name": "", "suffix": suffix})
+    fixed_length = len(template.format(**values))
+    return max(0, (63 - fixed_length) // occurrences)

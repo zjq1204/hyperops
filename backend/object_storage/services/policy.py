@@ -56,28 +56,52 @@ def effective_bucket_quota(user, *, platform_config=None):
     return config.default_bucket_quota
 
 
-@transaction.atomic
-def ensure_bucket_capacity(user, *, requested=1, platform_config=None):
-    if isinstance(requested, bool) or not isinstance(requested, int) or requested < 1:
+def _validate_requested_count(requested_count):
+    if (
+        isinstance(requested_count, bool)
+        or not isinstance(requested_count, int)
+        or requested_count < 1
+    ):
         raise ValueError("REQUESTED_BUCKET_COUNT_INVALID")
-    locked_user = get_user_model().objects.select_for_update().get(pk=user.pk)
-    used = count_quota_consuming_buckets(locked_user)
-    limit = effective_bucket_quota(locked_user, platform_config=platform_config)
-    if used + requested > limit:
+
+
+def _capacity(user, requested_count, platform_config):
+    used = count_quota_consuming_buckets(user)
+    limit = effective_bucket_quota(user, platform_config=platform_config)
+    if used + requested_count > limit:
         raise BucketQuotaExceeded("BUCKET_QUOTA_EXCEEDED")
     return BucketCapacity(
         limit=limit,
         used=used,
-        requested=requested,
-        remaining=limit - used - requested,
+        requested=requested_count,
+        remaining=limit - used - requested_count,
     )
 
 
+def check_bucket_capacity(user, *, requested_count=1, platform_config=None):
+    _validate_requested_count(requested_count)
+    return _capacity(user, requested_count, platform_config)
+
+
+@transaction.atomic
+def reserve_bucket_capacity(
+    user,
+    *,
+    requested_count,
+    reserve_callback,
+    platform_config=None,
+):
+    _validate_requested_count(requested_count)
+    if not callable(reserve_callback):
+        raise ValueError("RESERVE_CALLBACK_REQUIRED")
+    locked_user = get_user_model().objects.select_for_update().get(pk=user.pk)
+    capacity = _capacity(locked_user, requested_count, platform_config)
+    return reserve_callback(locked_user, capacity)
+
+
 def enforce_bucket_quota(user, *, requested=1, platform_config=None):
-    return ensure_bucket_capacity(
-        user,
-        requested=requested,
-        platform_config=platform_config,
+    return check_bucket_capacity(
+        user, requested_count=requested, platform_config=platform_config
     )
 
 
@@ -101,6 +125,8 @@ def build_object_policy(buckets, *, owner=None):
     )
     bucket_resources = [f"acs:oss:*:*:{bucket.name}" for bucket in active_buckets]
     object_resources = [f"acs:oss:*:*:{bucket.name}/*" for bucket in active_buckets]
+    if not active_buckets:
+        return {"Version": "1", "Statement": []}
     return {
         "Version": "1",
         "Statement": [

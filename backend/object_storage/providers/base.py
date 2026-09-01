@@ -19,6 +19,7 @@ class PersonalPrincipal:
     user_id: str
     user_name: str
     created: bool
+    marker: str
     request_id: str = ""
     error_category: str = ""
 
@@ -31,15 +32,12 @@ class BucketMutation:
 
 
 @dataclass(frozen=True)
-class OwnedBucket:
+class BucketOwnership:
     exists: bool
     owned: bool
-    cloud_resource_id: str = ""
+    marker: str = ""
     request_id: str = ""
     error_category: str = ""
-
-    def __bool__(self):
-        return self.exists and self.owned
 
 
 @dataclass(frozen=True)
@@ -71,19 +69,10 @@ class AccessKeyMetadata:
 
 
 @dataclass(frozen=True)
-class AccessKeyCollection:
-    keys: tuple[AccessKeyMetadata, ...]
+class KeyListResult:
+    items: tuple[AccessKeyMetadata, ...]
     request_id: str = ""
     error_category: str = ""
-
-    def __iter__(self):
-        return iter(self.keys)
-
-    def __len__(self):
-        return len(self.keys)
-
-    def __getitem__(self, index):
-        return self.keys[index]
 
 
 @dataclass(frozen=True)
@@ -140,4 +129,10 @@ class ObjectStorageProvider(Protocol):
 
     def delete_access_key(self, key): ...
 
-    def update_bucket_configuration(self, bucket, configuration): ...
+    def update_bucket_configuration(
+        self,
+        bucket,
+        configuration,
+        *,
+        allow_public_read=False,
+    ): ...

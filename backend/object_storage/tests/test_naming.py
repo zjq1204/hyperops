@@ -74,6 +74,97 @@ def test_candidate_generation_returns_suffix_for_conflict_retry(monkeypatch):
     assert (second.name, second.suffix) == ("hyperops-billing-bbbbbbbb", "bbbbbbbb")
 
 
+def test_create_bucket_with_unique_name_retries_three_fresh_suffixes(monkeypatch):
+    from object_storage.services import naming
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    generated = iter(("aaaaaaaa", "bbbbbbbb", "cccccccc"))
+    attempted = []
+    monkeypatch.setattr(naming, "generate_suffix", lambda: next(generated))
+
+    def conflict(candidate):
+        attempted.append(candidate)
+        raise ObjectStorageProviderError(
+            "BUCKET_NAME_CONFLICT",
+            request_id=f"request-{len(attempted)}",
+        )
+
+    with pytest.raises(ObjectStorageProviderError) as captured:
+        naming.create_bucket_with_unique_name(
+            create_callback=conflict,
+            template="{prefix}-{business_name}-{suffix}",
+            prefix="hyperops",
+            user="unused",
+            business_name="billing",
+            project="unused",
+            environment="unused",
+            purpose="unused",
+        )
+
+    assert [candidate.suffix for candidate in attempted] == [
+        "aaaaaaaa",
+        "bbbbbbbb",
+        "cccccccc",
+    ]
+    assert captured.value.error_code == "BUCKET_NAME_CONFLICT"
+    assert captured.value.request_id == "request-3"
+
+
+def test_create_bucket_with_unique_name_returns_successful_callback_result(monkeypatch):
+    from object_storage.services import naming
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    generated = iter(("aaaaaaaa", "bbbbbbbb"))
+    monkeypatch.setattr(naming, "generate_suffix", lambda: next(generated))
+
+    def create(candidate):
+        if candidate.suffix == "aaaaaaaa":
+            raise ObjectStorageProviderError("BUCKET_NAME_CONFLICT")
+        return {"created_name": candidate.name}
+
+    result = naming.create_bucket_with_unique_name(
+        create_callback=create,
+        template="{business_name}-{suffix}",
+        prefix="unused",
+        user="unused",
+        business_name="billing",
+        project="unused",
+        environment="unused",
+        purpose="unused",
+    )
+
+    assert result == {"created_name": "billing-bbbbbbbb"}
+
+
+def test_remaining_business_name_length_uses_fixed_rendered_context():
+    from object_storage.services.naming import remaining_business_name_length
+
+    context = {
+        "prefix": "hyperops",
+        "user": "unused",
+        "project": "unused",
+        "environment": "unused",
+        "purpose": "unused",
+    }
+
+    assert (
+        remaining_business_name_length(
+            "{prefix}-{business_name}-{suffix}",
+            context,
+            "a1b2c3d4",
+        )
+        == 45
+    )
+    assert (
+        remaining_business_name_length(
+            "x" * 70 + "-{business_name}-{suffix}",
+            context,
+            "a1b2c3d4",
+        )
+        == 0
+    )
+
+
 @pytest.mark.parametrize(
     "template",
     (

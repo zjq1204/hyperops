@@ -3,15 +3,15 @@ import json
 
 from object_storage.crypto import decrypt_secret
 from object_storage.providers.base import (
-    AccessKeyCollection,
     AccessKeyMetadata,
     AccessKeyMutation,
     BucketConfigurationMutation,
     BucketEmptiness,
     BucketMutation,
+    BucketOwnership,
     IssuedAccessKey,
+    KeyListResult,
     ManagementCapabilities,
-    OwnedBucket,
     PersonalPrincipal,
     PolicyMutation,
 )
@@ -42,9 +42,7 @@ class AliyunObjectStorageProvider:
         if not account_id:
             raise ObjectStorageProviderError("CLOUD_ACCOUNT_UNVERIFIED")
         oss = self._call(self.oss_gateway.validate_identity)
-        ram_request_ids = ram.get("request_ids") or (
-            (ram.get("request_id"),) if ram.get("request_id") else ()
-        )
+        ram_request_ids = ram["request_ids"]
         request_ids = tuple(
             str(value) for value in (*ram_request_ids, oss.get("request_id")) if value
         )
@@ -65,6 +63,7 @@ class AliyunObjectStorageProvider:
             user_id=str(result.get("user_id") or ""),
             user_name=str(result.get("user_name") or identity.ram_user_name),
             created=bool(result.get("created")),
+            marker=str(result["marker"]),
             request_id=str(result.get("request_id") or ""),
         )
 
@@ -89,17 +88,12 @@ class AliyunObjectStorageProvider:
             bucket_name=bucket.name,
             marker=bucket.cloud_marker,
         )
-        if isinstance(result, bool):
-            return OwnedBucket(
-                exists=result,
-                owned=result,
-                cloud_resource_id=bucket.name if result else "",
-            )
-        return OwnedBucket(
-            exists=bool(result.get("exists")),
-            owned=bool(result.get("owned")),
-            cloud_resource_id=str(result.get("cloud_resource_id") or ""),
-            request_id=str(result.get("request_id") or ""),
+        marker = str(result["marker"])
+        return BucketOwnership(
+            exists=bool(result["exists"]),
+            owned=bool(result["owned"] and marker and marker == bucket.cloud_marker),
+            marker=marker,
+            request_id=str(result["request_id"]),
         )
 
     def inspect_bucket_emptiness(self, bucket):
@@ -139,13 +133,7 @@ class AliyunObjectStorageProvider:
             self.ram_gateway.list_access_keys,
             identity.ram_user_name,
         )
-        if isinstance(result, dict):
-            rows = result.get("items") or ()
-            request_id = str(result.get("request_id") or "")
-        else:
-            rows = result
-            request_id = ""
-        keys = tuple(
+        items = tuple(
             AccessKeyMetadata(
                 access_key_id=str(row.get("access_key_id") or ""),
                 fingerprint=_fingerprint(str(row.get("access_key_id") or "")),
@@ -153,9 +141,12 @@ class AliyunObjectStorageProvider:
                 status=str(row.get("status") or "unknown").lower(),
                 created_at=str(row.get("created_at") or ""),
             )
-            for row in rows
+            for row in result["items"]
         )
-        return AccessKeyCollection(keys=keys, request_id=request_id)
+        return KeyListResult(
+            items=items,
+            request_id=str(result["request_id"]),
+        )
 
     def create_access_key(self, identity):
         result = self._call(self.ram_gateway.create_access_key, identity.ram_user_name)
@@ -188,7 +179,15 @@ class AliyunObjectStorageProvider:
         )
         return AccessKeyMutation(request_id=str(result.get("request_id") or ""))
 
-    def update_bucket_configuration(self, bucket, configuration):
+    def update_bucket_configuration(
+        self,
+        bucket,
+        configuration,
+        *,
+        allow_public_read=False,
+    ):
+        if configuration.acl == "public_read" and not allow_public_read:
+            raise ObjectStorageProviderError("PUBLIC_READ_REQUIRES_ADMIN_AUTHORIZATION")
         result = self._call(
             self.oss_gateway.update_bucket_configuration,
             bucket_name=bucket.name,
@@ -315,9 +314,13 @@ class AliyunRamGateway:
                 self.models.GetUserRequest(user_name=user_name)
             )
             user = response.body.user
+            existing_marker = str(getattr(user, "comments", "") or "")
+            if existing_marker != marker:
+                raise ObjectStorageProviderError("PRINCIPAL_OWNERSHIP_CONFLICT")
             return {
                 "user_id": str(user.user_id or ""),
                 "user_name": str(user.user_name or user_name),
+                "marker": existing_marker,
                 "created": False,
                 "request_id": _request_id(response),
             }
@@ -335,6 +338,7 @@ class AliyunRamGateway:
         return {
             "user_id": str(user.user_id or ""),
             "user_name": str(user.user_name or user_name),
+            "marker": marker,
             "created": True,
             "request_id": _request_id(response),
         }
@@ -518,16 +522,15 @@ class AliyunOssGateway:
                 return {
                     "exists": False,
                     "owned": False,
-                    "cloud_resource_id": "",
+                    "marker": "",
                     "request_id": str(getattr(exc, "request_id", "") or ""),
                 }
             raise
-        if str(tags.get("hyperops-owner") or "") != marker:
-            raise ObjectStorageProviderError("BUCKET_OWNERSHIP_MISMATCH")
+        actual_marker = str(tags.get("hyperops-owner") or "")
         return {
             "exists": True,
-            "owned": True,
-            "cloud_resource_id": bucket_name,
+            "owned": bool(actual_marker) and actual_marker == marker,
+            "marker": actual_marker,
             "request_id": str(getattr(response, "request_id", "") or ""),
         }
 
