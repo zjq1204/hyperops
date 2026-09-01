@@ -1024,6 +1024,146 @@ def test_expiry_deletes_only_owned_empty_bucket(bucket_factory, user_factory):
     assert provider.calls == []
 
 
+def test_delete_provider_timeout_freezes_action_and_blocks_retry(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        delete_bucket,
+        reconcile_bucket_action_uncertainty,
+        retry_delete_bucket,
+    )
+
+    owner = user_factory()
+    bucket = bucket_factory(
+        owner=owner,
+        state=Bucket.State.PENDING_DELETION,
+        pending_delete_at=timezone.now() - timedelta(minutes=1),
+    )
+
+    class TimeoutProvider(LifecycleProvider):
+        def delete_owned_bucket(self, selected):
+            self.calls.append(("delete", selected.name))
+            raise RuntimeError("provider timeout")
+
+    provider = TimeoutProvider()
+    deleted = delete_bucket(bucket=bucket, provider=provider)
+
+    deleted.refresh_from_db()
+    assert deleted.state == Bucket.State.DELETION_BLOCKED
+    assert deleted.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert deleted.action_type == "delete"
+    assert deleted.action_owner_token
+    generation = deleted.action_generation
+    token = deleted.action_owner_token
+
+    with pytest.raises(LifecycleError, match="MANUAL_RECONCILIATION_REQUIRED"):
+        retry_delete_bucket(
+            bucket=deleted,
+            actor=owner,
+            bucket_name=deleted.name,
+            confirmed=True,
+            provider=provider,
+        )
+
+    observed = reconcile_bucket_action_uncertainty(
+        bucket=deleted,
+        actor=_feature_admin(user_factory),
+        provider=provider,
+        reason="read cloud state after timeout",
+    )
+    assert observed.action_generation == generation
+    assert observed.action_owner_token == token
+    assert observed.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+
+
+def test_release_policy_timeout_freezes_action_and_blocks_release(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import LifecycleError, release_bucket
+
+    owner = user_factory()
+    bucket = bucket_factory(owner=owner, state=Bucket.State.ACTIVE)
+
+    class TimeoutProvider(LifecycleProvider):
+        def reconcile_object_policy(self, identity, buckets):
+            self.calls.append(("policy", identity.pk))
+            raise RuntimeError("provider timeout")
+
+    provider = TimeoutProvider()
+    with pytest.raises(RuntimeError, match="provider timeout"):
+        release_bucket(
+            bucket=bucket,
+            actor=owner,
+            bucket_name=bucket.name,
+            confirmed=True,
+            provider=provider,
+            enqueue=False,
+        )
+
+    bucket.refresh_from_db()
+    assert bucket.state == Bucket.State.DELETION_BLOCKED
+    assert bucket.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.action_type == "release"
+    assert bucket.action_owner_token
+
+    with pytest.raises(LifecycleError, match="MANUAL_RECONCILIATION_REQUIRED"):
+        release_bucket(
+            bucket=bucket,
+            actor=owner,
+            bucket_name=bucket.name,
+            confirmed=True,
+            provider=provider,
+            enqueue=False,
+        )
+
+
+def test_recover_policy_timeout_freezes_action_and_blocks_recovery(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import LifecycleError, recover_bucket
+
+    owner = user_factory()
+    bucket = bucket_factory(
+        owner=owner,
+        state=Bucket.State.PENDING_DELETION,
+        pending_delete_at=timezone.now() + timedelta(days=1),
+    )
+
+    class TimeoutProvider(LifecycleProvider):
+        def reconcile_object_policy(self, identity, buckets):
+            self.calls.append(("policy", identity.pk))
+            raise RuntimeError("provider timeout")
+
+    provider = TimeoutProvider()
+    with pytest.raises(RuntimeError, match="provider timeout"):
+        recover_bucket(
+            bucket=bucket,
+            actor=owner,
+            bucket_name=bucket.name,
+            confirmed=True,
+            provider=provider,
+        )
+
+    bucket.refresh_from_db()
+    assert bucket.state == Bucket.State.DELETION_BLOCKED
+    assert bucket.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    assert bucket.action_type == "recover"
+    assert bucket.action_owner_token
+
+    with pytest.raises(LifecycleError, match="MANUAL_RECONCILIATION_REQUIRED"):
+        recover_bucket(
+            bucket=bucket,
+            actor=owner,
+            bucket_name=bucket.name,
+            confirmed=True,
+            provider=provider,
+        )
+
+
 def test_admin_can_retry_blocked_bucket_and_immediately_delete_with_reason(
     bucket_factory, user_factory
 ):

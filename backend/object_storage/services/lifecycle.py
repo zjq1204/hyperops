@@ -564,6 +564,29 @@ def _clear_action_claim(bucket):
     bucket.action_lease_until = None
 
 
+def _freeze_bucket_action_failure(
+    bucket_id, *, action_generation, owner_token, action_type
+):
+    """Record an unknown cloud mutation while retaining its action claim."""
+
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+        if not _action_claim_owned(locked, action_generation, owner_token, action_type):
+            return locked
+        locked.state = Bucket.State.DELETION_BLOCKED
+        locked.deletion_error_code = UNCERTAIN_MUTATION_ERROR
+        locked.deletion_error_summary = UNCERTAIN_MUTATION_ERROR
+        locked.save(
+            update_fields=(
+                "state",
+                "deletion_error_code",
+                "deletion_error_summary",
+                "updated_at",
+            )
+        )
+        return locked
+
+
 def _active_buckets(identity, *, exclude_id=None):
     query = Bucket.objects.filter(
         owner_id=identity.user_id,
@@ -713,24 +736,13 @@ def _release_bucket_cloud(
 
     try:
         _reconcile_policy(bucket, provider)
-    except Exception as error:
-        with transaction.atomic():
-            locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
-            if not _action_matches(locked, action_generation, owner_token, "release"):
-                raise
-            _set_deletion_error(
-                locked, _error_code(error, "POLICY_RECONCILIATION_FAILED")
-            )
-            _clear_action_claim(locked)
-            locked.save(
-                update_fields=(
-                    "action_owner_token",
-                    "action_type",
-                    "action_acquired_at",
-                    "action_lease_until",
-                    "updated_at",
-                )
-            )
+    except Exception:
+        _freeze_bucket_action_failure(
+            bucket.pk,
+            action_generation=action_generation,
+            owner_token=owner_token,
+            action_type="release",
+        )
         raise
     pending_delete_at = timezone.now() + timedelta(days=RETENTION_DAYS)
     with transaction.atomic():
@@ -835,24 +847,12 @@ def recover_bucket(*, bucket, actor, bucket_name, confirmed, provider=None, reas
             sorted(buckets, key=lambda candidate: candidate.name),
         )
     except Exception:
-        with transaction.atomic():
-            current = Bucket.objects.select_for_update().get(pk=locked.pk)
-            if not _action_matches(current, generation, owner_token, "recover"):
-                raise
-            current.deletion_error_code = "POLICY_RECONCILIATION_FAILED"
-            current.deletion_error_summary = "POLICY_RECONCILIATION_FAILED"
-            _clear_action_claim(current)
-            current.save(
-                update_fields=(
-                    "deletion_error_code",
-                    "deletion_error_summary",
-                    "action_owner_token",
-                    "action_type",
-                    "action_acquired_at",
-                    "action_lease_until",
-                    "updated_at",
-                )
-            )
+        _freeze_bucket_action_failure(
+            locked.pk,
+            action_generation=generation,
+            owner_token=owner_token,
+            action_type="recover",
+        )
         raise
     with transaction.atomic():
         current = Bucket.objects.select_for_update().get(pk=locked.pk)
@@ -1027,7 +1027,16 @@ def _delete_bucket_cloud(
             inspection = provider.inspect_bucket_emptiness(bucket)
             if not _confirmed_empty(inspection):
                 raise LifecycleError("BUCKET_NOT_EMPTY")
-            result = provider.delete_owned_bucket(bucket)
+            try:
+                result = provider.delete_owned_bucket(bucket)
+            except Exception:
+                _freeze_bucket_action_failure(
+                    bucket.pk,
+                    action_generation=action_generation,
+                    owner_token=owner_token,
+                    action_type=action_type,
+                )
+                return Bucket.objects.get(pk=bucket.pk)
     except Exception as error:
         with transaction.atomic():
             locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
