@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from rest_framework import serializers
 
 from object_storage.crypto import encrypt_secret
+from object_storage.serializers import StrictBooleanField
 from object_storage.models import (
     AccessKey,
     ApplicationAttempt,
@@ -20,9 +21,8 @@ from object_storage.models import (
     UserBucketQuota,
 )
 from object_storage.services.platform import (
-    replace_management_credentials,
     sync_platform_feishu_access_group,
-    update_resource_pool,
+    update_resource_pool_configuration,
 )
 
 
@@ -218,6 +218,12 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
             != StorageResourcePool.ValidationStatus.VALID
         ):
             raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
+        connection_changed = bool(access_key or secret_key) or any(
+            field in attrs and attrs[field] != getattr(self.instance, field)
+            for field in ("provider", "cloud_account_id", "region")
+        )
+        if attrs.get("enabled") and connection_changed:
+            raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
         return attrs
 
     @staticmethod
@@ -250,31 +256,15 @@ class StorageResourcePoolAdminSerializer(serializers.ModelSerializer):
         provider = validated_data.pop("provider", None)
         cloud_account_id = validated_data.pop("cloud_account_id", None)
         region = validated_data.pop("region", None)
-        instance = update_resource_pool(
+        return update_resource_pool_configuration(
             instance,
             provider=provider,
             cloud_account_id=cloud_account_id,
             region=region,
+            access_key=access_key,
+            secret_key=secret_key,
+            enabled=enabled,
         )
-        if access_key:
-            instance = replace_management_credentials(
-                instance,
-                access_key=access_key,
-                secret_key=secret_key,
-            )
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        update_fields = list(validated_data)
-        if enabled is not None:
-            if enabled and (
-                instance.validation_status != StorageResourcePool.ValidationStatus.VALID
-            ):
-                raise serializers.ValidationError({"enabled": "VALIDATION_REQUIRED"})
-            instance.enabled = enabled
-            update_fields.append("enabled")
-        if update_fields:
-            instance.save(update_fields=tuple(update_fields) + ("updated_at",))
-        return instance
 
 
 class UserBucketQuotaAdminSerializer(serializers.ModelSerializer):
@@ -543,7 +533,7 @@ class ReasonSerializer(serializers.Serializer):
 
 class BucketAdminActionSerializer(ReasonSerializer):
     bucket_name = serializers.CharField(max_length=63)
-    confirmed = serializers.BooleanField()
+    confirmed = StrictBooleanField()
 
 
 class BucketConfigurationSerializer(BucketAdminActionSerializer):
@@ -565,10 +555,27 @@ class BucketConfigurationAcknowledgementSerializer(BucketAdminActionSerializer):
 
 
 class CredentialAcknowledgementSerializer(ReasonSerializer):
+    identity_name = serializers.CharField(max_length=128)
     operation_type = serializers.CharField(max_length=32)
     operation_generation = serializers.IntegerField(min_value=1)
     operation_token = serializers.CharField(max_length=64)
-    resolution = serializers.CharField(max_length=32)
+    cloud_console_resolved = StrictBooleanField()
+    observation_summary = serializers.CharField(max_length=2000)
+    resolved_state = serializers.ChoiceField(choices=CloudIdentity.State.choices)
+    resolved_key_state = serializers.ChoiceField(
+        choices=AccessKey.CloudState.choices, required=False, allow_null=True
+    )
+
+
+class AuditEventQuerySerializer(serializers.Serializer):
+    action = serializers.CharField(max_length=120, required=False)
+    target_type = serializers.CharField(max_length=120, required=False)
+    actor_id = serializers.IntegerField(min_value=1, required=False)
+    since = serializers.DateTimeField(required=False)
+    result = serializers.ChoiceField(
+        choices=("accepted", "succeeded", "failed", "manual_required", "observed"),
+        required=False,
+    )
 
 
 def get_quota_user(user_id):

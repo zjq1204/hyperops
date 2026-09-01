@@ -339,6 +339,111 @@ def test_only_admin_can_observe_and_acknowledge_uncertain_bucket(
     assert denied.status_code == 403
 
 
+def test_uncertainty_operations_do_not_persist_tokens_and_are_not_replayable(
+    admin_client, bucket_factory, monkeypatch
+):
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, _admin = admin_client
+    bucket = bucket_factory(state="deletion_blocked")
+    bucket.action_owner_token = "frozen-operation-token"
+    bucket.action_type = "release"
+    bucket.action_generation = 3
+    bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.save()
+    monkeypatch.setattr(
+        "object_storage.views_admin.reconcile_bucket_action_uncertainty",
+        lambda **kwargs: bucket,
+    )
+    url = f"/api/v1/object-storage/management/buckets/{bucket.id}/uncertainty/observe/"
+    first = client.post(
+        url,
+        {"reason": "inspect frozen operation"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="uncertain-observe-sensitive",
+    )
+    replay = client.post(
+        url,
+        {"reason": "inspect frozen operation"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="uncertain-observe-sensitive",
+    )
+
+    record = ApiIdempotencyRecord.objects.get(
+        actor=_admin, idempotency_key="uncertain-observe-sensitive"
+    )
+    assert first.status_code == 200
+    assert replay.status_code == 409
+    assert replay.json()["data"]["error_code"] == "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+    assert record.response_body is None
+    assert "frozen-operation-token" not in str(record.__dict__)
+    assert "generation" not in str(record.__dict__)
+
+
+def test_uncertainty_acknowledgement_requires_strict_boolean_and_all_fields(
+    admin_client, cloud_identity_factory
+):
+    client, _admin = admin_client
+    identity = cloud_identity_factory(state="error")
+    identity.credential_operation_token = "credential-frozen-token"
+    identity.credential_operation_type = "rotate"
+    identity.credential_operation_generation = 4
+    identity.credential_operation_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    identity.save()
+    url = (
+        f"/api/v1/object-storage/management/cloud-identities/{identity.id}"
+        "/uncertainty/acknowledge/"
+    )
+    body = {
+        "reason": "verified in cloud console",
+        "identity_name": identity.ram_user_name,
+        "operation_type": "rotate",
+        "operation_generation": 4,
+        "operation_token": "credential-frozen-token",
+        "cloud_console_resolved": "false",
+        "observation_summary": "cloud console checked",
+        "resolved_state": "error",
+    }
+    string_false = client.post(
+        url,
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="credential-ack-string-false",
+    )
+    missing = client.post(
+        url,
+        {"reason": "missing fields"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="credential-ack-missing",
+    )
+
+    assert string_false.status_code == 400
+    assert missing.status_code == 400
+    assert string_false.json()["data"]["error_code"] == "VALIDATION_ERROR"
+    assert missing.json()["data"]["error_code"] == "VALIDATION_ERROR"
+
+
+def test_audit_query_rejects_invalid_filters_instead_of_silently_ignoring(admin_client):
+    client, _admin = admin_client
+    invalid_actor = client.get(
+        "/api/v1/object-storage/management/audit-events/?actor_id=not-an-int"
+    )
+    invalid_since = client.get(
+        "/api/v1/object-storage/management/audit-events/?since=not-a-date"
+    )
+    invalid_result = client.get(
+        "/api/v1/object-storage/management/audit-events/?result=not-valid"
+    )
+
+    assert invalid_actor.status_code == 400
+    assert invalid_since.status_code == 400
+    assert invalid_result.status_code == 400
+    assert all(
+        response.json()["data"]["error_code"] == "VALIDATION_ERROR"
+        for response in (invalid_actor, invalid_since, invalid_result)
+    )
+
+
 def test_admin_suspend_and_reactivate_user_resources(
     admin_client, cloud_identity_factory, monkeypatch
 ):

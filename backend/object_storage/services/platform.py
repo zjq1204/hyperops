@@ -92,6 +92,19 @@ class _ResourcePoolSnapshot:
     updated_at: datetime
 
 
+def _feishu_config_fingerprint(config):
+    payload = "|".join(
+        (
+            config.singleton_key,
+            config.app_id,
+            config.app_secret_encrypted,
+            config.oauth_callback_url,
+            str(config.access_group_id or ""),
+        )
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def get_feishu_config():
     config, _created = PlatformFeishuConfig.objects.get_or_create(
         singleton_key=DEFAULT_SINGLETON_KEY
@@ -264,37 +277,52 @@ def _is_valid_naming_template(value):
 def validate_feishu_config(config=None, *, validator=None):
     config = config or get_feishu_config()
     validator = validator or _default_feishu_validator
+    with transaction.atomic():
+        locked = PlatformFeishuConfig.objects.select_for_update().get(pk=config.pk)
+        snapshot = _feishu_config_fingerprint(locked)
     try:
-        result = validator(config)
+        result = validator(locked)
     except Exception as exc:
-        config.validation_status = PlatformFeishuConfig.ValidationStatus.INVALID
-        config.validation_error_code = _error_code(exc, "PROVIDER_VALIDATION_FAILED")
-        config.last_validated_at = None
-        config.enabled = False
-        config.save(
+        with transaction.atomic():
+            current = PlatformFeishuConfig.objects.select_for_update().get(pk=config.pk)
+            if _feishu_config_fingerprint(current) != snapshot:
+                raise PlatformConfigurationError(
+                    "CONFIG_CHANGED_DURING_VALIDATION"
+                ) from exc
+            current.validation_status = PlatformFeishuConfig.ValidationStatus.INVALID
+            current.validation_error_code = _error_code(
+                exc, "PROVIDER_VALIDATION_FAILED"
+            )
+            current.last_validated_at = None
+            current.enabled = False
+            current.save(
+                update_fields=(
+                    "validation_status",
+                    "validation_error_code",
+                    "last_validated_at",
+                    "enabled",
+                    "updated_at",
+                )
+            )
+        raise PlatformConfigurationError(
+            current.validation_error_code, cause=exc
+        ) from exc
+
+    with transaction.atomic():
+        current = PlatformFeishuConfig.objects.select_for_update().get(pk=config.pk)
+        if _feishu_config_fingerprint(current) != snapshot:
+            raise PlatformConfigurationError("CONFIG_CHANGED_DURING_VALIDATION")
+        current.validation_status = PlatformFeishuConfig.ValidationStatus.VALID
+        current.validation_error_code = ""
+        current.last_validated_at = timezone.now()
+        current.save(
             update_fields=(
                 "validation_status",
                 "validation_error_code",
                 "last_validated_at",
-                "enabled",
                 "updated_at",
             )
         )
-        raise PlatformConfigurationError(
-            config.validation_error_code, cause=exc
-        ) from exc
-
-    config.validation_status = PlatformFeishuConfig.ValidationStatus.VALID
-    config.validation_error_code = ""
-    config.last_validated_at = timezone.now()
-    config.save(
-        update_fields=(
-            "validation_status",
-            "validation_error_code",
-            "last_validated_at",
-            "updated_at",
-        )
-    )
     return _validator_result(result)
 
 
@@ -572,5 +600,122 @@ def replace_management_credentials(
                 "enabled",
                 "updated_at",
             )
+        )
+    return locked_pool
+
+
+def update_resource_pool_configuration(
+    pool,
+    *,
+    provider=None,
+    cloud_account_id=None,
+    region=None,
+    access_key=None,
+    secret_key=None,
+    enabled=None,
+    validator=None,
+):
+    """Validate a complete pool candidate, then commit it with one CAS write."""
+    selected_pool = _load_resource_pool(pool)
+    snapshot = _resource_pool_snapshot(selected_pool)
+    candidate = copy.copy(selected_pool)
+    candidate.provider = selected_pool.provider if provider is None else provider
+    candidate.cloud_account_id = (
+        selected_pool.cloud_account_id
+        if cloud_account_id is None
+        else str(cloud_account_id)
+    )
+    candidate.region = selected_pool.region if region is None else region
+    credential_changed = access_key is not None or secret_key is not None
+    if credential_changed:
+        if not isinstance(access_key, str) or not access_key:
+            raise PlatformConfigurationError("MANAGEMENT_ACCESS_KEY_REQUIRED")
+        if not isinstance(secret_key, str) or not secret_key:
+            raise PlatformConfigurationError("MANAGEMENT_SECRET_KEY_REQUIRED")
+        candidate.management_access_key_encrypted = encrypt_secret(access_key)
+        candidate.management_secret_key_encrypted = encrypt_secret(secret_key)
+        candidate.credential_fingerprint = hashlib.sha256(
+            access_key.encode("utf-8")
+        ).hexdigest()
+        candidate.access_key_last_four = access_key[-4:]
+
+    if _has_real_resources(selected_pool) and (
+        candidate.provider != selected_pool.provider
+        or candidate.cloud_account_id != selected_pool.cloud_account_id
+    ):
+        raise PlatformConfigurationError("RESOURCE_POOL_ID_LOCKED")
+    changed_fields = [
+        field
+        for field in ("provider", "cloud_account_id", "region")
+        if getattr(candidate, field) != getattr(selected_pool, field)
+    ]
+    changed = bool(changed_fields or credential_changed or enabled is not None)
+    if not changed:
+        return selected_pool
+
+    validation = None
+    if credential_changed:
+        try:
+            validation = _validator_result(
+                (validator or _default_pool_validator)(candidate)
+            )
+        except Exception as exc:
+            raise PlatformConfigurationError(
+                _error_code(exc, "PROVIDER_VALIDATION_FAILED"), cause=exc
+            ) from exc
+        if not validation.account_id:
+            raise PlatformConfigurationError("CLOUD_ACCOUNT_UNVERIFIED")
+        if validation.account_id != candidate.cloud_account_id:
+            raise PlatformConfigurationError("CLOUD_ACCOUNT_MISMATCH")
+
+    with transaction.atomic():
+        locked_pool = _lock_resource_pool(selected_pool.pk)
+        _assert_pool_snapshot_unchanged(locked_pool, snapshot)
+        for field in ("provider", "cloud_account_id", "region"):
+            setattr(locked_pool, field, getattr(candidate, field))
+        if credential_changed:
+            for field in (
+                "management_access_key_encrypted",
+                "management_secret_key_encrypted",
+                "credential_fingerprint",
+                "access_key_last_four",
+            ):
+                setattr(locked_pool, field, getattr(candidate, field))
+        connection_changed = bool(changed_fields or credential_changed)
+        if connection_changed:
+            locked_pool.validation_status = StorageResourcePool.ValidationStatus.PENDING
+            locked_pool.validation_error_code = ""
+            locked_pool.last_validated_at = None
+            locked_pool.enabled = False
+        elif enabled is not None:
+            if enabled and (
+                locked_pool.validation_status
+                != StorageResourcePool.ValidationStatus.VALID
+            ):
+                raise PlatformConfigurationError("VALIDATION_REQUIRED")
+            locked_pool.enabled = enabled
+        update_fields = list(changed_fields)
+        if credential_changed:
+            update_fields.extend(
+                [
+                    "management_access_key_encrypted",
+                    "management_secret_key_encrypted",
+                    "credential_fingerprint",
+                    "access_key_last_four",
+                ]
+            )
+        if connection_changed:
+            update_fields.extend(
+                [
+                    "validation_status",
+                    "validation_error_code",
+                    "last_validated_at",
+                    "enabled",
+                ]
+            )
+        elif enabled is not None:
+            update_fields.append("enabled")
+        locked_pool.save(
+            update_fields=tuple(dict.fromkeys(update_fields)) + ("updated_at",)
         )
     return locked_pool

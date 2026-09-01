@@ -2,7 +2,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_datetime
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,6 +30,7 @@ from object_storage.serializers_admin import (
     ApplicationBatchAdminSerializer,
     ApplicationBatchDetailAdminSerializer,
     AuditEventAdminSerializer,
+    AuditEventQuerySerializer,
     BucketActionAcknowledgementSerializer,
     BucketAdminActionSerializer,
     BucketAdminSerializer,
@@ -39,6 +39,7 @@ from object_storage.serializers_admin import (
     BucketDetailAdminSerializer,
     CloudIdentityAdminSerializer,
     CloudIdentityDetailAdminSerializer,
+    CredentialAcknowledgementSerializer,
     PlatformFeishuConfigAdminSerializer,
     PlatformObjectStorageConfigAdminSerializer,
     ReasonSerializer,
@@ -455,20 +456,20 @@ class AuditEventAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
     serializer_class = AuditEventAdminSerializer
 
     def get_queryset(self):
+        serializer = AuditEventQuerySerializer(data=self.request.query_params)
+        serializer.is_valid(raise_exception=True)
+        filters = serializer.validated_data
         queryset = AuditEvent.objects.all()
-        if self.request.query_params.get("action"):
-            queryset = queryset.filter(action=self.request.query_params["action"])
-        if self.request.query_params.get("target_type"):
-            queryset = queryset.filter(
-                target_type=self.request.query_params["target_type"]
-            )
-        if self.request.query_params.get("actor_id"):
-            queryset = queryset.filter(
-                actor_id_snapshot=self.request.query_params["actor_id"]
-            )
-        since = parse_datetime(self.request.query_params.get("since", ""))
-        if since:
-            queryset = queryset.filter(created_at__gte=since)
+        if filters.get("action"):
+            queryset = queryset.filter(action=filters["action"])
+        if filters.get("target_type"):
+            queryset = queryset.filter(target_type=filters["target_type"])
+        if filters.get("actor_id"):
+            queryset = queryset.filter(actor_id_snapshot=filters["actor_id"])
+        if filters.get("since"):
+            queryset = queryset.filter(created_at__gte=filters["since"])
+        if filters.get("result"):
+            queryset = queryset.filter(result=filters["result"])
         return queryset
 
 
@@ -661,6 +662,8 @@ class BucketConfigurationRetryView(AdminMutationAPIView):
 
 
 class BucketActionUncertaintyObserveView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def post(self, request, bucket_id):
         serializer = ReasonSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -681,6 +684,8 @@ class BucketActionUncertaintyObserveView(AdminMutationAPIView):
 
 
 class BucketActionUncertaintyAcknowledgeView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def post(self, request, bucket_id):
         serializer = BucketActionAcknowledgementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -701,6 +706,8 @@ class BucketActionUncertaintyAcknowledgeView(AdminMutationAPIView):
 
 
 class BucketConfigurationUncertaintyObserveView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def post(self, request, bucket_id):
         serializer = ReasonSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -721,6 +728,8 @@ class BucketConfigurationUncertaintyObserveView(AdminMutationAPIView):
 
 
 class BucketConfigurationUncertaintyAcknowledgeView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def post(self, request, bucket_id):
         serializer = BucketConfigurationAcknowledgementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -858,6 +867,8 @@ class ApplicationBatchRetryView(AdminMutationAPIView):
 
 
 class CredentialUncertaintyObserveView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def post(self, request, identity_id):
         serializer = ReasonSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -887,30 +898,20 @@ class CredentialUncertaintyObserveView(AdminMutationAPIView):
 
 
 class CredentialUncertaintyAcknowledgeView(AdminMutationAPIView):
+    idempotency_sensitive = True
+
     def post(self, request, identity_id):
-        required = {
-            "reason",
-            "identity_name",
-            "operation_type",
-            "operation_generation",
-            "operation_token",
-            "cloud_console_resolved",
-            "observation_summary",
-            "resolved_state",
-        }
-        if not required.issubset(request.data):
-            return _error("CREDENTIAL_ACKNOWLEDGEMENT_INVALID")
+        serializer = CredentialAcknowledgementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         identity = get_object_or_404(CloudIdentity, pk=identity_id)
         action = "storage.api.admin.credential.uncertainty_acknowledge"
         if _mutation_seen(request, action, "CloudIdentity", identity.pk):
             return Response(CloudIdentityDetailAdminSerializer(identity).data)
-        values = {key: request.data.get(key) for key in required}
-        values["resolved_key_state"] = request.data.get("resolved_key_state")
         try:
             result = acknowledge_credential_operation_uncertainty(
                 identity=identity,
                 actor=request.user,
-                **values,
+                **serializer.validated_data,
             )
         except CredentialRotationError as error:
             return _error(_service_error(error), status.HTTP_409_CONFLICT)

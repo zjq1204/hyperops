@@ -10,6 +10,15 @@ from object_storage.crypto import encrypt_secret
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture
+def admin_client(client, django_user_model):
+    user = django_user_model.objects.create_superuser(
+        username="platform-config-admin", password="secret123"
+    )
+    client.force_login(user)
+    return client
+
+
 @pytest.fixture(autouse=True)
 def stable_object_storage_secret(settings):
     settings.SECRET_KEY = "object-storage-platform-config-stable-secret"
@@ -324,6 +333,97 @@ def test_failed_validation_does_not_overwrite_concurrent_config_change(
     assert pool.validation_status == StorageResourcePool.ValidationStatus.PENDING
     assert pool.validation_error_code == ""
     assert pool.enabled is False
+
+
+def test_feishu_validation_does_not_mark_changed_config_valid(db, monkeypatch):
+    from object_storage.models import PlatformFeishuConfig
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        validate_feishu_config,
+    )
+
+    config = PlatformFeishuConfig.objects.create(
+        singleton_key="default",
+        app_id="cli-original",
+        app_secret_encrypted="encrypted-original",
+        oauth_callback_url="https://example.test/original",
+        validation_status=PlatformFeishuConfig.ValidationStatus.PENDING,
+        enabled=False,
+    )
+
+    def validate_then_change(selected):
+        PlatformFeishuConfig.objects.filter(pk=selected.pk).update(
+            app_id="cli-concurrent",
+            enabled=False,
+            validation_status=PlatformFeishuConfig.ValidationStatus.PENDING,
+        )
+        return {"account_id": "validated"}
+
+    with pytest.raises(
+        PlatformConfigurationError, match="CONFIG_CHANGED_DURING_VALIDATION"
+    ):
+        validate_feishu_config(config, validator=validate_then_change)
+
+    config.refresh_from_db()
+    assert config.app_id == "cli-concurrent"
+    assert config.validation_status == PlatformFeishuConfig.ValidationStatus.PENDING
+    assert config.enabled is False
+
+
+def test_resource_pool_update_is_atomic_when_candidate_validation_fails(
+    admin_client, storage_resource_pool_factory, monkeypatch
+):
+    from object_storage.crypto import decrypt_secret, encrypt_secret
+    from object_storage.models import StorageResourcePool
+
+    client = admin_client
+    pool = storage_resource_pool_factory(
+        provider="aliyun",
+        cloud_account_id="account-original",
+        region="cn-hangzhou",
+        management_access_key_encrypted=encrypt_secret("old-access"),
+        management_secret_key_encrypted=encrypt_secret("old-secret"),
+        enabled=True,
+        validation_status=StorageResourcePool.ValidationStatus.VALID,
+    )
+    original = {
+        "provider": pool.provider,
+        "cloud_account_id": pool.cloud_account_id,
+        "region": pool.region,
+        "access": pool.management_access_key_encrypted,
+        "secret": pool.management_secret_key_encrypted,
+        "enabled": pool.enabled,
+        "status": pool.validation_status,
+    }
+    monkeypatch.setattr(
+        "object_storage.services.platform._default_pool_validator",
+        lambda _candidate: (_ for _ in ()).throw(RuntimeError("provider rejected")),
+    )
+
+    response = client.patch(
+        f"/api/v1/object-storage/management/resource-pools/{pool.id}/",
+        {
+            "provider": "aliyun",
+            "cloud_account_id": "account-new",
+            "region": "cn-shanghai",
+            "management_access_key": "new-access",
+            "management_secret_key": "new-secret",
+            "enabled": False,
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="resource-pool-atomic-update",
+    )
+
+    pool.refresh_from_db()
+    assert response.status_code == 400
+    assert pool.provider == original["provider"]
+    assert pool.cloud_account_id == original["cloud_account_id"]
+    assert pool.region == original["region"]
+    assert pool.management_access_key_encrypted == original["access"]
+    assert pool.management_secret_key_encrypted == original["secret"]
+    assert pool.enabled == original["enabled"]
+    assert pool.validation_status == original["status"]
+    assert decrypt_secret(pool.management_secret_key_encrypted) == "old-secret"
 
 
 def test_provider_and_account_id_are_locked_after_real_resources_exist(

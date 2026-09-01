@@ -147,6 +147,26 @@ def test_idempotency_in_progress_fails_closed(admin_client, settings, monkeypatc
     assert response.json()["data"]["error_code"] == "IDEMPOTENCY_IN_PROGRESS"
 
 
+def test_uncertainty_views_are_sensitive_idempotency_endpoints():
+    from object_storage.permissions import RequireIdempotencyKeyMixin
+    from object_storage.urls import urlpatterns
+
+    uncertainty_views = {
+        "management_credential_uncertainty_observe",
+        "management_credential_uncertainty_acknowledge",
+        "management_bucket_uncertainty_observe",
+        "management_bucket_uncertainty_acknowledge",
+        "management_bucket_configuration_uncertainty_observe",
+        "management_bucket_configuration_uncertainty_acknowledge",
+    }
+    for pattern in urlpatterns:
+        if pattern.name not in uncertainty_views:
+            continue
+        view_class = pattern.callback.view_class
+        assert issubclass(view_class, RequireIdempotencyKeyMixin)
+        assert view_class.idempotency_sensitive is True
+
+
 def test_sensitive_idempotency_never_persists_response_body(
     admin_client, cloud_identity_factory, access_key_factory, monkeypatch
 ):

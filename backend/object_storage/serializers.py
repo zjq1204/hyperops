@@ -173,9 +173,16 @@ class ApplicationBatchCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class StrictBooleanField(serializers.BooleanField):
+    def to_internal_value(self, data):
+        if not isinstance(data, bool):
+            self.fail("invalid")
+        return data
+
+
 class BucketActionSerializer(serializers.Serializer):
     bucket_name = serializers.CharField(max_length=63)
-    confirmed = serializers.BooleanField()
+    confirmed = StrictBooleanField()
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
 
