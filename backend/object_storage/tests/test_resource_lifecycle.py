@@ -317,9 +317,7 @@ def test_interleaved_duplicate_release_reuses_claim_and_clears_it_once(
     )
 
     bucket.refresh_from_db()
-    assert len(scheduled) == 1
-    assert scheduled[0][1]["action_generation"] == 1
-    assert scheduled[0][1]["owner_token"]
+    assert scheduled == []
     assert bucket.state == Bucket.State.PENDING_DELETION
     assert bucket.action_generation == 1
     assert bucket.action_owner_token == ""
@@ -365,11 +363,15 @@ def test_recover_rechecks_quota_and_reauthorizes_without_enabling_keys(
     assert ("policy", bucket.cloud_identity_id, (bucket.name,)) in provider.calls
 
 
-def test_immediate_delete_fences_interleaved_recover_writeback(
+def test_immediate_delete_cannot_overlap_recover_cloud_mutation(
     bucket_factory, user_factory
 ):
     from object_storage.models import Bucket
-    from object_storage.services.lifecycle import delete_bucket, recover_bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        delete_bucket,
+        recover_bucket,
+    )
 
     owner = user_factory()
     admin = _admin(user_factory)
@@ -382,15 +384,16 @@ def test_immediate_delete_fences_interleaved_recover_writeback(
 
     class RecoverProvider(LifecycleProvider):
         def reconcile_object_policy(self, identity, buckets):
-            delete_bucket(
-                bucket=Bucket.objects.get(pk=bucket.pk),
-                actor=admin,
-                reason="supersede recovery",
-                bucket_name=bucket.name,
-                confirmed=True,
-                immediate=True,
-                provider=delete_provider,
-            )
+            with pytest.raises(LifecycleError, match="RESOURCE_OPERATION_IN_PROGRESS"):
+                delete_bucket(
+                    bucket=Bucket.objects.get(pk=bucket.pk),
+                    actor=admin,
+                    reason="supersede recovery",
+                    bucket_name=bucket.name,
+                    confirmed=True,
+                    immediate=True,
+                    provider=delete_provider,
+                )
             return super().reconcile_object_policy(identity, buckets)
 
     recover_bucket(
@@ -402,11 +405,123 @@ def test_immediate_delete_fences_interleaved_recover_writeback(
     )
 
     bucket.refresh_from_db()
-    assert bucket.state == Bucket.State.RELEASED
-    assert bucket.action_generation == 2
+    assert bucket.state == Bucket.State.ACTIVE
+    assert bucket.action_generation == 1
     assert bucket.action_owner_token == ""
     assert bucket.action_type == ""
-    assert ("delete", bucket.name) in delete_provider.calls
+    assert delete_provider.calls == []
+
+
+def test_expired_bucket_configuration_claim_fails_closed_after_reconciliation(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        recover_expired_bucket_configuration_claim,
+    )
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    bucket.config_state = Bucket.ConfigurationState.PENDING
+    bucket.configuration_operation_token = "expired-config-token"
+    bucket.configuration_claim_generation = 3
+    bucket.configuration_operation_acquired_at = timezone.now() - timedelta(minutes=10)
+    bucket.configuration_operation_lease_until = timezone.now() - timedelta(minutes=5)
+    bucket.save(
+        update_fields=(
+            "config_state",
+            "configuration_operation_token",
+            "configuration_claim_generation",
+            "configuration_operation_acquired_at",
+            "configuration_operation_lease_until",
+            "updated_at",
+        )
+    )
+    provider = LifecycleProvider()
+
+    recover_expired_bucket_configuration_claim(bucket.pk, provider=provider)
+
+    bucket.refresh_from_db()
+    assert provider.calls == [("find", bucket.name)]
+    assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
+    assert bucket.config_error_code == "BUCKET_CONFIGURATION_CLAIM_EXPIRED"
+    assert bucket.configuration_operation_token == ""
+    assert bucket.configuration_operation_lease_until is None
+
+
+def test_expired_release_claim_reconciles_without_replaying_cloud_mutation(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import recover_expired_bucket_action_claim
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.RELEASING)
+    bucket.action_generation = 4
+    bucket.action_owner_token = "expired-release-token"
+    bucket.action_type = "release"
+    bucket.action_acquired_at = timezone.now() - timedelta(minutes=10)
+    bucket.action_lease_until = timezone.now() - timedelta(minutes=5)
+    bucket.save(
+        update_fields=(
+            "state",
+            "action_generation",
+            "action_owner_token",
+            "action_type",
+            "action_acquired_at",
+            "action_lease_until",
+            "updated_at",
+        )
+    )
+    provider = LifecycleProvider()
+
+    recover_expired_bucket_action_claim(bucket.pk, provider=provider)
+
+    bucket.refresh_from_db()
+    assert provider.calls == [("find", bucket.name), ("inspect", bucket.name)]
+    assert bucket.state == Bucket.State.DELETION_BLOCKED
+    assert bucket.deletion_error_code == "BUCKET_ACTION_CLAIM_EXPIRED"
+    assert bucket.action_owner_token == ""
+    assert bucket.action_lease_until is None
+    assert not any(call[0] in {"policy", "delete"} for call in provider.calls)
+
+
+def test_expired_delete_claim_fails_closed_when_ownership_is_uncertain(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import recover_expired_bucket_action_claim
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.RELEASING)
+    bucket.action_generation = 5
+    bucket.action_owner_token = "expired-delete-token"
+    bucket.action_type = "delete"
+    bucket.action_acquired_at = timezone.now() - timedelta(minutes=10)
+    bucket.action_lease_until = timezone.now() - timedelta(minutes=5)
+    bucket.save(
+        update_fields=(
+            "state",
+            "action_generation",
+            "action_owner_token",
+            "action_type",
+            "action_acquired_at",
+            "action_lease_until",
+            "updated_at",
+        )
+    )
+
+    class UncertainProvider(LifecycleProvider):
+        def find_owned_bucket(self, selected):
+            self.calls.append(("find", selected.name))
+            raise RuntimeError("ownership lookup unavailable")
+
+    provider = UncertainProvider()
+    recover_expired_bucket_action_claim(bucket.pk, provider=provider)
+
+    bucket.refresh_from_db()
+    assert provider.calls == [("find", bucket.name)]
+    assert bucket.state == Bucket.State.DELETION_BLOCKED
+    assert bucket.deletion_error_code == "BUCKET_ACTION_CLAIM_EXPIRED"
+    assert bucket.action_owner_token == ""
+    assert bucket.action_lease_until is None
 
 
 def test_recover_rejects_when_quota_is_full(
@@ -724,20 +839,23 @@ def test_pending_and_retryable_bucket_configuration_can_be_retried(
     assert bucket.config_state == Bucket.ConfigurationState.APPLIED
 
 
-@pytest.mark.parametrize("old_result", ["success", "failure"])
-def test_stale_bucket_configuration_task_cannot_overwrite_new_generation(
-    bucket_factory, user_factory, monkeypatch, old_result
+def test_bucket_configuration_worker_serially_catches_up_to_latest_generation(
+    bucket_factory, user_factory, monkeypatch
 ):
     from object_storage.models import Bucket
     from object_storage.services.lifecycle import (
-        BucketConfigurationError,
         _apply_bucket_configuration,
         update_bucket_configuration,
     )
-    from object_storage.services.provider_errors import ObjectStorageProviderError
 
     bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
-    bucket.applied_config_snapshot = {"acl": "private"}
+    bucket.applied_config_snapshot = {
+        "acl": "private",
+        "storage_class": "Standard",
+        "encryption": "AES256",
+        "versioning": False,
+        "lifecycle": {},
+    }
     bucket.save(update_fields=("applied_config_snapshot", "updated_at"))
     actor = _feature_admin(user_factory)
     scheduled = []
@@ -748,47 +866,48 @@ def test_stale_bucket_configuration_task_cannot_overwrite_new_generation(
     update_bucket_configuration(
         bucket=bucket,
         actor=actor,
-        desired={"acl": "private", "versioning": True},
+        desired={"acl": "public_read"},
+        reason="publish approved content",
+        bucket_name=bucket.name,
+        confirmed=True,
     )
     old_generation = scheduled[0][1]["configuration_generation"]
     old_token = scheduled[0][1]["operation_token"]
 
     class InterleavingProvider(LifecycleProvider):
-        def update_bucket_configuration(self, selected, configuration, **kwargs):
-            update_bucket_configuration(
-                bucket=selected,
-                actor=actor,
-                desired={"acl": "private", "encryption": "KMS"},
-            )
-            if old_result == "failure":
-                raise ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
-            return SimpleNamespace(request_id="old-config-request")
+        submitted_private = False
 
-    if old_result == "failure":
-        with pytest.raises(BucketConfigurationError):
-            _apply_bucket_configuration(
-                bucket.pk,
-                configuration_generation=old_generation,
-                operation_token=old_token,
-                provider=InterleavingProvider(),
-                actor=actor,
-            )
-    else:
-        _apply_bucket_configuration(
-            bucket.pk,
-            configuration_generation=old_generation,
-            operation_token=old_token,
-            provider=InterleavingProvider(),
-            actor=actor,
-        )
+        def update_bucket_configuration(self, selected, configuration, **kwargs):
+            self.updated_configurations.append(configuration)
+            if not self.submitted_private:
+                self.submitted_private = True
+                update_bucket_configuration(
+                    bucket=selected,
+                    actor=actor,
+                    desired={"acl": "private"},
+                )
+            return SimpleNamespace(request_id="config-request")
+
+    provider = InterleavingProvider()
+    _apply_bucket_configuration(
+        bucket.pk,
+        configuration_generation=old_generation,
+        operation_token=old_token,
+        provider=provider,
+        actor=actor,
+    )
 
     bucket.refresh_from_db()
-    assert len(scheduled) == 2
+    assert len(scheduled) == 1
     assert bucket.configuration_generation == old_generation + 1
-    assert bucket.configuration_operation_token == scheduled[1][1]["operation_token"]
-    assert bucket.desired_config_snapshot["encryption"] == "KMS"
-    assert bucket.config_state == Bucket.ConfigurationState.PENDING
-    assert bucket.applied_config_snapshot == {"acl": "private"}
+    assert bucket.configuration_operation_token == ""
+    assert [item.acl for item in provider.updated_configurations] == [
+        "public_read",
+        "private",
+    ]
+    assert bucket.desired_config_snapshot["acl"] == "private"
+    assert bucket.applied_config_snapshot == bucket.desired_config_snapshot
+    assert bucket.config_state == Bucket.ConfigurationState.APPLIED
     assert bucket.config_error_code == ""
 
 
@@ -927,7 +1046,7 @@ def test_admin_manages_one_key_without_touching_another(
 
 
 @pytest.mark.parametrize("stale_action", ["disable", "enable"])
-def test_stale_key_action_cannot_overwrite_interleaved_revoke(
+def test_revoke_cannot_overlap_active_key_mutation(
     access_key_factory, user_factory, monkeypatch, stale_action
 ):
     from object_storage.models import AccessKey
@@ -962,12 +1081,17 @@ def test_stale_key_action_cannot_overwrite_interleaved_revoke(
     )
 
     class InterleavingProvider(LifecycleProvider):
+        conflict_code = ""
+
         def _revoke_during_stale_action(self, selected):
-            credentials.revoke_access_key(
-                access_key=AccessKey.objects.get(pk=selected.pk),
-                actor=actor,
-                provider=self,
-            )
+            try:
+                credentials.revoke_access_key(
+                    access_key=AccessKey.objects.get(pk=selected.pk),
+                    actor=actor,
+                    provider=self,
+                )
+            except credentials.CredentialRotationError as error:
+                self.conflict_code = error.error_code
 
         def deactivate_access_key(self, selected):
             self.calls.append(("disable-key", selected.pk))
@@ -992,10 +1116,19 @@ def test_stale_key_action_cannot_overwrite_interleaved_revoke(
         )
 
     key.refresh_from_db()
-    assert key.cloud_state == AccessKey.CloudState.DELETED
-    assert key.local_state == AccessKey.LocalState.RETIRED
-    assert key.deleted_at is not None
-    assert key.operation_generation == 2
+    assert provider.conflict_code == "RESOURCE_OPERATION_IN_PROGRESS"
+    assert key.cloud_state == (
+        AccessKey.CloudState.INACTIVE
+        if stale_action == "disable"
+        else AccessKey.CloudState.ACTIVE
+    )
+    assert key.local_state == (
+        AccessKey.LocalState.DISABLED
+        if stale_action == "disable"
+        else AccessKey.LocalState.ACTIVE
+    )
+    assert key.deleted_at is None
+    assert key.operation_generation == 1
     assert key.operation_token == ""
     assert key.operation_type == ""
 
@@ -1127,3 +1260,7 @@ def test_expired_bucket_cleanup_is_registered_daily():
     assert entry["task"] == "object_storage.delete_expired_buckets"
     assert entry["schedule"] == "15 3 * * *"
     assert entry["queue"] == "object_storage"
+    recovery = TASK_REGISTRY._entries["object-storage.operation-recovery"]
+    assert recovery["task"] == "object_storage.recover_expired_resource_operations"
+    assert recovery["schedule"] == "*/5 * * * *"
+    assert recovery["queue"] == "object_storage"

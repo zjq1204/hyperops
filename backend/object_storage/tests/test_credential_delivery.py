@@ -252,6 +252,39 @@ def test_rotation_with_one_key_creates_second_without_deleting(
     assert provider.calls == [("create",)]
 
 
+@pytest.mark.django_db(transaction=True)
+def test_rotation_provider_calls_run_outside_atomic(cloud_identity_factory):
+    from django.db import transaction
+
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import rotate_access_key
+
+    identity = cloud_identity_factory()
+    first = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+
+    class AtomicCheckingProvider(RotationProvider):
+        atomic_states = []
+
+        def list_access_keys(self, selected_identity):
+            self.atomic_states.append(transaction.get_connection().in_atomic_block)
+            return super().list_access_keys(selected_identity)
+
+        def create_access_key(self, selected_identity):
+            self.atomic_states.append(transaction.get_connection().in_atomic_block)
+            return super().create_access_key(selected_identity)
+
+    provider = AtomicCheckingProvider([first])
+    provider.cloud_keys[first.pk].access_key_id = "LTAI-existing-one"
+
+    rotate_access_key(identity=identity, provider=provider)
+
+    assert provider.atomic_states == [False, False]
+
+
 def test_rotation_with_two_keys_requires_explicit_selected_key(
     cloud_identity_factory,
 ):
@@ -321,6 +354,181 @@ def test_rotation_rejects_selected_key_with_inflight_operation_claim(
         )
 
     assert provider.calls == []
+
+
+def test_revoke_cannot_overlap_rotation_or_delete_selected_key_twice(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        revoke_access_key,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    remaining = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+
+    class InterleavingProvider(RotationProvider):
+        conflict_code = ""
+
+        def deactivate_access_key(self, key):
+            try:
+                revoke_access_key(
+                    access_key=AccessKey.objects.get(pk=selected.pk),
+                    actor=identity.user,
+                    provider=self,
+                )
+            except CredentialRotationError as error:
+                self.conflict_code = error.error_code
+            return super().deactivate_access_key(key)
+
+    provider = InterleavingProvider([selected, remaining])
+    provider.cloud_keys[selected.pk].access_key_id = "LTAI-existing-one"
+    provider.cloud_keys[remaining.pk].access_key_id = "LTAI-existing-two"
+
+    rotate_access_key(
+        identity=identity,
+        provider=provider,
+        selected_access_key_id=selected.pk,
+    )
+
+    assert provider.conflict_code == "RESOURCE_OPERATION_IN_PROGRESS"
+    assert provider.calls.count(("delete", "LTAI-existing-one")) == 1
+
+
+def test_two_rotations_cannot_delete_the_same_key(
+    cloud_identity_factory,
+):
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        CredentialRotationError,
+        rotate_access_key,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+    remaining = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-two",
+        state=AccessKey.LocalState.ACTIVE,
+    )
+
+    class InterleavingProvider(RotationProvider):
+        conflict_code = ""
+        nested_attempted = False
+
+        def deactivate_access_key(self, key):
+            if not self.nested_attempted:
+                self.nested_attempted = True
+                try:
+                    rotate_access_key(
+                        identity=identity,
+                        provider=self,
+                        selected_access_key_id=selected.pk,
+                    )
+                except CredentialRotationError as error:
+                    self.conflict_code = error.error_code
+            return super().deactivate_access_key(key)
+
+    provider = InterleavingProvider([selected, remaining])
+    provider.cloud_keys[selected.pk].access_key_id = "LTAI-existing-one"
+    provider.cloud_keys[remaining.pk].access_key_id = "LTAI-existing-two"
+
+    rotate_access_key(
+        identity=identity,
+        provider=provider,
+        selected_access_key_id=selected.pk,
+    )
+
+    assert provider.conflict_code == "RESOURCE_OPERATION_IN_PROGRESS"
+    assert provider.calls.count(("delete", "LTAI-existing-one")) == 1
+
+
+def test_expired_rotation_claim_reconciles_to_manual_without_replay(
+    cloud_identity_factory,
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage.models import AccessKey
+    from object_storage.services.credentials import (
+        recover_expired_credential_operation,
+    )
+
+    identity = cloud_identity_factory()
+    selected = _encrypted_key(
+        identity,
+        access_key_id="LTAI-existing-one",
+        state=AccessKey.LocalState.RETIRING,
+    )
+    identity.credential_operation_generation = 2
+    identity.credential_operation_token = "expired-rotation-token"
+    identity.credential_operation_type = "rotate"
+    identity.credential_operation_key_id = selected.pk
+    identity.credential_operation_acquired_at = timezone.now() - timedelta(minutes=10)
+    identity.credential_operation_lease_until = timezone.now() - timedelta(minutes=5)
+    identity.save(
+        update_fields=(
+            "credential_operation_generation",
+            "credential_operation_token",
+            "credential_operation_type",
+            "credential_operation_key_id",
+            "credential_operation_acquired_at",
+            "credential_operation_lease_until",
+            "updated_at",
+        )
+    )
+    selected.operation_generation = 2
+    selected.operation_token = identity.credential_operation_token
+    selected.operation_type = "rotate"
+    selected.operation_acquired_at = identity.credential_operation_acquired_at
+    selected.operation_lease_until = identity.credential_operation_lease_until
+    selected.save(
+        update_fields=(
+            "operation_generation",
+            "operation_token",
+            "operation_type",
+            "operation_acquired_at",
+            "operation_lease_until",
+            "updated_at",
+        )
+    )
+
+    class ReconciliationProvider(RotationProvider):
+        def list_access_keys(self, selected_identity):
+            self.calls.append(("list", selected_identity.pk))
+            return super().list_access_keys(selected_identity)
+
+    provider = ReconciliationProvider([selected])
+
+    recover_expired_credential_operation(identity.pk, provider=provider)
+
+    identity.refresh_from_db()
+    selected.refresh_from_db()
+    assert provider.calls == [("list", identity.pk)]
+    assert identity.credential_operation_token == ""
+    assert (
+        identity.credential_operation_error_code == "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+    )
+    assert selected.operation_token == ""
+    assert selected.operation_error_code == "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+    assert selected.cloud_state == AccessKey.CloudState.UNKNOWN
+    assert selected.local_state == AccessKey.LocalState.ERROR
 
 
 def test_rotation_delete_then_create_failure_preserves_other_key_and_is_manual(

@@ -248,6 +248,15 @@ class CloudIdentity(TimestampedModel):
         default=State.PROVISIONING,
     )
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    credential_operation_generation = models.PositiveBigIntegerField(default=0)
+    credential_operation_token = models.CharField(max_length=64, blank=True, default="")
+    credential_operation_type = models.CharField(max_length=32, blank=True, default="")
+    credential_operation_key_id = models.PositiveBigIntegerField(null=True, blank=True)
+    credential_operation_acquired_at = models.DateTimeField(null=True, blank=True)
+    credential_operation_lease_until = models.DateTimeField(null=True, blank=True)
+    credential_operation_error_code = models.CharField(
+        max_length=64, blank=True, default=""
+    )
 
     class Meta:
         ordering = ["user_id", "id"]
@@ -339,12 +348,17 @@ class Bucket(TimestampedModel):
         default=ConfigurationState.APPLIED,
     )
     configuration_generation = models.PositiveBigIntegerField(default=0)
+    configuration_claim_generation = models.PositiveBigIntegerField(default=0)
     configuration_operation_token = models.CharField(
         max_length=64, blank=True, default=""
     )
+    configuration_operation_acquired_at = models.DateTimeField(null=True, blank=True)
+    configuration_operation_lease_until = models.DateTimeField(null=True, blank=True)
     action_generation = models.PositiveBigIntegerField(default=0)
     action_owner_token = models.CharField(max_length=64, blank=True, default="")
     action_type = models.CharField(max_length=32, blank=True, default="")
+    action_acquired_at = models.DateTimeField(null=True, blank=True)
+    action_lease_until = models.DateTimeField(null=True, blank=True)
     deletion_error_code = models.CharField(max_length=64, blank=True, default="")
     deletion_error_summary = models.CharField(max_length=255, blank=True, default="")
 
@@ -399,6 +413,9 @@ class AccessKeyQuerySet(models.QuerySet):
             "operation_generation",
             "operation_token",
             "operation_type",
+            "operation_acquired_at",
+            "operation_lease_until",
+            "operation_error_code",
         }
     )
 
@@ -468,6 +485,9 @@ class AccessKey(TimestampedModel):
     operation_generation = models.PositiveBigIntegerField(default=0)
     operation_token = models.CharField(max_length=64, blank=True, default="")
     operation_type = models.CharField(max_length=32, blank=True, default="")
+    operation_acquired_at = models.DateTimeField(null=True, blank=True)
+    operation_lease_until = models.DateTimeField(null=True, blank=True)
+    operation_error_code = models.CharField(max_length=64, blank=True, default="")
 
     objects = AccessKeyQuerySet.as_manager()
 

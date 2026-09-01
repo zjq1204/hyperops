@@ -212,6 +212,101 @@ def test_claim_recovery_task_scans_only_expired_running_batches(
 
 
 @pytest.mark.django_db
+def test_resource_operation_recovery_task_scans_all_expired_claim_domains(
+    bucket_factory, access_key_factory, monkeypatch
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from object_storage import periodic_tasks
+    from object_storage.models import AccessKey, Bucket, CloudIdentity
+
+    now = timezone.now()
+    config_bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    config_bucket.configuration_operation_token = "expired-config"
+    config_bucket.configuration_operation_lease_until = now - timedelta(minutes=1)
+    config_bucket.save(
+        update_fields=(
+            "configuration_operation_token",
+            "configuration_operation_lease_until",
+            "updated_at",
+        )
+    )
+    action_bucket = bucket_factory(state=Bucket.State.RELEASING)
+    action_bucket.action_owner_token = "expired-action"
+    action_bucket.action_type = "release"
+    action_bucket.action_lease_until = now - timedelta(minutes=1)
+    action_bucket.save(
+        update_fields=(
+            "action_owner_token",
+            "action_type",
+            "action_lease_until",
+            "updated_at",
+        )
+    )
+    identity = access_key_factory().cloud_identity
+    identity.credential_operation_token = "expired-credential"
+    identity.credential_operation_type = "rotate"
+    identity.credential_operation_lease_until = now - timedelta(minutes=1)
+    identity.save(
+        update_fields=(
+            "credential_operation_token",
+            "credential_operation_type",
+            "credential_operation_lease_until",
+            "updated_at",
+        )
+    )
+    orphan = access_key_factory()
+    orphan.operation_token = "orphan-key-token"
+    orphan.operation_type = "disable"
+    orphan.operation_lease_until = now - timedelta(minutes=1)
+    orphan.save(
+        update_fields=(
+            "operation_token",
+            "operation_type",
+            "operation_lease_until",
+            "updated_at",
+        )
+    )
+    calls = []
+    monkeypatch.setattr(
+        "object_storage.services.lifecycle.recover_expired_bucket_configuration_claim",
+        lambda bucket_id, **kwargs: calls.append(("config", bucket_id)),
+    )
+    monkeypatch.setattr(
+        "object_storage.services.lifecycle.recover_expired_bucket_action_claim",
+        lambda bucket_id, **kwargs: calls.append(("action", bucket_id)),
+    )
+    monkeypatch.setattr(
+        "object_storage.services.credentials.recover_expired_credential_operation",
+        lambda identity_id, **kwargs: calls.append(("credential", identity_id)),
+    )
+    monkeypatch.setattr(
+        "object_storage.providers.aliyun.build_aliyun_provider",
+        lambda _pool: object(),
+    )
+
+    result = periodic_tasks.recover_expired_resource_operations_task(now=now)
+
+    orphan.refresh_from_db()
+    assert calls == [
+        ("config", config_bucket.pk),
+        ("action", action_bucket.pk),
+        ("credential", identity.pk),
+    ]
+    assert orphan.operation_token == ""
+    assert orphan.operation_error_code == "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+    assert orphan.local_state == AccessKey.LocalState.ERROR
+    assert result == {
+        "bucket_configuration_count": 1,
+        "bucket_action_count": 1,
+        "credential_count": 1,
+        "orphan_key_count": 1,
+    }
+
+
+@pytest.mark.django_db
 def test_claim_recovery_enqueue_failure_marks_batch_manual_and_audits(
     user_factory, monkeypatch
 ):

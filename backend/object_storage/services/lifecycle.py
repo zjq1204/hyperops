@@ -19,6 +19,7 @@ from object_storage.services.policy import BucketQuotaExceeded, check_bucket_cap
 from object_storage.services.provider_errors import ObjectStorageProviderError
 
 RETENTION_DAYS = 7
+OPERATION_LEASE_SECONDS = 300
 
 
 class LifecycleError(RuntimeError):
@@ -39,6 +40,121 @@ def _provider(bucket):
     from object_storage.providers.aliyun import build_aliyun_provider
 
     return build_aliyun_provider(bucket.resource_pool)
+
+
+def recover_expired_bucket_configuration_claim(bucket_id, *, provider=None, now=None):
+    now = now or timezone.now()
+    with transaction.atomic():
+        bucket = (
+            Bucket.objects.select_for_update()
+            .select_related("resource_pool")
+            .get(pk=bucket_id)
+        )
+        if not (
+            bucket.configuration_operation_token
+            and bucket.configuration_operation_lease_until
+            and bucket.configuration_operation_lease_until <= now
+        ):
+            return bucket
+        token = bucket.configuration_operation_token
+        claim_generation = bucket.configuration_claim_generation
+    selected_provider = provider or _provider(bucket)
+    try:
+        selected_provider.find_owned_bucket(bucket)
+    except Exception:
+        pass
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+        if not (
+            locked.configuration_operation_token == token
+            and locked.configuration_claim_generation == claim_generation
+            and locked.configuration_operation_lease_until
+            and locked.configuration_operation_lease_until <= now
+        ):
+            return locked
+        locked.config_state = Bucket.ConfigurationState.UNKNOWN
+        locked.config_error_code = "BUCKET_CONFIGURATION_CLAIM_EXPIRED"
+        locked.config_error_summary = locked.config_error_code
+        locked.configuration_operation_token = ""
+        locked.configuration_operation_acquired_at = None
+        locked.configuration_operation_lease_until = None
+        locked.save(
+            update_fields=(
+                "config_state",
+                "config_error_code",
+                "config_error_summary",
+                "configuration_operation_token",
+                "configuration_operation_acquired_at",
+                "configuration_operation_lease_until",
+                "updated_at",
+            )
+        )
+        return locked
+
+
+def recover_expired_bucket_action_claim(bucket_id, *, provider=None, now=None):
+    now = now or timezone.now()
+    with transaction.atomic():
+        bucket = (
+            Bucket.objects.select_for_update()
+            .select_related("resource_pool")
+            .get(pk=bucket_id)
+        )
+        if not (
+            bucket.action_owner_token
+            and bucket.action_lease_until
+            and bucket.action_lease_until <= now
+        ):
+            return bucket
+        token = bucket.action_owner_token
+        generation = bucket.action_generation
+        action_type = bucket.action_type
+    selected_provider = provider or _provider(bucket)
+    exists = owned = ownership_known = False
+    try:
+        ownership = selected_provider.find_owned_bucket(bucket)
+        if isinstance(ownership, bool):
+            exists = owned = ownership
+        else:
+            exists = bool(ownership.exists)
+            owned = bool(ownership.owned)
+        ownership_known = True
+        if exists and owned:
+            selected_provider.inspect_bucket_emptiness(bucket)
+    except Exception:
+        pass
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+        if not (
+            _action_matches(locked, generation, token, action_type)
+            and locked.action_lease_until
+            and locked.action_lease_until <= now
+        ):
+            return locked
+        if action_type in {"delete", "retry_delete"} and ownership_known and not exists:
+            locked.state = Bucket.State.RELEASED
+            locked.pending_delete_at = None
+            locked.deletion_error_code = ""
+            locked.deletion_error_summary = ""
+        else:
+            locked.state = Bucket.State.DELETION_BLOCKED
+            locked.deletion_error_code = "BUCKET_ACTION_CLAIM_EXPIRED"
+            locked.deletion_error_summary = locked.deletion_error_code
+        _clear_action_claim(locked)
+        locked.save(
+            update_fields=(
+                "state",
+                "pending_delete_at",
+                "deletion_error_code",
+                "deletion_error_summary",
+                "action_owner_token",
+                "action_type",
+                "action_acquired_at",
+                "action_lease_until",
+                "updated_at",
+            )
+        )
+        return locked
 
 
 def _assert_actor(bucket, actor, *, allow_background=False):
@@ -111,22 +227,34 @@ def _claim_bucket_action(
             .select_related("owner", "cloud_identity", "resource_pool")
             .get(pk=bucket_id)
         )
-        if locked.action_owner_token and locked.action_type == action_type:
-            return (
-                locked,
-                locked.action_generation,
-                locked.action_owner_token,
-                False,
-            )
+        if locked.action_owner_token:
+            if (
+                locked.action_lease_until
+                and locked.action_lease_until <= timezone.now()
+            ):
+                raise LifecycleError("RESOURCE_OPERATION_CLAIM_EXPIRED")
+            if locked.action_type == action_type:
+                return (
+                    locked,
+                    locked.action_generation,
+                    locked.action_owner_token,
+                    False,
+                )
+            raise LifecycleError("RESOURCE_OPERATION_IN_PROGRESS")
         if locked.state not in allowed_states:
             raise LifecycleError(error_code)
+        now = timezone.now()
         locked.action_generation += 1
         locked.action_owner_token = uuid.uuid4().hex
         locked.action_type = action_type
+        locked.action_acquired_at = now
+        locked.action_lease_until = now + timedelta(seconds=OPERATION_LEASE_SECONDS)
         update_fields = [
             "action_generation",
             "action_owner_token",
             "action_type",
+            "action_acquired_at",
+            "action_lease_until",
             "updated_at",
         ]
         if transition_state is not None:
@@ -144,6 +272,8 @@ def _claim_bucket_action(
 def _clear_action_claim(bucket):
     bucket.action_owner_token = ""
     bucket.action_type = ""
+    bucket.action_acquired_at = None
+    bucket.action_lease_until = None
 
 
 def _active_buckets(identity, *, exclude_id=None):
@@ -189,16 +319,6 @@ def release_bucket(
         error_code="BUCKET_RELEASE_NOT_ALLOWED",
     )
     if not claimed:
-        if enqueue:
-            from object_storage.tasks import release_bucket_task
-
-            release_bucket_task.delay(
-                locked.pk,
-                actor_id=getattr(actor, "pk", None),
-                reason=reason,
-                action_generation=generation,
-                owner_token=owner_token,
-            )
         return locked
     if enqueue:
         from object_storage.tasks import release_bucket_task
@@ -235,6 +355,27 @@ def _release_bucket_cloud(
     ).get(pk=bucket_id)
     if not _action_matches(bucket, action_generation, owner_token, "release"):
         return bucket
+    if bucket.action_lease_until and bucket.action_lease_until <= timezone.now():
+        return recover_expired_bucket_action_claim(
+            bucket_id, provider=provider or _provider(bucket)
+        )
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+        if not _action_matches(locked, action_generation, owner_token, "release"):
+            return locked
+        owner_token = uuid.uuid4().hex
+        locked.action_owner_token = owner_token
+        locked.action_lease_until = timezone.now() + timedelta(
+            seconds=OPERATION_LEASE_SECONDS
+        )
+        locked.save(
+            update_fields=(
+                "action_owner_token",
+                "action_lease_until",
+                "updated_at",
+            )
+        )
+    bucket.action_owner_token = owner_token
     provider = provider or _provider(bucket)
     try:
         inspection = provider.inspect_bucket_emptiness(bucket)
@@ -246,7 +387,13 @@ def _release_bucket_cloud(
             _set_deletion_error(locked, _error_code(error, "BUCKET_EMPTY_CHECK_FAILED"))
             _clear_action_claim(locked)
             locked.save(
-                update_fields=("action_owner_token", "action_type", "updated_at")
+                update_fields=(
+                    "action_owner_token",
+                    "action_type",
+                    "action_acquired_at",
+                    "action_lease_until",
+                    "updated_at",
+                )
             )
         raise
     if not _confirmed_empty(inspection):
@@ -265,6 +412,8 @@ def _release_bucket_cloud(
                     "deletion_error_summary",
                     "action_owner_token",
                     "action_type",
+                    "action_acquired_at",
+                    "action_lease_until",
                     "updated_at",
                 )
             )
@@ -282,7 +431,13 @@ def _release_bucket_cloud(
             )
             _clear_action_claim(locked)
             locked.save(
-                update_fields=("action_owner_token", "action_type", "updated_at")
+                update_fields=(
+                    "action_owner_token",
+                    "action_type",
+                    "action_acquired_at",
+                    "action_lease_until",
+                    "updated_at",
+                )
             )
         raise
     pending_delete_at = timezone.now() + timedelta(days=RETENTION_DAYS)
@@ -303,6 +458,8 @@ def _release_bucket_cloud(
                 "deletion_error_summary",
                 "action_owner_token",
                 "action_type",
+                "action_acquired_at",
+                "action_lease_until",
                 "updated_at",
             )
         )
@@ -323,8 +480,15 @@ def recover_bucket(*, bucket, actor, bucket_name, confirmed, provider=None, reas
     _assert_confirmation(bucket, bucket_name, confirmed)
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
-        if locked.action_owner_token and locked.action_type == "recover":
-            return locked
+        if locked.action_owner_token:
+            if (
+                locked.action_lease_until
+                and locked.action_lease_until <= timezone.now()
+            ):
+                raise LifecycleError("RESOURCE_OPERATION_CLAIM_EXPIRED")
+            if locked.action_type == "recover":
+                return locked
+            raise LifecycleError("RESOURCE_OPERATION_IN_PROGRESS")
         if locked.state != Bucket.State.PENDING_DELETION:
             raise LifecycleError("BUCKET_RECOVERY_NOT_ALLOWED")
         if not locked.pending_delete_at or locked.pending_delete_at <= timezone.now():
@@ -334,14 +498,19 @@ def recover_bucket(*, bucket, actor, bucket_name, confirmed, provider=None, reas
             check_bucket_capacity(user)
         except BucketQuotaExceeded as error:
             raise LifecycleError("BUCKET_QUOTA_EXCEEDED") from error
+        now = timezone.now()
         locked.action_generation += 1
         locked.action_owner_token = uuid.uuid4().hex
         locked.action_type = "recover"
+        locked.action_acquired_at = now
+        locked.action_lease_until = now + timedelta(seconds=OPERATION_LEASE_SECONDS)
         locked.save(
             update_fields=(
                 "action_generation",
                 "action_owner_token",
                 "action_type",
+                "action_acquired_at",
+                "action_lease_until",
                 "updated_at",
             )
         )
@@ -386,6 +555,8 @@ def recover_bucket(*, bucket, actor, bucket_name, confirmed, provider=None, reas
                     "deletion_error_summary",
                     "action_owner_token",
                     "action_type",
+                    "action_acquired_at",
+                    "action_lease_until",
                     "updated_at",
                 )
             )
@@ -403,6 +574,8 @@ def recover_bucket(*, bucket, actor, bucket_name, confirmed, provider=None, reas
                 "pending_delete_at",
                 "action_owner_token",
                 "action_type",
+                "action_acquired_at",
+                "action_lease_until",
                 "updated_at",
             )
         )
@@ -529,6 +702,27 @@ def _delete_bucket_cloud(
     ).get(pk=bucket_id)
     if not _action_matches(bucket, action_generation, owner_token, action_type):
         return bucket
+    if bucket.action_lease_until and bucket.action_lease_until <= timezone.now():
+        return recover_expired_bucket_action_claim(
+            bucket_id, provider=provider or _provider(bucket)
+        )
+    with transaction.atomic():
+        locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+        if not _action_matches(locked, action_generation, owner_token, action_type):
+            return locked
+        owner_token = uuid.uuid4().hex
+        locked.action_owner_token = owner_token
+        locked.action_lease_until = timezone.now() + timedelta(
+            seconds=OPERATION_LEASE_SECONDS
+        )
+        locked.save(
+            update_fields=(
+                "action_owner_token",
+                "action_lease_until",
+                "updated_at",
+            )
+        )
+    bucket.action_owner_token = owner_token
     provider = provider or _provider(bucket)
     try:
         ownership = provider.find_owned_bucket(bucket)
@@ -549,7 +743,13 @@ def _delete_bucket_cloud(
             _set_deletion_error(locked, _error_code(error, "BUCKET_DELETE_FAILED"))
             _clear_action_claim(locked)
             locked.save(
-                update_fields=("action_owner_token", "action_type", "updated_at")
+                update_fields=(
+                    "action_owner_token",
+                    "action_type",
+                    "action_acquired_at",
+                    "action_lease_until",
+                    "updated_at",
+                )
             )
         return Bucket.objects.get(pk=bucket.pk)
     with transaction.atomic():
@@ -569,6 +769,8 @@ def _delete_bucket_cloud(
                 "deletion_error_summary",
                 "action_owner_token",
                 "action_type",
+                "action_acquired_at",
+                "action_lease_until",
                 "updated_at",
             )
         )
@@ -628,13 +830,20 @@ def update_bucket_configuration(
             _assert_confirmation(locked, bucket_name, confirmed)
         configuration = _configuration_from_desired(desired)
         snapshot = configuration.as_snapshot()
-        operation_token = uuid.uuid4().hex
         locked.desired_config_snapshot = snapshot
         locked.config_state = Bucket.ConfigurationState.PENDING
         locked.config_error_code = ""
         locked.config_error_summary = ""
         locked.configuration_generation += 1
-        locked.configuration_operation_token = operation_token
+        claim_active = bool(locked.configuration_operation_token)
+        if not claim_active:
+            now = timezone.now()
+            locked.configuration_operation_token = uuid.uuid4().hex
+            locked.configuration_claim_generation = locked.configuration_generation
+            locked.configuration_operation_acquired_at = now
+            locked.configuration_operation_lease_until = now + timedelta(
+                seconds=OPERATION_LEASE_SECONDS
+            )
         locked.save(
             update_fields=(
                 "desired_config_snapshot",
@@ -643,10 +852,16 @@ def update_bucket_configuration(
                 "config_error_summary",
                 "configuration_generation",
                 "configuration_operation_token",
+                "configuration_claim_generation",
+                "configuration_operation_acquired_at",
+                "configuration_operation_lease_until",
                 "updated_at",
             )
         )
-        configuration_generation = locked.configuration_generation
+        configuration_generation = locked.configuration_claim_generation
+        operation_token = locked.configuration_operation_token
+    if claim_active:
+        return locked
     if enqueue:
         from object_storage.tasks import update_bucket_configuration_task
 
@@ -677,84 +892,179 @@ def _apply_bucket_configuration(
     actor=None,
     reason="",
 ):
-    bucket = Bucket.objects.select_related("resource_pool").get(pk=bucket_id)
-    if not (
-        bucket.configuration_generation == configuration_generation
-        and bucket.configuration_operation_token == operation_token
+    initial = Bucket.objects.select_related("resource_pool").get(pk=bucket_id)
+    if (
+        initial.configuration_operation_token == operation_token
+        and initial.configuration_claim_generation == configuration_generation
+        and initial.configuration_operation_lease_until
+        and initial.configuration_operation_lease_until <= timezone.now()
     ):
-        return bucket
-    desired = bucket.desired_config_snapshot
-    configuration = _configuration_from_desired(desired)
-    previous_configuration = _configuration_from_applied(bucket.applied_config_snapshot)
-    provider = provider or _provider(bucket)
-    try:
-        provider.update_bucket_configuration(
-            bucket,
-            configuration,
-            previous_configuration=previous_configuration,
-            allow_public_read=(configuration.acl == "public_read" and _is_admin(actor)),
+        return recover_expired_bucket_configuration_claim(
+            bucket_id,
+            provider=provider or _provider(initial),
         )
-    except Exception as error:
-        error_code = str(
-            getattr(error, "error_code", "") or "BUCKET_CONFIGURATION_UPDATE_FAILED"
-        )
-        with transaction.atomic():
-            locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
-            if not (
-                locked.configuration_generation == configuration_generation
-                and locked.configuration_operation_token == operation_token
-            ):
-                raise BucketConfigurationError(error_code) from error
-            locked.config_error_code = error_code
-            locked.config_error_summary = str(error)[:255]
-            locked.config_state = (
-                Bucket.ConfigurationState.UNKNOWN
-                if error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
-                else Bucket.ConfigurationState.RETRYABLE_ERROR
-            )
-            locked.configuration_operation_token = ""
-            locked.save(
-                update_fields=(
-                    "config_error_code",
-                    "config_error_summary",
-                    "config_state",
-                    "configuration_operation_token",
-                    "updated_at",
-                )
-            )
-        raise BucketConfigurationError(error_code) from error
     with transaction.atomic():
-        locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
+        locked = Bucket.objects.select_for_update().get(pk=bucket_id)
         if not (
-            locked.configuration_generation == configuration_generation
-            and locked.configuration_operation_token == operation_token
+            locked.configuration_operation_token == operation_token
+            and locked.configuration_claim_generation == configuration_generation
         ):
             return locked
-        locked.applied_config_snapshot = desired
-        locked.config_state = Bucket.ConfigurationState.APPLIED
-        locked.config_error_code = ""
-        locked.config_error_summary = ""
-        locked.configuration_operation_token = ""
+        operation_token = uuid.uuid4().hex
+        locked.configuration_operation_token = operation_token
+        locked.configuration_operation_lease_until = timezone.now() + timedelta(
+            seconds=OPERATION_LEASE_SECONDS
+        )
         locked.save(
             update_fields=(
-                "applied_config_snapshot",
-                "config_state",
-                "config_error_code",
-                "config_error_summary",
                 "configuration_operation_token",
+                "configuration_operation_lease_until",
                 "updated_at",
             )
         )
-    record_audit_event(
-        actor=actor,
-        action="storage.bucket.configuration.updated",
-        target_type="Bucket",
-        target_id=bucket.pk,
-        result="succeeded",
-        reason=reason,
-        safe_metadata={"bucket_name": bucket.name},
-    )
-    return Bucket.objects.get(pk=bucket.pk)
+    first_iteration = True
+    while True:
+        with transaction.atomic():
+            locked = (
+                Bucket.objects.select_for_update()
+                .select_related("resource_pool")
+                .get(pk=bucket_id)
+            )
+            if not (
+                locked.configuration_operation_token == operation_token
+                and (
+                    not first_iteration
+                    or locked.configuration_claim_generation == configuration_generation
+                )
+            ):
+                return locked
+            target_generation = locked.configuration_generation
+            desired = dict(locked.desired_config_snapshot)
+            applied = dict(locked.applied_config_snapshot)
+            now = timezone.now()
+            locked.configuration_claim_generation = target_generation
+            locked.configuration_operation_lease_until = now + timedelta(
+                seconds=OPERATION_LEASE_SECONDS
+            )
+            locked.save(
+                update_fields=(
+                    "configuration_claim_generation",
+                    "configuration_operation_lease_until",
+                    "updated_at",
+                )
+            )
+            bucket = locked
+        first_iteration = False
+        configuration = _configuration_from_desired(desired)
+        previous_configuration = _configuration_from_applied(applied)
+        provider = provider or _provider(bucket)
+        try:
+            provider.update_bucket_configuration(
+                bucket,
+                configuration,
+                previous_configuration=previous_configuration,
+                allow_public_read=(
+                    configuration.acl == "public_read" and _is_admin(actor)
+                ),
+            )
+        except Exception as error:
+            error_code = str(
+                getattr(error, "error_code", "") or "BUCKET_CONFIGURATION_UPDATE_FAILED"
+            )
+            with transaction.atomic():
+                locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+                if not (
+                    locked.configuration_operation_token == operation_token
+                    and locked.configuration_claim_generation == target_generation
+                ):
+                    return locked
+                newer_generation = locked.configuration_generation != target_generation
+                if (
+                    newer_generation
+                    and error_code != "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+                ):
+                    locked.config_state = Bucket.ConfigurationState.PENDING
+                    locked.config_error_code = ""
+                    locked.config_error_summary = ""
+                    locked.save(
+                        update_fields=(
+                            "config_state",
+                            "config_error_code",
+                            "config_error_summary",
+                            "updated_at",
+                        )
+                    )
+                    continue
+                locked.config_error_code = error_code
+                locked.config_error_summary = str(error)[:255]
+                locked.config_state = (
+                    Bucket.ConfigurationState.UNKNOWN
+                    if error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+                    else Bucket.ConfigurationState.RETRYABLE_ERROR
+                )
+                locked.configuration_operation_token = ""
+                locked.configuration_operation_acquired_at = None
+                locked.configuration_operation_lease_until = None
+                locked.save(
+                    update_fields=(
+                        "config_error_code",
+                        "config_error_summary",
+                        "config_state",
+                        "configuration_operation_token",
+                        "configuration_operation_acquired_at",
+                        "configuration_operation_lease_until",
+                        "updated_at",
+                    )
+                )
+            raise BucketConfigurationError(error_code) from error
+        with transaction.atomic():
+            locked = Bucket.objects.select_for_update().get(pk=bucket_id)
+            if not (
+                locked.configuration_operation_token == operation_token
+                and locked.configuration_claim_generation == target_generation
+            ):
+                return locked
+            locked.applied_config_snapshot = desired
+            locked.config_error_code = ""
+            locked.config_error_summary = ""
+            if locked.configuration_generation != target_generation:
+                locked.config_state = Bucket.ConfigurationState.PENDING
+                locked.save(
+                    update_fields=(
+                        "applied_config_snapshot",
+                        "config_state",
+                        "config_error_code",
+                        "config_error_summary",
+                        "updated_at",
+                    )
+                )
+                continue
+            locked.config_state = Bucket.ConfigurationState.APPLIED
+            locked.configuration_operation_token = ""
+            locked.configuration_operation_acquired_at = None
+            locked.configuration_operation_lease_until = None
+            locked.save(
+                update_fields=(
+                    "applied_config_snapshot",
+                    "config_state",
+                    "config_error_code",
+                    "config_error_summary",
+                    "configuration_operation_token",
+                    "configuration_operation_acquired_at",
+                    "configuration_operation_lease_until",
+                    "updated_at",
+                )
+            )
+        record_audit_event(
+            actor=actor,
+            action="storage.bucket.configuration.updated",
+            target_type="Bucket",
+            target_id=bucket.pk,
+            result="succeeded",
+            reason=reason,
+            safe_metadata={"bucket_name": bucket.name},
+        )
+        return Bucket.objects.get(pk=bucket.pk)
 
 
 def retry_bucket_configuration(

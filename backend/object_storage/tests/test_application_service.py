@@ -899,6 +899,44 @@ def test_cancel_provider_cleanup_runs_outside_atomic(batch_context, monkeypatch)
     assert provider.atomic_states == [False, False, False, False]
 
 
+def test_application_worker_cannot_supersede_active_cancel_claim(
+    batch_context, monkeypatch
+):
+    from object_storage.models import ApplicationBatch
+    from object_storage.services import applications
+
+    _user, _pool, create = batch_context
+    batch = create()
+
+    class InterleavingCancelProvider(FakeProvider):
+        attempted_worker = False
+        worker_result_status = ""
+
+        def find_owned_bucket(self, bucket):
+            if not self.attempted_worker:
+                self.attempted_worker = True
+                result = applications.execute_application_batch(
+                    batch.pk,
+                    execution_key="worker-during-cancel",
+                )
+                self.worker_result_status = result.status
+            return super().find_owned_bucket(bucket)
+
+    provider = InterleavingCancelProvider()
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    cancelled = applications.cancel_application_batch(batch.pk)
+
+    cancelled.refresh_from_db()
+    assert provider.attempted_worker is True
+    assert provider.worker_result_status == ApplicationBatch.Status.RUNNING
+    assert cancelled.status == ApplicationBatch.Status.CANCELLED
+    assert not any(
+        call[0] in {"principal", "create_key", "create_bucket"}
+        for call in provider.calls
+    )
+
+
 def test_claim_recovery_marks_terminal_state_without_delivery_manual(
     batch_context,
 ):

@@ -2054,12 +2054,16 @@ def cancel_application_batch(batch_id):
         cancel_generation = batch.claim_version + 1
         cancel_token = f"cancel:{uuid.uuid4().hex}"
         batch.claim_version = cancel_generation
+        batch.status = ApplicationBatch.Status.RUNNING
+        batch.started_at = batch.started_at or timezone.now()
         batch.running_task_id = "application-cancel"
         batch.owner_token = cancel_token
         batch.run_lease_until = timezone.now() + timedelta(seconds=RUN_LEASE_SECONDS)
         batch.save(
             update_fields=(
                 "claim_version",
+                "status",
+                "started_at",
                 "running_task_id",
                 "owner_token",
                 "run_lease_until",

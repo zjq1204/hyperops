@@ -10,7 +10,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from object_storage.crypto import decrypt_secret, encrypt_secret
-from object_storage.models import AccessKey, DeliveryTicket, PlatformObjectStorageConfig
+from object_storage.models import (
+    AccessKey,
+    CloudIdentity,
+    DeliveryTicket,
+    PlatformObjectStorageConfig,
+)
 from object_storage.permissions import has_object_storage_admin_access
 from object_storage.services.audit import record_audit_event
 
@@ -18,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 MIN_DELIVERY_LIFETIME_SECONDS = 600
 MAX_DELIVERY_LIFETIME_SECONDS = 604800
+CREDENTIAL_OPERATION_LEASE_SECONDS = 300
 
 
 class CredentialDeliveryError(RuntimeError):
@@ -62,6 +68,12 @@ def _key_audit(*, actor, action, access_key, result="succeeded", reason=""):
 
 def _claim_key_operation(access_key_id, *, actor, operation_type):
     with transaction.atomic():
+        selected = AccessKey.objects.select_related("cloud_identity").get(
+            pk=access_key_id
+        )
+        identity = CloudIdentity.objects.select_for_update().get(
+            pk=selected.cloud_identity_id
+        )
         selected = (
             AccessKey.objects.select_for_update()
             .select_related("cloud_identity")
@@ -83,47 +95,85 @@ def _claim_key_operation(access_key_id, *, actor, operation_type):
             and selected.local_state == AccessKey.LocalState.ACTIVE
         ):
             return selected, selected.operation_generation, "", False
-        if selected.operation_token:
-            if selected.operation_type == "revoke":
-                if operation_type == "revoke":
-                    return (
-                        selected,
-                        selected.operation_generation,
-                        selected.operation_token,
-                        False,
-                    )
-                raise CredentialRotationError("ACCESS_KEY_REVOKE_IN_PROGRESS")
-            if selected.operation_type == operation_type:
+        if identity.credential_operation_error_code:
+            raise CredentialRotationError(
+                identity.credential_operation_error_code,
+                manual_required=True,
+            )
+        if identity.credential_operation_token:
+            if (
+                identity.credential_operation_lease_until
+                and identity.credential_operation_lease_until <= timezone.now()
+            ):
+                raise CredentialRotationError(
+                    "CREDENTIAL_OPERATION_CLAIM_EXPIRED",
+                    manual_required=True,
+                )
+            if (
+                identity.credential_operation_type == operation_type
+                and identity.credential_operation_key_id == selected.pk
+                and selected.operation_token == identity.credential_operation_token
+            ):
                 return (
                     selected,
-                    selected.operation_generation,
-                    selected.operation_token,
+                    identity.credential_operation_generation,
+                    identity.credential_operation_token,
                     False,
                 )
-            if operation_type != "revoke":
-                raise CredentialRotationError("ACCESS_KEY_OPERATION_IN_PROGRESS")
+            raise CredentialRotationError("RESOURCE_OPERATION_IN_PROGRESS")
+        now = timezone.now()
+        identity.credential_operation_generation += 1
+        identity.credential_operation_token = uuid.uuid4().hex
+        identity.credential_operation_type = operation_type
+        identity.credential_operation_key_id = selected.pk
+        identity.credential_operation_acquired_at = now
+        identity.credential_operation_lease_until = now + timedelta(
+            seconds=CREDENTIAL_OPERATION_LEASE_SECONDS
+        )
+        identity.save(
+            update_fields=(
+                "credential_operation_generation",
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "updated_at",
+            )
+        )
         selected.operation_generation += 1
-        selected.operation_token = uuid.uuid4().hex
+        selected.operation_token = identity.credential_operation_token
         selected.operation_type = operation_type
+        selected.operation_acquired_at = now
+        selected.operation_lease_until = now + timedelta(
+            seconds=CREDENTIAL_OPERATION_LEASE_SECONDS
+        )
+        selected.operation_error_code = ""
         selected.save(
             update_fields=(
                 "operation_generation",
                 "operation_token",
                 "operation_type",
+                "operation_acquired_at",
+                "operation_lease_until",
+                "operation_error_code",
                 "updated_at",
             )
         )
         return (
             selected,
-            selected.operation_generation,
+            identity.credential_operation_generation,
             selected.operation_token,
             True,
         )
 
 
-def _key_operation_matches(access_key, generation, token, operation_type):
+def _key_operation_matches(identity, access_key, generation, token, operation_type):
     return bool(
-        access_key.operation_generation == generation
+        identity.credential_operation_generation == generation
+        and identity.credential_operation_token == token
+        and identity.credential_operation_type == operation_type
+        and identity.credential_operation_key_id == access_key.pk
         and access_key.operation_token == token
         and access_key.operation_type == operation_type
     )
@@ -132,6 +182,14 @@ def _key_operation_matches(access_key, generation, token, operation_type):
 def _clear_key_operation(access_key):
     access_key.operation_token = ""
     access_key.operation_type = ""
+
+
+def _clear_key_claim(identity, access_key, *, error_code=""):
+    _clear_key_operation(access_key)
+    access_key.operation_acquired_at = None
+    access_key.operation_lease_until = None
+    access_key.operation_error_code = error_code
+    _clear_credential_operation(identity, error_code=error_code)
 
 
 def disable_access_key(*, access_key, actor, provider, reason=""):
@@ -146,21 +204,45 @@ def disable_access_key(*, access_key, actor, provider, reason=""):
         provider.deactivate_access_key(provider_access_key(selected))
     except Exception:
         with transaction.atomic():
+            identity = CloudIdentity.objects.select_for_update().get(
+                pk=selected.cloud_identity_id
+            )
             current = AccessKey.objects.select_for_update().get(pk=selected.pk)
-            if _key_operation_matches(current, generation, token, "disable"):
-                _clear_key_operation(current)
+            if _key_operation_matches(identity, current, generation, token, "disable"):
+                _clear_key_claim(identity, current)
                 current.save(
-                    update_fields=("operation_token", "operation_type", "updated_at")
+                    update_fields=(
+                        "operation_token",
+                        "operation_type",
+                        "operation_acquired_at",
+                        "operation_lease_until",
+                        "operation_error_code",
+                        "updated_at",
+                    )
+                )
+                identity.save(
+                    update_fields=(
+                        "credential_operation_token",
+                        "credential_operation_type",
+                        "credential_operation_key_id",
+                        "credential_operation_acquired_at",
+                        "credential_operation_lease_until",
+                        "credential_operation_error_code",
+                        "updated_at",
+                    )
                 )
         raise
     with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(
+            pk=selected.cloud_identity_id
+        )
         current = AccessKey.objects.select_for_update().get(pk=selected.pk)
-        if not _key_operation_matches(current, generation, token, "disable"):
+        if not _key_operation_matches(identity, current, generation, token, "disable"):
             return current
         current.cloud_state = AccessKey.CloudState.INACTIVE
         current.local_state = AccessKey.LocalState.DISABLED
         current.deactivated_at = timezone.now()
-        _clear_key_operation(current)
+        _clear_key_claim(identity, current)
         current.save(
             update_fields=(
                 "cloud_state",
@@ -168,6 +250,20 @@ def disable_access_key(*, access_key, actor, provider, reason=""):
                 "deactivated_at",
                 "operation_token",
                 "operation_type",
+                "operation_acquired_at",
+                "operation_lease_until",
+                "operation_error_code",
+                "updated_at",
+            )
+        )
+        identity.save(
+            update_fields=(
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "credential_operation_error_code",
                 "updated_at",
             )
         )
@@ -203,21 +299,45 @@ def enable_access_key(*, access_key, actor, provider, reason=""):
         provider.activate_access_key(provider_access_key(selected))
     except Exception:
         with transaction.atomic():
+            identity = CloudIdentity.objects.select_for_update().get(
+                pk=selected.cloud_identity_id
+            )
             current = AccessKey.objects.select_for_update().get(pk=selected.pk)
-            if _key_operation_matches(current, generation, token, "enable"):
-                _clear_key_operation(current)
+            if _key_operation_matches(identity, current, generation, token, "enable"):
+                _clear_key_claim(identity, current)
                 current.save(
-                    update_fields=("operation_token", "operation_type", "updated_at")
+                    update_fields=(
+                        "operation_token",
+                        "operation_type",
+                        "operation_acquired_at",
+                        "operation_lease_until",
+                        "operation_error_code",
+                        "updated_at",
+                    )
+                )
+                identity.save(
+                    update_fields=(
+                        "credential_operation_token",
+                        "credential_operation_type",
+                        "credential_operation_key_id",
+                        "credential_operation_acquired_at",
+                        "credential_operation_lease_until",
+                        "credential_operation_error_code",
+                        "updated_at",
+                    )
                 )
         raise
     with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(
+            pk=selected.cloud_identity_id
+        )
         current = AccessKey.objects.select_for_update().get(pk=selected.pk)
-        if not _key_operation_matches(current, generation, token, "enable"):
+        if not _key_operation_matches(identity, current, generation, token, "enable"):
             return current
         current.cloud_state = AccessKey.CloudState.ACTIVE
         current.local_state = AccessKey.LocalState.ACTIVE
         current.deactivated_at = None
-        _clear_key_operation(current)
+        _clear_key_claim(identity, current)
         current.save(
             update_fields=(
                 "cloud_state",
@@ -225,6 +345,20 @@ def enable_access_key(*, access_key, actor, provider, reason=""):
                 "deactivated_at",
                 "operation_token",
                 "operation_type",
+                "operation_acquired_at",
+                "operation_lease_until",
+                "operation_error_code",
+                "updated_at",
+            )
+        )
+        identity.save(
+            update_fields=(
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "credential_operation_error_code",
                 "updated_at",
             )
         )
@@ -249,21 +383,45 @@ def revoke_access_key(*, access_key, actor, provider, reason=""):
         provider.delete_access_key(provider_access_key(selected))
     except Exception:
         with transaction.atomic():
+            identity = CloudIdentity.objects.select_for_update().get(
+                pk=selected.cloud_identity_id
+            )
             current = AccessKey.objects.select_for_update().get(pk=selected.pk)
-            if _key_operation_matches(current, generation, token, "revoke"):
-                _clear_key_operation(current)
+            if _key_operation_matches(identity, current, generation, token, "revoke"):
+                _clear_key_claim(identity, current)
                 current.save(
-                    update_fields=("operation_token", "operation_type", "updated_at")
+                    update_fields=(
+                        "operation_token",
+                        "operation_type",
+                        "operation_acquired_at",
+                        "operation_lease_until",
+                        "operation_error_code",
+                        "updated_at",
+                    )
+                )
+                identity.save(
+                    update_fields=(
+                        "credential_operation_token",
+                        "credential_operation_type",
+                        "credential_operation_key_id",
+                        "credential_operation_acquired_at",
+                        "credential_operation_lease_until",
+                        "credential_operation_error_code",
+                        "updated_at",
+                    )
                 )
         raise
     with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(
+            pk=selected.cloud_identity_id
+        )
         current = AccessKey.objects.select_for_update().get(pk=selected.pk)
-        if not _key_operation_matches(current, generation, token, "revoke"):
+        if not _key_operation_matches(identity, current, generation, token, "revoke"):
             return current
         current.cloud_state = AccessKey.CloudState.DELETED
         current.local_state = AccessKey.LocalState.RETIRED
         current.deleted_at = timezone.now()
-        _clear_key_operation(current)
+        _clear_key_claim(identity, current)
         current.save(
             update_fields=(
                 "cloud_state",
@@ -271,6 +429,20 @@ def revoke_access_key(*, access_key, actor, provider, reason=""):
                 "deleted_at",
                 "operation_token",
                 "operation_type",
+                "operation_acquired_at",
+                "operation_lease_until",
+                "operation_error_code",
+                "updated_at",
+            )
+        )
+        identity.save(
+            update_fields=(
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "credential_operation_error_code",
                 "updated_at",
             )
         )
@@ -552,7 +724,208 @@ def _provider_key_items(result):
     return tuple(getattr(result, "items", result))
 
 
-def _reconciled_local_keys(identity, provider):
+def _claim_credential_operation(identity_id, *, operation_type, key_id=None):
+    with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(pk=identity_id)
+        if identity.credential_operation_error_code:
+            raise CredentialRotationError(
+                identity.credential_operation_error_code,
+                manual_required=True,
+            )
+        if identity.credential_operation_token:
+            if (
+                identity.credential_operation_lease_until
+                and identity.credential_operation_lease_until <= timezone.now()
+            ):
+                raise CredentialRotationError(
+                    "CREDENTIAL_OPERATION_CLAIM_EXPIRED",
+                    manual_required=True,
+                )
+            raise CredentialRotationError("RESOURCE_OPERATION_IN_PROGRESS")
+        now = timezone.now()
+        identity.credential_operation_generation += 1
+        identity.credential_operation_token = uuid.uuid4().hex
+        identity.credential_operation_type = operation_type
+        identity.credential_operation_key_id = key_id
+        identity.credential_operation_acquired_at = now
+        identity.credential_operation_lease_until = now + timedelta(
+            seconds=CREDENTIAL_OPERATION_LEASE_SECONDS
+        )
+        identity.save(
+            update_fields=(
+                "credential_operation_generation",
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "updated_at",
+            )
+        )
+        return (
+            identity,
+            identity.credential_operation_generation,
+            identity.credential_operation_token,
+        )
+
+
+def _credential_operation_matches(identity, generation, token, operation_type):
+    return bool(
+        identity.credential_operation_generation == generation
+        and identity.credential_operation_token == token
+        and identity.credential_operation_type == operation_type
+    )
+
+
+def _clear_credential_operation(identity, *, error_code=""):
+    identity.credential_operation_token = ""
+    identity.credential_operation_type = ""
+    identity.credential_operation_key_id = None
+    identity.credential_operation_acquired_at = None
+    identity.credential_operation_lease_until = None
+    identity.credential_operation_error_code = error_code
+
+
+def _finish_credential_operation(
+    identity_id, generation, token, operation_type, *, error_code=""
+):
+    with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(pk=identity_id)
+        if not _credential_operation_matches(
+            identity, generation, token, operation_type
+        ):
+            return identity
+        key_id = identity.credential_operation_key_id
+        if key_id:
+            key = AccessKey.objects.select_for_update().filter(pk=key_id).first()
+            if key and key.operation_token == token:
+                _clear_key_operation(key)
+                key.operation_acquired_at = None
+                key.operation_lease_until = None
+                key.operation_error_code = error_code
+                key.save(
+                    update_fields=(
+                        "operation_token",
+                        "operation_type",
+                        "operation_acquired_at",
+                        "operation_lease_until",
+                        "operation_error_code",
+                        "updated_at",
+                    )
+                )
+        _clear_credential_operation(identity, error_code=error_code)
+        identity.save(
+            update_fields=(
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "credential_operation_error_code",
+                "updated_at",
+            )
+        )
+        return identity
+
+
+def recover_expired_credential_operation(identity_id, *, provider, now=None):
+    now = now or timezone.now()
+    with transaction.atomic():
+        identity = CloudIdentity.objects.select_for_update().get(pk=identity_id)
+        if not (
+            identity.credential_operation_token
+            and identity.credential_operation_lease_until
+            and identity.credential_operation_lease_until <= now
+        ):
+            return identity
+        generation = identity.credential_operation_generation
+        token = identity.credential_operation_token
+        operation_type = identity.credential_operation_type
+        key_id = identity.credential_operation_key_id
+    cloud_statuses = {}
+    reconciliation_failed = False
+    try:
+        for item in _provider_key_items(provider.list_access_keys(identity)):
+            cloud_statuses[str(item.fingerprint)] = str(
+                getattr(item, "status", "") or ""
+            ).lower()
+    except Exception:
+        reconciliation_failed = True
+    with transaction.atomic():
+        locked_identity = CloudIdentity.objects.select_for_update().get(pk=identity_id)
+        if not (
+            _credential_operation_matches(
+                locked_identity,
+                generation,
+                token,
+                operation_type,
+            )
+            and locked_identity.credential_operation_lease_until
+            and locked_identity.credential_operation_lease_until <= now
+        ):
+            return locked_identity
+        key = (
+            AccessKey.objects.select_for_update().filter(pk=key_id).first()
+            if key_id
+            else None
+        )
+        resolved = False
+        if key is not None and not reconciliation_failed:
+            cloud_status = cloud_statuses.get(key.access_key_fingerprint)
+            if operation_type == "disable" and cloud_status == "inactive":
+                key.cloud_state = AccessKey.CloudState.INACTIVE
+                key.local_state = AccessKey.LocalState.DISABLED
+                key.deactivated_at = key.deactivated_at or now
+                resolved = True
+            elif operation_type == "enable" and cloud_status == "active":
+                key.cloud_state = AccessKey.CloudState.ACTIVE
+                key.local_state = AccessKey.LocalState.ACTIVE
+                key.deactivated_at = None
+                resolved = True
+            elif operation_type == "revoke" and cloud_status is None:
+                key.cloud_state = AccessKey.CloudState.DELETED
+                key.local_state = AccessKey.LocalState.RETIRED
+                key.deleted_at = key.deleted_at or now
+                resolved = True
+        error_code = "" if resolved else "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+        if key is not None:
+            if not resolved:
+                key.cloud_state = AccessKey.CloudState.UNKNOWN
+                key.local_state = AccessKey.LocalState.ERROR
+            _clear_key_operation(key)
+            key.operation_acquired_at = None
+            key.operation_lease_until = None
+            key.operation_error_code = error_code
+            key.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "deactivated_at",
+                    "deleted_at",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "operation_error_code",
+                    "updated_at",
+                )
+            )
+        _clear_credential_operation(locked_identity, error_code=error_code)
+        locked_identity.save(
+            update_fields=(
+                "credential_operation_token",
+                "credential_operation_type",
+                "credential_operation_key_id",
+                "credential_operation_acquired_at",
+                "credential_operation_lease_until",
+                "credential_operation_error_code",
+                "updated_at",
+            )
+        )
+        return locked_identity
+
+
+def _reconciled_local_keys(identity, cloud_keys):
     local_keys = list(
         identity.access_keys.select_for_update()
         .filter(
@@ -562,7 +935,6 @@ def _reconciled_local_keys(identity, provider):
         )
         .order_by("created_at", "id")
     )
-    cloud_keys = _provider_key_items(provider.list_access_keys(identity))
     local_fingerprints = {key.access_key_fingerprint for key in local_keys}
     cloud_fingerprints = {
         key.fingerprint
@@ -590,14 +962,63 @@ def _rotation_candidate_from_keys(local_keys):
 
 
 def _compensate_rotation_failure(
-    *, identity, selected, provider, provider_key, error_code, original_error
+    *,
+    identity,
+    selected,
+    provider,
+    provider_key,
+    error_code,
+    original_error,
+    generation,
+    token,
 ):
     try:
         provider.activate_access_key(provider_key)
     except Exception as reactivation_error:
-        selected.cloud_state = AccessKey.CloudState.UNKNOWN
-        selected.local_state = AccessKey.LocalState.ERROR
-        selected.save(update_fields=("cloud_state", "local_state", "updated_at"))
+        with transaction.atomic():
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity.pk
+            )
+            locked_key = AccessKey.objects.select_for_update().get(pk=selected.pk)
+            if (
+                _credential_operation_matches(
+                    locked_identity, generation, token, "rotate"
+                )
+                and locked_key.operation_token == token
+            ):
+                locked_key.cloud_state = AccessKey.CloudState.UNKNOWN
+                locked_key.local_state = AccessKey.LocalState.ERROR
+                _clear_key_operation(locked_key)
+                locked_key.operation_acquired_at = None
+                locked_key.operation_lease_until = None
+                locked_key.operation_error_code = error_code
+                locked_key.save(
+                    update_fields=(
+                        "cloud_state",
+                        "local_state",
+                        "operation_token",
+                        "operation_type",
+                        "operation_acquired_at",
+                        "operation_lease_until",
+                        "operation_error_code",
+                        "updated_at",
+                    )
+                )
+                _clear_credential_operation(
+                    locked_identity,
+                    error_code=error_code,
+                )
+                locked_identity.save(
+                    update_fields=(
+                        "credential_operation_token",
+                        "credential_operation_type",
+                        "credential_operation_key_id",
+                        "credential_operation_acquired_at",
+                        "credential_operation_lease_until",
+                        "credential_operation_error_code",
+                        "updated_at",
+                    )
+                )
         record_audit_event(
             actor=identity.user,
             action="storage.credential.rotation_manual_required",
@@ -613,17 +1034,43 @@ def _compensate_rotation_failure(
             error_code,
             manual_required=True,
         ) from reactivation_error
-    selected.cloud_state = AccessKey.CloudState.ACTIVE
-    selected.local_state = AccessKey.LocalState.ACTIVE
-    selected.deactivated_at = None
-    selected.save(
-        update_fields=(
-            "cloud_state",
-            "local_state",
-            "deactivated_at",
-            "updated_at",
-        )
-    )
+    with transaction.atomic():
+        locked_identity = CloudIdentity.objects.select_for_update().get(pk=identity.pk)
+        locked_key = AccessKey.objects.select_for_update().get(pk=selected.pk)
+        if (
+            _credential_operation_matches(locked_identity, generation, token, "rotate")
+            and locked_key.operation_token == token
+        ):
+            locked_key.cloud_state = AccessKey.CloudState.ACTIVE
+            locked_key.local_state = AccessKey.LocalState.ACTIVE
+            locked_key.deactivated_at = None
+            _clear_key_operation(locked_key)
+            locked_key.operation_acquired_at = None
+            locked_key.operation_lease_until = None
+            locked_key.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "deactivated_at",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "updated_at",
+                )
+            )
+            _clear_credential_operation(locked_identity)
+            locked_identity.save(
+                update_fields=(
+                    "credential_operation_token",
+                    "credential_operation_type",
+                    "credential_operation_key_id",
+                    "credential_operation_acquired_at",
+                    "credential_operation_lease_until",
+                    "credential_operation_error_code",
+                    "updated_at",
+                )
+            )
     raise original_error
 
 
@@ -636,30 +1083,70 @@ def rotate_access_key(
         from object_storage.services.platform import ensure_key_operations_allowed
 
         ensure_key_operations_allowed()
-    with transaction.atomic():
-        local_keys = _reconciled_local_keys(identity, provider)
-        if not local_keys:
-            raise CredentialRotationError(
-                "ACCESS_KEY_REQUIRED",
-                manual_required=True,
+    claimed_identity, generation, token = _claim_credential_operation(
+        identity.pk,
+        operation_type="rotate",
+    )
+    try:
+        cloud_keys = _provider_key_items(provider.list_access_keys(claimed_identity))
+        with transaction.atomic():
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity.pk
             )
-        if len(local_keys) > 2:
-            raise CredentialRotationError(
-                "ACCESS_KEY_LIMIT_EXCEEDED",
-                manual_required=True,
-            )
-        if len(local_keys) == 2:
-            if selected_access_key_id is None:
-                raise CredentialRotationError("ROTATION_SELECTION_REQUIRED")
-            candidate = _rotation_candidate_from_keys(local_keys)
-            if candidate.pk != selected_access_key_id:
+            if not _credential_operation_matches(
+                locked_identity, generation, token, "rotate"
+            ):
+                raise CredentialRotationError("CREDENTIAL_OPERATION_SUPERSEDED")
+            local_keys = _reconciled_local_keys(locked_identity, cloud_keys)
+            if not local_keys:
+                raise CredentialRotationError(
+                    "ACCESS_KEY_REQUIRED",
+                    manual_required=True,
+                )
+            if len(local_keys) > 2:
+                raise CredentialRotationError(
+                    "ACCESS_KEY_LIMIT_EXCEEDED",
+                    manual_required=True,
+                )
+            if len(local_keys) == 2:
+                if selected_access_key_id is None:
+                    raise CredentialRotationError("ROTATION_SELECTION_REQUIRED")
+                candidate = _rotation_candidate_from_keys(local_keys)
+                if candidate.pk != selected_access_key_id:
+                    raise CredentialRotationError("ROTATION_SELECTION_INVALID")
+                selected = candidate
+                if selected.operation_token:
+                    raise CredentialRotationError("KEY_OPERATION_IN_PROGRESS")
+                now = timezone.now()
+                selected.operation_generation += 1
+                selected.operation_token = token
+                selected.operation_type = "rotate"
+                selected.operation_acquired_at = now
+                selected.operation_lease_until = now + timedelta(
+                    seconds=CREDENTIAL_OPERATION_LEASE_SECONDS
+                )
+                selected.operation_error_code = ""
+                selected.save(
+                    update_fields=(
+                        "operation_generation",
+                        "operation_token",
+                        "operation_type",
+                        "operation_acquired_at",
+                        "operation_lease_until",
+                        "operation_error_code",
+                        "updated_at",
+                    )
+                )
+                locked_identity.credential_operation_key_id = selected.pk
+                locked_identity.save(
+                    update_fields=("credential_operation_key_id", "updated_at")
+                )
+                provider_key = provider_access_key(candidate)
+            elif selected_access_key_id is not None:
                 raise CredentialRotationError("ROTATION_SELECTION_INVALID")
-            selected = candidate
-            if selected.operation_token:
-                raise CredentialRotationError("KEY_OPERATION_IN_PROGRESS")
-            provider_key = provider_access_key(candidate)
-        elif selected_access_key_id is not None:
-            raise CredentialRotationError("ROTATION_SELECTION_INVALID")
+    except Exception:
+        _finish_credential_operation(identity.pk, generation, token, "rotate")
+        raise
 
     if len(local_keys) == 2:
         try:
@@ -672,18 +1159,32 @@ def rotate_access_key(
                 provider_key=provider_key,
                 error_code="KEY_DEACTIVATE_FAILED",
                 original_error=error,
+                generation=generation,
+                token=token,
             )
-        selected.cloud_state = AccessKey.CloudState.INACTIVE
-        selected.local_state = AccessKey.LocalState.RETIRING
-        selected.deactivated_at = timezone.now()
-        selected.save(
-            update_fields=(
-                "cloud_state",
-                "local_state",
-                "deactivated_at",
-                "updated_at",
+        with transaction.atomic():
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity.pk
             )
-        )
+            selected = AccessKey.objects.select_for_update().get(pk=selected.pk)
+            if not (
+                _credential_operation_matches(
+                    locked_identity, generation, token, "rotate"
+                )
+                and selected.operation_token == token
+            ):
+                raise CredentialRotationError("CREDENTIAL_OPERATION_SUPERSEDED")
+            selected.cloud_state = AccessKey.CloudState.INACTIVE
+            selected.local_state = AccessKey.LocalState.RETIRING
+            selected.deactivated_at = timezone.now()
+            selected.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "deactivated_at",
+                    "updated_at",
+                )
+            )
         try:
             provider.delete_access_key(provider_key)
         except Exception as error:
@@ -694,26 +1195,55 @@ def rotate_access_key(
                 provider_key=provider_key,
                 error_code="KEY_DELETE_FAILED",
                 original_error=error,
+                generation=generation,
+                token=token,
             )
-        selected.cloud_state = AccessKey.CloudState.DELETED
-        selected.local_state = AccessKey.LocalState.RETIRED
-        selected.deleted_at = timezone.now()
-        selected.save(
-            update_fields=(
-                "cloud_state",
-                "local_state",
-                "deleted_at",
-                "updated_at",
+        with transaction.atomic():
+            locked_identity = CloudIdentity.objects.select_for_update().get(
+                pk=identity.pk
             )
+            selected = AccessKey.objects.select_for_update().get(pk=selected.pk)
+            if not (
+                _credential_operation_matches(
+                    locked_identity, generation, token, "rotate"
+                )
+                and selected.operation_token == token
+            ):
+                raise CredentialRotationError("CREDENTIAL_OPERATION_SUPERSEDED")
+            selected.cloud_state = AccessKey.CloudState.DELETED
+            selected.local_state = AccessKey.LocalState.RETIRED
+            selected.deleted_at = timezone.now()
+            _clear_key_operation(selected)
+            selected.operation_acquired_at = None
+            selected.operation_lease_until = None
+            selected.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "deleted_at",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "updated_at",
+                )
+            )
+    try:
+        replacement = persist_new_access_key(identity=identity, provider=provider)
+    except Exception as error:
+        _finish_credential_operation(
+            identity.pk,
+            generation,
+            token,
+            "rotate",
+            error_code="ROTATION_REPLACEMENT_FAILED",
         )
-        try:
-            return persist_new_access_key(identity=identity, provider=provider)
-        except Exception as error:
-            raise CredentialRotationError(
-                "ROTATION_REPLACEMENT_FAILED",
-                manual_required=True,
-            ) from error
-    return persist_new_access_key(identity=identity, provider=provider)
+        raise CredentialRotationError(
+            "ROTATION_REPLACEMENT_FAILED",
+            manual_required=True,
+        ) from error
+    _finish_credential_operation(identity.pk, generation, token, "rotate")
+    return replacement
 
 
 def rotation_candidate(identity):

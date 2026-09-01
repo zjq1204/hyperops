@@ -5,7 +5,7 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
 pytestmark = pytest.mark.django_db(transaction=True)
-CURRENT_LEAF = ("object_storage", "0014_resource_operation_fences")
+CURRENT_LEAF = ("object_storage", "0015_cloud_mutation_leases")
 
 
 def test_0003_uses_a_migration_local_default_callable():
@@ -203,6 +203,33 @@ def test_0013_backfills_bucket_configuration_state_without_losing_uncertainty():
             "rollback-failed": "unknown",
             "cloud-state-unknown": "unknown",
         }
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([("object_storage", "0014_resource_operation_fences")])
+        fence_apps = executor.loader.project_state(
+            [("object_storage", "0014_resource_operation_fences")]
+        ).apps
+        FencedBucket = fence_apps.get_model("object_storage", "Bucket")
+        FencedBucket.objects.filter(pk=bucket_ids["mismatch"]).update(
+            configuration_operation_token="legacy-config-token"
+        )
+        FencedBucket.objects.filter(pk=bucket_ids["provider-error"]).update(
+            action_owner_token="legacy-action-token",
+            action_type="release",
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([("object_storage", "0015_cloud_mutation_leases")])
+        lease_apps = executor.loader.project_state(
+            [("object_storage", "0015_cloud_mutation_leases")]
+        ).apps
+        LeasedBucket = lease_apps.get_model("object_storage", "Bucket")
+        config_claim = LeasedBucket.objects.get(pk=bucket_ids["mismatch"])
+        action_claim = LeasedBucket.objects.get(pk=bucket_ids["provider-error"])
+        assert config_claim.configuration_operation_acquired_at is not None
+        assert config_claim.configuration_operation_lease_until is not None
+        assert action_claim.action_acquired_at is not None
+        assert action_claim.action_lease_until is not None
 
         executor = MigrationExecutor(connection)
         executor.migrate([("object_storage", "0012_platform_default_acl_private")])

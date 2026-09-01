@@ -1,6 +1,7 @@
 import logging
 
 from celery import shared_task
+from django.db import transaction
 from django.utils import timezone
 
 from core.periodic_registry import TASK_REGISTRY
@@ -26,6 +27,12 @@ def register_periodic_tasks():
         "object-storage.bucket-deletion",
         "object_storage.delete_expired_buckets",
         schedule="15 3 * * *",
+        queue="object_storage",
+    )
+    TASK_REGISTRY.add(
+        "object-storage.operation-recovery",
+        "object_storage.recover_expired_resource_operations",
+        schedule="*/5 * * * *",
         queue="object_storage",
     )
 
@@ -69,4 +76,101 @@ def delete_expired_buckets_task():
         "candidate_count": len(bucket_ids),
         "deleted_count": deleted_count,
         "blocked_count": blocked_count,
+    }
+
+
+@shared_task(name="object_storage.recover_expired_resource_operations")
+def recover_expired_resource_operations_task(*, now=None):
+    from object_storage.models import AccessKey, Bucket, CloudIdentity
+    from object_storage.providers.aliyun import build_aliyun_provider
+    from object_storage.services.credentials import (
+        recover_expired_credential_operation,
+    )
+    from object_storage.services.lifecycle import (
+        recover_expired_bucket_action_claim,
+        recover_expired_bucket_configuration_claim,
+    )
+
+    now = now or timezone.now()
+    configuration_ids = list(
+        Bucket.objects.filter(
+            configuration_operation_token__gt="",
+            configuration_operation_lease_until__lte=now,
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    action_ids = list(
+        Bucket.objects.filter(
+            action_owner_token__gt="",
+            action_lease_until__lte=now,
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    identity_ids = list(
+        CloudIdentity.objects.filter(
+            credential_operation_token__gt="",
+            credential_operation_lease_until__lte=now,
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    for bucket_id in configuration_ids:
+        recover_expired_bucket_configuration_claim(bucket_id, now=now)
+    for bucket_id in action_ids:
+        recover_expired_bucket_action_claim(bucket_id, now=now)
+    for identity_id in identity_ids:
+        identity = CloudIdentity.objects.select_related("resource_pool").get(
+            pk=identity_id
+        )
+        recover_expired_credential_operation(
+            identity_id,
+            provider=build_aliyun_provider(identity.resource_pool),
+            now=now,
+        )
+
+    orphan_ids = list(
+        AccessKey.objects.filter(
+            operation_token__gt="",
+            operation_lease_until__lte=now,
+            cloud_identity__credential_operation_token="",
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    for key_id in orphan_ids:
+        with transaction.atomic():
+            key = AccessKey.objects.select_for_update().get(pk=key_id)
+            if not (
+                key.operation_token
+                and key.operation_lease_until
+                and key.operation_lease_until <= now
+                and not key.cloud_identity.credential_operation_token
+            ):
+                continue
+            key.cloud_state = AccessKey.CloudState.UNKNOWN
+            key.local_state = AccessKey.LocalState.ERROR
+            key.operation_token = ""
+            key.operation_type = ""
+            key.operation_acquired_at = None
+            key.operation_lease_until = None
+            key.operation_error_code = "CREDENTIAL_OPERATION_CLAIM_EXPIRED"
+            key.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "operation_error_code",
+                    "updated_at",
+                )
+            )
+    return {
+        "bucket_configuration_count": len(configuration_ids),
+        "bucket_action_count": len(action_ids),
+        "credential_count": len(identity_ids),
+        "orphan_key_count": len(orphan_ids),
     }
