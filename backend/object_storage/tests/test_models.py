@@ -283,6 +283,39 @@ def test_access_key_bulk_create_cannot_bypass_provider_slot_limit(
         AccessKey.objects.bulk_create([key])
 
 
+def test_access_key_bulk_upsert_cannot_move_released_key_into_full_identity(
+    access_key_factory, cloud_identity_factory
+):
+    from object_storage.models import AccessKey
+
+    target_identity = cloud_identity_factory()
+    access_key_factory(cloud_identity=target_identity)
+    access_key_factory(cloud_identity=target_identity)
+    source_key = access_key_factory(cloud_identity=cloud_identity_factory())
+    candidate = AccessKey(
+        pk=source_key.pk,
+        cloud_identity=target_identity,
+        access_key_id_encrypted="upsert-encrypted-ak",
+        secret_access_key_encrypted="upsert-encrypted-sk",
+        access_key_fingerprint=source_key.access_key_fingerprint,
+        access_key_last_four="8888",
+        local_state=AccessKey.LocalState.RETIRED,
+    )
+
+    with pytest.raises(RuntimeError, match="ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE"):
+        AccessKey.objects.bulk_create(
+            [candidate],
+            update_conflicts=True,
+            update_fields=["cloud_identity", "local_state"],
+            unique_fields=["id"],
+        )
+
+    assert AccessKey.objects.filter(cloud_identity=target_identity).count() == 2
+    assert AccessKey.objects.get(pk=source_key.pk).cloud_identity_id == (
+        source_key.cloud_identity_id
+    )
+
+
 def test_access_key_queryset_update_cannot_restore_released_slot(
     access_key_factory, cloud_identity_factory
 ):

@@ -343,12 +343,9 @@ class AccessKeyQuerySet(models.QuerySet):
     )
 
     def bulk_create(self, objs, *args, **kwargs):
-        objs = list(objs)
-        if any(obj.occupies_provider_slot for obj in objs):
-            raise AccessKeyUnsafeBulkMutationError(
-                "ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE"
-            )
-        return super().bulk_create(objs, *args, **kwargs)
+        raise AccessKeyUnsafeBulkMutationError(
+            "ACCESS_KEY_BULK_CREATE_REQUIRES_SAVE"
+        )
 
     def update(self, **kwargs):
         if self.GUARDED_UPDATE_FIELDS.intersection(kwargs):
