@@ -1,70 +1,70 @@
-import re
 from datetime import timedelta
 
 from django.utils import timezone
 
 from object_storage.models import AuditEvent
 
-_SENSITIVE_METADATA_KEY = re.compile(
-    r"(?:secret|ciphertext|cipher|encrypted|envelope|token|password|authorization|private[_-]?key)",
-    re.IGNORECASE,
-)
-_SENSITIVE_VALUE_PATTERNS = (
-    re.compile(r"(?i)(?:\bauthorization\s*:|\bbearer\s+|\bbasic\s+)"),
-    re.compile(r"(?i)-----BEGIN [^-]*PRIVATE KEY-----"),
-    re.compile(r"(?i)\bv1:aesgcm:"),
-    re.compile(r"(?i)\bLTAI[A-Za-z0-9_-]{8,}\b"),
-    re.compile(r"^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$"),
-    re.compile(
-        r"(?i)(?:^|[\s:_-])(secret|token|password|access[_-]?key|private[_-]?key)"
-        r"(?:$|[\s:_-])"
-    ),
-)
-_SENSITIVE_NORMALIZED_KEYS = frozenset(
+SAFE_METADATA_KEYS = frozenset(
     {
-        "apikey",
-        "auth",
-        "authorizationheader",
-        "credential",
-        "credentials",
-        "sk",
+        "provider",
+        "changed_fields",
+        "last_four",
+        "fingerprint",
+        "request_id",
+        "provider_request_id",
+        "action_type",
+        "stage",
+        "error_code",
+        "status",
+        "result",
+        "bucket_name",
+        "region",
+        "count",
+        "total_count",
+        "success_count",
+        "failed_count",
+        "user_id",
+        "bucket_id",
+        "application_id",
+        "item_id",
     }
 )
+SAFE_METADATA_LIST_KEYS = frozenset({"changed_fields"})
 
 
-def _is_sensitive_metadata_key(key):
-    key = str(key)
-    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
-    return bool(_SENSITIVE_METADATA_KEY.search(key)) or (
-        normalized in _SENSITIVE_NORMALIZED_KEYS
+def _is_controlled_string(value):
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 64
+        and value[0].isalpha()
+        and all(character.isalnum() or character == "_" for character in value)
     )
 
 
 def sanitize_audit_metadata(metadata):
-    """Reject metadata that could persist credentials, envelopes, or tokens."""
+    """Allow only documented, non-secret audit fields and JSON-safe values."""
 
     if metadata is None:
         return {}
     if not isinstance(metadata, dict):
         raise ValueError("safe audit metadata must be an object")
-
-    def walk(value):
-        if isinstance(value, dict):
-            cleaned = {}
-            for key, child in value.items():
-                if _is_sensitive_metadata_key(key):
-                    raise ValueError("sensitive audit metadata is not allowed")
-                cleaned[str(key)] = walk(child)
-            return cleaned
-        if isinstance(value, (list, tuple)):
-            return [walk(child) for child in value]
-        if isinstance(value, str) and any(
-            pattern.search(value) for pattern in _SENSITIVE_VALUE_PATTERNS
-        ):
+    cleaned = {}
+    for key, value in metadata.items():
+        if key not in SAFE_METADATA_KEYS:
             raise ValueError("sensitive audit metadata is not allowed")
-        return value
-
-    return walk(metadata)
+        if key in SAFE_METADATA_LIST_KEYS:
+            if not isinstance(value, list) or not all(
+                _is_controlled_string(item) for item in value
+            ):
+                raise ValueError("sensitive audit metadata is not allowed")
+            cleaned[key] = list(value)
+        elif isinstance(value, (dict, list, tuple)):
+            raise ValueError("sensitive audit metadata is not allowed")
+        elif not isinstance(value, (str, int, float, bool, type(None))):
+            raise ValueError("sensitive audit metadata is not allowed")
+        else:
+            cleaned[key] = value
+    return cleaned
 
 
 def record_audit_event(

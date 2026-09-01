@@ -331,14 +331,12 @@ def test_audit_records_actor_snapshot_and_rejects_secret_metadata(user_factory):
     "safe_metadata",
     [
         {"access_key": "LTAIabcdefghijkl1234"},
-        {"value": "plain-secret"},
-        {"apiKey": "opaque-value"},
-        {"nested": {"credentials": "opaque-value"}},
-        {"nested": {"authorization": "Bearer abc123"}},
-        {"nested": [{"token": "opaque-token-value"}]},
-        {"value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature-value"},
-        {"value": "-----BEGIN PRIVATE KEY-----\\nsecret\\n-----END PRIVATE KEY-----"},
-        {"value": "v1:aesgcm:YWJjZGVmZ2hpamts:Y2lwaGVydGV4dC1ub3QtcGxhaW4="},
+        {"value": "opaque-secret-value"},
+        {"secret": "anything"},
+        {"authorization": "anything"},
+        {"credentials": "opaque-value"},
+        {"nested": {"provider": "aliyun"}},
+        {"changed_fields": [{"name": "region"}]},
     ],
 )
 def test_audit_rejects_sensitive_values_recursively(user_factory, safe_metadata):
@@ -355,7 +353,7 @@ def test_audit_rejects_sensitive_values_recursively(user_factory, safe_metadata)
         )
 
 
-def test_audit_allows_safe_identifiers_and_key_summaries(user_factory):
+def test_audit_allows_only_explicit_safe_metadata_fields(user_factory):
     from object_storage.services.audit import record_audit_event
 
     event = record_audit_event(
@@ -365,16 +363,18 @@ def test_audit_allows_safe_identifiers_and_key_summaries(user_factory):
         target_id="1",
         result="succeeded",
         safe_metadata={
-            "access_key": "external-id-123",
             "last_four": "1234",
             "request_id": "request-123",
+            "provider": "aliyun",
+            "changed_fields": ["region", "pause_key_operations"],
         },
     )
 
     assert event.safe_metadata == {
-        "access_key": "external-id-123",
         "last_four": "1234",
         "request_id": "request-123",
+        "provider": "aliyun",
+        "changed_fields": ["region", "pause_key_operations"],
     }
 
 
