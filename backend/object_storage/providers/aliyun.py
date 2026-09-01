@@ -10,7 +10,6 @@ from object_storage.providers.base import (
     ManagementCapabilities,
     PersonalPrincipal,
 )
-from object_storage.services.policy import build_object_policy
 from object_storage.services.provider_errors import (
     ObjectStorageProviderError,
     map_provider_error,
@@ -39,7 +38,7 @@ class AliyunObjectStorageProvider:
             value for value in (ram.get("request_id"), oss.get("request_id")) if value
         )
         return ManagementCapabilities(
-            account_id=str(ram.get("account_id") or pool.cloud_account_id),
+            account_id=str(ram.get("account_id") or ""),
             can_manage_ram=bool(ram.get("can_manage_ram")),
             can_manage_oss=bool(oss.get("can_manage_oss")),
             request_ids=request_ids,
@@ -102,6 +101,8 @@ class AliyunObjectStorageProvider:
         return BucketMutation(request_id=str(result.get("request_id") or ""))
 
     def reconcile_object_policy(self, identity, buckets):
+        from object_storage.services.policy import build_object_policy
+
         policy = build_object_policy(buckets)
         return self._call(
             self.ram_gateway.apply_policy,
@@ -157,15 +158,14 @@ def _policy_name(user_name):
 
 
 class AliyunRamGateway:
-    def __init__(self, *, access_key_id, access_key_secret, account_id):
+    def __init__(self, *, access_key_id, access_key_secret):
         self.access_key_id = access_key_id
         self.access_key_secret = access_key_secret
-        self.account_id = account_id
 
     def validate_identity(self):
         response = self.client.list_users(self.models.ListUsersRequest(max_items=1))
         return {
-            "account_id": self.account_id,
+            "account_id": str(getattr(response.body, "account_id", "") or ""),
             "can_manage_ram": True,
             "request_id": _request_id(response),
         }
@@ -413,7 +413,6 @@ def build_aliyun_provider(pool):
         ram_gateway=AliyunRamGateway(
             access_key_id=access_key_id,
             access_key_secret=access_key_secret,
-            account_id=pool.cloud_account_id,
         ),
         oss_gateway=AliyunOssGateway(
             access_key_id=access_key_id,

@@ -36,8 +36,8 @@ def test_platform_config_accessors_create_singletons_with_safe_defaults(db):
 def test_platform_config_database_constraints_allow_only_default_singletons(db):
     from object_storage.models import PlatformFeishuConfig, PlatformObjectStorageConfig
 
-    PlatformFeishuConfig.objects.create(singleton_key="default")
-    PlatformObjectStorageConfig.objects.create(singleton_key="default")
+    PlatformFeishuConfig.objects.get_or_create(singleton_key="default")
+    PlatformObjectStorageConfig.objects.get_or_create(singleton_key="default")
 
     with transaction.atomic():
         with pytest.raises(IntegrityError):
@@ -45,6 +45,12 @@ def test_platform_config_database_constraints_allow_only_default_singletons(db):
     with transaction.atomic():
         with pytest.raises(IntegrityError):
             PlatformObjectStorageConfig.objects.create(singleton_key="default")
+    with transaction.atomic():
+        with pytest.raises(IntegrityError):
+            PlatformFeishuConfig.objects.create(singleton_key="other")
+    with transaction.atomic():
+        with pytest.raises(IntegrityError):
+            PlatformObjectStorageConfig.objects.create(singleton_key="other")
 
 
 def test_pause_switches_are_independent(platform_object_storage_config):
@@ -207,6 +213,105 @@ def test_validation_failure_disables_config_without_touching_cloud_resources(
     assert pool.management_secret_key_encrypted == original_credentials
 
 
+@pytest.mark.parametrize(
+    "provider_account_id,error_code",
+    [
+        ("", "CLOUD_ACCOUNT_UNVERIFIED"),
+        ("different-account", "CLOUD_ACCOUNT_MISMATCH"),
+    ],
+)
+def test_pool_validation_rejects_unverified_or_mismatched_cloud_account(
+    storage_resource_pool_factory, provider_account_id, error_code
+):
+    from object_storage.models import StorageResourcePool
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        validate_resource_pool,
+    )
+
+    pool = storage_resource_pool_factory(
+        cloud_account_id="account-1",
+        enabled=True,
+        validation_status=StorageResourcePool.ValidationStatus.PENDING,
+    )
+
+    with pytest.raises(PlatformConfigurationError, match=error_code):
+        validate_resource_pool(
+            pool,
+            validator=lambda _pool: {"account_id": provider_account_id},
+        )
+
+    pool.refresh_from_db()
+    assert pool.validation_status == StorageResourcePool.ValidationStatus.INVALID
+    assert pool.validation_error_code == error_code
+    assert pool.enabled is False
+
+
+def test_validation_result_cannot_mark_changed_pool_valid(
+    storage_resource_pool_factory,
+):
+    from object_storage.models import StorageResourcePool
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        update_resource_pool,
+        validate_resource_pool,
+    )
+
+    pool = storage_resource_pool_factory(
+        cloud_account_id="account-1",
+        region="cn-hangzhou",
+        enabled=False,
+        validation_status=StorageResourcePool.ValidationStatus.PENDING,
+    )
+
+    def validate_then_change(selected_pool):
+        update_resource_pool(selected_pool, region="cn-shanghai")
+        return {"account_id": "account-1"}
+
+    with pytest.raises(
+        PlatformConfigurationError, match="CONFIG_CHANGED_DURING_VALIDATION"
+    ):
+        validate_resource_pool(pool, validator=validate_then_change)
+
+    pool.refresh_from_db()
+    assert pool.region == "cn-shanghai"
+    assert pool.validation_status == StorageResourcePool.ValidationStatus.PENDING
+    assert pool.enabled is False
+
+
+def test_failed_validation_does_not_overwrite_concurrent_config_change(
+    storage_resource_pool_factory,
+):
+    from object_storage.models import StorageResourcePool
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        update_resource_pool,
+        validate_resource_pool,
+    )
+
+    pool = storage_resource_pool_factory(
+        cloud_account_id="account-1",
+        region="cn-hangzhou",
+        enabled=False,
+        validation_status=StorageResourcePool.ValidationStatus.PENDING,
+    )
+
+    def change_then_fail(selected_pool):
+        update_resource_pool(selected_pool, region="cn-shanghai")
+        raise RuntimeError("provider rejected old configuration")
+
+    with pytest.raises(
+        PlatformConfigurationError, match="CONFIG_CHANGED_DURING_VALIDATION"
+    ):
+        validate_resource_pool(pool, validator=change_then_fail)
+
+    pool.refresh_from_db()
+    assert pool.region == "cn-shanghai"
+    assert pool.validation_status == StorageResourcePool.ValidationStatus.PENDING
+    assert pool.validation_error_code == ""
+    assert pool.enabled is False
+
+
 def test_provider_and_account_id_are_locked_after_real_resources_exist(
     storage_resource_pool_factory,
     cloud_identity_factory,
@@ -262,6 +367,83 @@ def test_management_credential_replacement_requires_the_same_cloud_account(
     assert pool.validation_error_code == ""
     assert pool.last_validated_at is None
     assert pool.enabled is False
+
+
+def test_credential_replacement_cannot_overwrite_concurrent_credentials(
+    storage_resource_pool_factory,
+):
+    from object_storage.models import StorageResourcePool
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        replace_management_credentials,
+    )
+
+    pool = storage_resource_pool_factory(
+        cloud_account_id="account-1",
+        credential_fingerprint="original-fingerprint",
+        enabled=False,
+        validation_status=StorageResourcePool.ValidationStatus.PENDING,
+    )
+
+    def validate_then_replace(_candidate):
+        StorageResourcePool.objects.filter(pk=pool.pk).update(
+            management_access_key_encrypted=encrypt_secret("concurrent-ak"),
+            management_secret_key_encrypted=encrypt_secret("concurrent-sk"),
+            credential_fingerprint="concurrent-fingerprint",
+            access_key_last_four="t-ak",
+            validation_status=StorageResourcePool.ValidationStatus.PENDING,
+            validation_error_code="",
+            last_validated_at=None,
+            enabled=False,
+        )
+        return {"account_id": "account-1"}
+
+    with pytest.raises(
+        PlatformConfigurationError, match="CONFIG_CHANGED_DURING_VALIDATION"
+    ):
+        replace_management_credentials(
+            pool,
+            access_key="replacement-ak",
+            secret_key="replacement-sk",
+            validator=validate_then_replace,
+        )
+
+    pool.refresh_from_db()
+    assert pool.credential_fingerprint == "concurrent-fingerprint"
+    assert pool.validation_status == StorageResourcePool.ValidationStatus.PENDING
+    assert pool.enabled is False
+
+
+def test_enable_platform_reloads_locked_validation_state(
+    storage_resource_pool_factory,
+):
+    from object_storage.models import PlatformFeishuConfig, StorageResourcePool
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        enable_platform,
+        get_feishu_config,
+    )
+
+    feishu = get_feishu_config()
+    feishu.validation_status = PlatformFeishuConfig.ValidationStatus.VALID
+    feishu.save(update_fields=("validation_status", "updated_at"))
+    pool = storage_resource_pool_factory(
+        validation_status=StorageResourcePool.ValidationStatus.VALID,
+        enabled=False,
+    )
+    stale_pool = StorageResourcePool.objects.get(pk=pool.pk)
+    StorageResourcePool.objects.filter(pk=pool.pk).update(
+        validation_status=StorageResourcePool.ValidationStatus.PENDING,
+        enabled=False,
+    )
+
+    with pytest.raises(PlatformConfigurationError, match="CONFIG_NOT_VALIDATED"):
+        enable_platform(resource_pool=stale_pool)
+
+    pool.refresh_from_db()
+    feishu.refresh_from_db()
+    assert pool.enabled is False
+    assert feishu.enabled is False
 
 
 @pytest.mark.parametrize(

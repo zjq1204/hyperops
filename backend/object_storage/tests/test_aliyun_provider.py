@@ -102,6 +102,73 @@ def test_validate_management_identity_returns_safe_capabilities():
     assert "secret" not in str(payload).lower()
 
 
+def test_validate_management_identity_never_falls_back_to_configured_account_id():
+    provider, ram, _oss = _provider()
+    ram.validate_identity = lambda: {
+        "account_id": "",
+        "can_manage_ram": True,
+        "request_id": "ram-request-missing-account",
+    }
+
+    capabilities = provider.validate_management_identity(
+        SimpleNamespace(cloud_account_id="locally-configured-account")
+    )
+
+    assert capabilities.account_id == ""
+
+
+def test_ram_gateway_never_echoes_a_locally_configured_account_id(monkeypatch):
+    import inspect
+
+    from object_storage.providers.aliyun import AliyunRamGateway
+
+    assert "account_id" not in inspect.signature(AliyunRamGateway).parameters
+    gateway = AliyunRamGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-sk",
+    )
+    gateway._client = SimpleNamespace(
+        list_users=lambda _request: SimpleNamespace(
+            body=SimpleNamespace(request_id="ram-request-no-account")
+        )
+    )
+    monkeypatch.setattr(
+        AliyunRamGateway,
+        "models",
+        SimpleNamespace(ListUsersRequest=lambda **kwargs: kwargs),
+    )
+
+    result = gateway.validate_identity()
+
+    assert result["account_id"] == ""
+
+
+def test_ram_gateway_uses_account_id_returned_by_cloud(monkeypatch):
+    from object_storage.providers.aliyun import AliyunRamGateway
+
+    gateway = AliyunRamGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-sk",
+    )
+    gateway._client = SimpleNamespace(
+        list_users=lambda _request: SimpleNamespace(
+            body=SimpleNamespace(
+                account_id="cloud-account-123",
+                request_id="ram-request-with-account",
+            )
+        )
+    )
+    monkeypatch.setattr(
+        AliyunRamGateway,
+        "models",
+        SimpleNamespace(ListUsersRequest=lambda **kwargs: kwargs),
+    )
+
+    result = gateway.validate_identity()
+
+    assert result["account_id"] == "cloud-account-123"
+
+
 def test_create_bucket_uses_fixed_region_and_platform_defaults():
     provider, _ram, oss = _provider()
     bucket = SimpleNamespace(
