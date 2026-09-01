@@ -363,6 +363,82 @@ def test_contacts_client_maps_invalid_pagination_to_stable_error(monkeypatch):
     assert exc_info.value.error_code == "FEISHU_CONTACTS_RESPONSE_INVALID"
 
 
+@pytest.mark.parametrize("helper", ["list_child_departments", "list_department_users"])
+def test_contacts_pagination_has_a_finite_page_limit(monkeypatch, helper):
+    import object_storage.feishu as feishu_module
+
+    from object_storage.feishu import FeishuClient, FeishuProviderError
+
+    client = FeishuClient()
+    monkeypatch.setattr(feishu_module, "MAX_PAGES_PER_ENDPOINT", 3)
+    monkeypatch.setattr(client, "_tenant_token", lambda _config: "tenant-token")
+    calls = []
+
+    def request_json(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        if helper == "list_child_departments":
+            item = {"open_department_id": f"dep-{len(calls)}"}
+        else:
+            item = {"open_id": f"ou-{len(calls)}", "name": "User"}
+        return {
+            "data": {
+                "items": [item],
+                "has_more": True,
+                "page_token": f"page-{len(calls)}",
+            }
+        }
+
+    monkeypatch.setattr(client, "_request_json", request_json)
+
+    with pytest.raises(FeishuProviderError) as exc_info:
+        getattr(client, helper)(app_config=object(), department_id="0")
+
+    assert exc_info.value.error_code == "FEISHU_DIRECTORY_LIMIT_EXCEEDED"
+    assert len(calls) == 3
+
+
+def test_page_limit_failure_does_not_mutate_local_state(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch
+):
+    import object_storage.feishu as feishu_module
+
+    from object_storage import views_feishu_admin
+    from object_storage.feishu import FeishuClient
+
+    existing = feishu_identity_factory(open_id="ou_existing", display_name="Stable")
+    client.force_login(platform_admin)
+    provider = FeishuClient()
+    calls = []
+    monkeypatch.setattr(feishu_module, "MAX_PAGES_PER_ENDPOINT", 3)
+    monkeypatch.setattr(provider, "_tenant_token", lambda _config: "tenant-token")
+
+    def request_json(method, url, **kwargs):
+        calls.append(url)
+        return {
+            "data": {
+                "items": [{"open_department_id": f"dep-{len(calls)}"}],
+                "has_more": True,
+                "page_token": f"page-{len(calls)}",
+            }
+        }
+
+    monkeypatch.setattr(provider, "_request_json", request_json)
+    monkeypatch.setattr(views_feishu_admin, "get_feishu_client", lambda: provider)
+
+    response = client.post(
+        "/api/v1/object-storage/management/feishu/sync/preview/",
+        {},
+        content_type="application/json",
+    )
+
+    existing.refresh_from_db()
+    assert response.status_code == 502
+    assert _payload(response)["error_code"] == "FEISHU_DIRECTORY_LIMIT_EXCEEDED"
+    assert len(calls) == 3
+    assert existing.display_name == "Stable"
+    assert existing.is_active is True
+
+
 def test_contacts_client_recurses_departments_and_deduplicates_users(monkeypatch):
     from object_storage.feishu import FeishuClient
 

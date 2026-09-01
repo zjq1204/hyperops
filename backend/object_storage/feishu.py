@@ -5,6 +5,8 @@ import requests
 
 from object_storage.crypto import decrypt_secret
 
+MAX_PAGES_PER_ENDPOINT = 1000
+
 
 class FeishuProviderError(RuntimeError):
     def __init__(self, error_code):
@@ -139,6 +141,7 @@ class FeishuClient:
     def _list_contacts_pages(self, url, *, headers, params):
         page_token = ""
         items = []
+        page_count = 0
         while True:
             request_params = dict(params)
             if page_token:
@@ -156,9 +159,12 @@ class FeishuClient:
             data = payload.get("data")
             if not isinstance(data, dict) or not isinstance(data.get("items"), list):
                 raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
+            page_count += 1
             items.extend(data["items"])
             if not data.get("has_more"):
                 return items
+            if page_count >= MAX_PAGES_PER_ENDPOINT:
+                raise FeishuProviderError("FEISHU_DIRECTORY_LIMIT_EXCEEDED")
             next_page_token = str(data.get("page_token") or "").strip()
             if not next_page_token or next_page_token == page_token:
                 raise FeishuProviderError("FEISHU_CONTACTS_RESPONSE_INVALID")
