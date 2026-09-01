@@ -7,6 +7,7 @@ class FakeRamGateway:
     def __init__(self):
         self.policy = None
         self.updated_key = None
+        self.detached_policy = None
 
     def validate_identity(self):
         return {
@@ -32,6 +33,10 @@ class FakeRamGateway:
             "request_id": "ram-request-3",
             "sdk_body": {"secret": "must-not-leak"},
         }
+
+    def detach_policy_from_user(self, user_name):
+        self.detached_policy = user_name
+        return {"request_id": "ram-request-detach"}
 
     def list_access_keys(self, user_name):
         return {
@@ -103,6 +108,9 @@ class FakeOssGateway:
     def update_bucket_configuration(self, *, bucket_name, configuration):
         self.updated_configuration = (bucket_name, configuration)
         return {"request_id": "oss-request-update"}
+
+    def reset_bucket(self):
+        self.created = None
 
 
 def _provider(inspection=None):
@@ -263,6 +271,46 @@ def test_bucket_business_operations_return_sanitized_dataclasses():
     assert oss.created["acl"] == "private"
 
 
+def test_delete_and_update_always_reconcile_ownership_before_mutation():
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="stale-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+
+    deleted = provider.delete_owned_bucket(bucket)
+    assert deleted.request_id == "oss-request-find"
+    assert oss.created is None
+    with pytest.raises(ObjectStorageProviderError, match="NO_SUCH_BUCKET"):
+        provider.update_bucket_configuration(
+            bucket,
+            BucketConfiguration(acl="public_read"),
+        )
+
+    oss.created = {
+        "bucket_name": bucket.name,
+        "marker": "another-service:bucket:9",
+    }
+    with pytest.raises(ObjectStorageProviderError, match="BUCKET_OWNERSHIP_CONFLICT"):
+        provider.delete_owned_bucket(bucket)
+    with pytest.raises(ObjectStorageProviderError, match="BUCKET_OWNERSHIP_CONFLICT"):
+        provider.update_bucket_configuration(
+            bucket,
+            BucketConfiguration(acl="private"),
+        )
+
+    oss.created["marker"] = bucket.cloud_marker
+    updated = provider.update_bucket_configuration(
+        bucket,
+        BucketConfiguration(acl="private"),
+    )
+    assert updated.request_id == "oss-request-update"
+
+
 @pytest.mark.parametrize(
     "inspection",
     [
@@ -308,8 +356,26 @@ def test_policy_reconciliation_returns_only_safe_metadata():
 
     empty_result = provider.reconcile_object_policy(identity, [])
 
-    assert ram.policy == {"Version": "1", "Statement": []}
-    assert empty_result.request_id == "ram-request-3"
+    assert ram.detached_policy == "hyperops-user"
+    assert empty_result.request_id == "ram-request-detach"
+
+
+def test_empty_policy_detach_treats_missing_policy_as_idempotent_success():
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, ram, _oss = _provider()
+    ram.detach_policy_from_user = lambda _user_name: {
+        "request_id": "ram-request-already-detached",
+        "error_code": "NoSuchEntity",
+    }
+
+    result = provider.reconcile_object_policy(
+        SimpleNamespace(ram_user_name="hyperops-user"),
+        [],
+    )
+
+    assert result.request_id == "ram-request-already-detached"
+    assert not isinstance(result, ObjectStorageProviderError)
 
 
 def test_access_key_operations_return_sanitized_results():
@@ -347,7 +413,18 @@ def test_bucket_configuration_requires_explicit_public_read_authorization():
     from object_storage.services.provider_errors import ObjectStorageProviderError
 
     provider, _ram, oss = _provider()
-    bucket = SimpleNamespace(name="managed-bucket", region="cn-hangzhou")
+    bucket = SimpleNamespace(
+        name="managed-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+    provider.create_owned_bucket(
+        SimpleNamespace(
+            name="managed-bucket",
+            region="cn-hangzhou",
+            cloud_marker="hyperops:bucket:42",
+        )
+    )
     configuration = BucketConfiguration(acl="public_read")
 
     with pytest.raises(
@@ -424,6 +501,53 @@ def test_oss_gateway_persists_and_reconciles_exact_owner_marker(monkeypatch):
     assert missing["marker"] == ""
 
 
+def test_ram_gateway_detach_targets_only_hyperops_policy_and_is_idempotent(
+    monkeypatch,
+):
+    from object_storage.providers.aliyun import AliyunRamGateway
+
+    requests = []
+    gateway = AliyunRamGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-secret",
+    )
+    gateway._client = SimpleNamespace(
+        detach_policy_from_user=lambda request: requests.append(request)
+        or SimpleNamespace(body=SimpleNamespace(request_id="detach-request")),
+    )
+    monkeypatch.setattr(
+        AliyunRamGateway,
+        "models",
+        SimpleNamespace(DetachPolicyFromUserRequest=lambda **kwargs: kwargs),
+    )
+
+    result = gateway.detach_policy_from_user("managed-user")
+
+    assert result == {"request_id": "detach-request"}
+    assert requests == [
+        {
+            "policy_name": "HyperOpsObjectAccess-" "1ea3b41bd0b57254",
+            "policy_type": "Custom",
+            "user_name": "managed-user",
+        }
+    ]
+
+    class PolicyNotAttached(Exception):
+        code = "PolicyNotAttached"
+        request_id = "already-detached-request"
+
+    gateway._client = SimpleNamespace(
+        detach_policy_from_user=lambda _request: (_ for _ in ()).throw(
+            PolicyNotAttached()
+        ),
+    )
+
+    assert gateway.detach_policy_from_user("managed-user") == {
+        "request_id": "already-detached-request",
+        "error_code": "PolicyNotAttached",
+    }
+
+
 def test_ram_gateway_only_reuses_principal_with_exact_marker(monkeypatch):
     from object_storage.providers.aliyun import AliyunRamGateway
     from object_storage.services.provider_errors import ObjectStorageProviderError
@@ -498,6 +622,113 @@ def test_ram_gateway_writes_marker_when_creating_principal(monkeypatch):
 
     assert created_requests[0]["comments"] == "hyperops:identity:42"
     assert result["marker"] == "hyperops:identity:42"
+
+
+def test_ram_gateway_recovers_entity_already_exists_race_with_matching_marker(
+    monkeypatch,
+):
+    from object_storage.providers.aliyun import AliyunRamGateway
+
+    class EntityAlreadyExists(Exception):
+        code = "EntityAlreadyExists"
+
+    class NoSuchEntity(Exception):
+        code = "NoSuchEntity"
+
+    requests = []
+    user = SimpleNamespace(
+        user_id="raced-user-id",
+        user_name="managed-user",
+        comments="hyperops:identity:42",
+    )
+    gateway = AliyunRamGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-secret",
+    )
+    get_call_count = 0
+
+    def get_user(_request):
+        nonlocal get_call_count
+        get_call_count += 1
+        if get_call_count == 1:
+            raise NoSuchEntity()
+        return SimpleNamespace(
+            body=SimpleNamespace(
+                user=user,
+                request_id="ram-request-raced-get",
+            )
+        )
+
+    gateway._client = SimpleNamespace(
+        get_user=get_user,
+        create_user=lambda request: requests.append(request)
+        or (_ for _ in ()).throw(EntityAlreadyExists()),
+    )
+    monkeypatch.setattr(
+        AliyunRamGateway,
+        "models",
+        SimpleNamespace(
+            GetUserRequest=lambda **kwargs: kwargs,
+            CreateUserRequest=lambda **kwargs: kwargs,
+        ),
+    )
+
+    result = gateway.find_or_create_user("managed-user", "hyperops:identity:42")
+
+    assert result["created"] is False
+    assert result["marker"] == "hyperops:identity:42"
+    assert result["request_id"] == "ram-request-raced-get"
+
+
+def test_ram_gateway_entity_already_exists_with_foreign_marker_is_rejected(
+    monkeypatch,
+):
+    from object_storage.providers.aliyun import AliyunRamGateway
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    class EntityAlreadyExist(Exception):
+        code = "EntityAlreadyExist"
+
+    class NoSuchEntity(Exception):
+        code = "NoSuchEntity"
+
+    foreign_user = SimpleNamespace(
+        user_id="foreign-user-id",
+        user_name="managed-user",
+        comments="foreign-owner",
+    )
+    gateway = AliyunRamGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-secret",
+    )
+    get_call_count = 0
+
+    def get_user(_request):
+        nonlocal get_call_count
+        get_call_count += 1
+        if get_call_count == 1:
+            raise NoSuchEntity()
+        return SimpleNamespace(
+            body=SimpleNamespace(user=foreign_user, request_id="get")
+        )
+
+    gateway._client = SimpleNamespace(
+        get_user=get_user,
+        create_user=lambda _request: (_ for _ in ()).throw(EntityAlreadyExist()),
+    )
+    monkeypatch.setattr(
+        AliyunRamGateway,
+        "models",
+        SimpleNamespace(
+            GetUserRequest=lambda **kwargs: kwargs,
+            CreateUserRequest=lambda **kwargs: kwargs,
+        ),
+    )
+
+    with pytest.raises(
+        ObjectStorageProviderError, match="PRINCIPAL_OWNERSHIP_CONFLICT"
+    ):
+        gateway.find_or_create_user("managed-user", "hyperops:identity:42")
 
 
 def test_provider_errors_map_to_stable_domain_codes():

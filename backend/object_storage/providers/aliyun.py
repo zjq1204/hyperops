@@ -114,6 +114,11 @@ class AliyunObjectStorageProvider:
         )
 
     def delete_owned_bucket(self, bucket):
+        ownership = self.find_owned_bucket(bucket)
+        if not ownership.exists:
+            return BucketMutation(request_id=ownership.request_id)
+        if not ownership.owned:
+            raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
         result = self._call(self.oss_gateway.delete_bucket, bucket.name)
         return BucketMutation(request_id=str(result.get("request_id") or ""))
 
@@ -121,6 +126,19 @@ class AliyunObjectStorageProvider:
         from object_storage.services.policy import build_object_policy
 
         policy = build_object_policy(buckets, owner=getattr(identity, "user", None))
+        if not policy["Statement"]:
+            result = self._call(
+                self.ram_gateway.detach_policy_from_user,
+                identity.ram_user_name,
+            )
+            if result.get("error_code") in {
+                "NoSuchEntity",
+                "EntityNotFound",
+                "EntityNotAttached",
+                "PolicyNotAttached",
+            }:
+                return PolicyMutation(request_id=str(result.get("request_id") or ""))
+            return PolicyMutation(request_id=str(result["request_id"]))
         result = self._call(
             self.ram_gateway.apply_policy,
             identity.ram_user_name,
@@ -186,6 +204,11 @@ class AliyunObjectStorageProvider:
         *,
         allow_public_read=False,
     ):
+        ownership = self.find_owned_bucket(bucket)
+        if not ownership.exists:
+            raise ObjectStorageProviderError("NO_SUCH_BUCKET")
+        if not ownership.owned:
+            raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
         if configuration.acl == "public_read" and not allow_public_read:
             raise ObjectStorageProviderError("PUBLIC_READ_REQUIRES_ADMIN_AUTHORIZATION")
         result = self._call(
@@ -313,33 +336,44 @@ class AliyunRamGateway:
             response = self.client.get_user(
                 self.models.GetUserRequest(user_name=user_name)
             )
-            user = response.body.user
-            existing_marker = str(getattr(user, "comments", "") or "")
-            if existing_marker != marker:
-                raise ObjectStorageProviderError("PRINCIPAL_OWNERSHIP_CONFLICT")
-            return {
-                "user_id": str(user.user_id or ""),
-                "user_name": str(user.user_name or user_name),
-                "marker": existing_marker,
-                "created": False,
-                "request_id": _request_id(response),
-            }
         except Exception as exc:
             if str(getattr(exc, "code", "")) != "NoSuchEntity":
                 raise
-        response = self.client.create_user(
-            self.models.CreateUserRequest(
-                user_name=user_name,
-                display_name=user_name,
-                comments=marker,
+        else:
+            return self._principal_from_response(response, user_name, marker, False)
+
+        try:
+            response = self.client.create_user(
+                self.models.CreateUserRequest(
+                    user_name=user_name,
+                    display_name=user_name,
+                    comments=marker,
+                )
             )
-        )
+        except Exception as exc:
+            if str(getattr(exc, "code", "")) not in {
+                "EntityAlreadyExists",
+                "EntityAlreadyExist",
+                "EntityAlreadyExists.User",
+            }:
+                raise
+            response = self.client.get_user(
+                self.models.GetUserRequest(user_name=user_name)
+            )
+            return self._principal_from_response(response, user_name, marker, False)
+        return self._principal_from_response(response, user_name, marker, True)
+
+    @staticmethod
+    def _principal_from_response(response, user_name, marker, created):
         user = response.body.user
+        existing_marker = str(getattr(user, "comments", "") or "")
+        if existing_marker != marker:
+            raise ObjectStorageProviderError("PRINCIPAL_OWNERSHIP_CONFLICT")
         return {
             "user_id": str(user.user_id or ""),
             "user_name": str(user.user_name or user_name),
-            "marker": marker,
-            "created": True,
+            "marker": existing_marker,
+            "created": created,
             "request_id": _request_id(response),
         }
 
@@ -379,6 +413,30 @@ class AliyunRamGateway:
                 user_name=user_name,
             )
         )
+        return {"request_id": _request_id(response)}
+
+    def detach_policy_from_user(self, user_name):
+        policy_name = _policy_name(user_name)
+        try:
+            response = self.client.detach_policy_from_user(
+                self.models.DetachPolicyFromUserRequest(
+                    policy_name=policy_name,
+                    policy_type="Custom",
+                    user_name=user_name,
+                )
+            )
+        except Exception as exc:
+            if str(getattr(exc, "code", "")) in {
+                "NoSuchEntity",
+                "EntityNotFound",
+                "EntityNotAttached",
+                "PolicyNotAttached",
+            }:
+                return {
+                    "request_id": str(getattr(exc, "request_id", "") or ""),
+                    "error_code": str(getattr(exc, "code", "")),
+                }
+            raise
         return {"request_id": _request_id(response)}
 
     def list_access_keys(self, user_name):
