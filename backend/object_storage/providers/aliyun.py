@@ -1,6 +1,6 @@
+from dataclasses import replace
 import hashlib
 import json
-from dataclasses import replace
 
 from object_storage.crypto import decrypt_secret
 from object_storage.providers.base import (
@@ -266,6 +266,7 @@ class AliyunObjectStorageProvider:
         bucket,
         configuration,
         *,
+        previous_configuration=None,
         allow_public_read=False,
     ):
         ownership = self.find_owned_bucket(bucket)
@@ -275,11 +276,33 @@ class AliyunObjectStorageProvider:
             raise ObjectStorageProviderError("BUCKET_OWNERSHIP_CONFLICT")
         if configuration.acl == "public_read" and not allow_public_read:
             raise ObjectStorageProviderError("PUBLIC_READ_REQUIRES_ADMIN_AUTHORIZATION")
-        result = self._call(
-            self.oss_gateway.update_bucket_configuration,
-            bucket_name=bucket.name,
-            configuration=configuration,
-        )
+        if (
+            previous_configuration is not None
+            and configuration.storage_class != previous_configuration.storage_class
+        ):
+            # OSS Python SDK supports Bucket storage class at creation only.
+            raise ObjectStorageProviderError("BUCKET_STORAGE_CLASS_UPDATE_UNSUPPORTED")
+        try:
+            result = self._call(
+                self.oss_gateway.update_bucket_configuration,
+                bucket_name=bucket.name,
+                configuration=configuration,
+            )
+        except Exception as update_error:
+            if previous_configuration is None:
+                raise
+            try:
+                self._call(
+                    self.oss_gateway.update_bucket_configuration,
+                    bucket_name=bucket.name,
+                    configuration=previous_configuration,
+                )
+            except Exception as rollback_error:
+                raise ObjectStorageProviderError(
+                    "BUCKET_CONFIGURATION_ROLLBACK_FAILED",
+                    request_id=str(getattr(rollback_error, "request_id", "") or ""),
+                ) from rollback_error
+            raise update_error
         return BucketConfigurationMutation(
             request_id=str(result.get("request_id") or "")
         )
@@ -695,11 +718,12 @@ class AliyunOssGateway:
         }
         bucket = self._bucket(bucket_name)
         result = bucket.put_bucket_acl(permissions[configuration.acl])
-        if configuration.storage_class != "Standard":
-            put_storage_class = getattr(bucket, "put_bucket_storage_class", None)
+        put_storage_class = getattr(bucket, "put_bucket_storage_class", None)
+        if put_storage_class is not None:
+            put_storage_class(configuration.storage_class)
+        elif configuration.storage_class != "Standard":
             if put_storage_class is None:
                 raise ValueError("BUCKET_STORAGE_CLASS_UNSUPPORTED")
-            put_storage_class(configuration.storage_class)
         if configuration.encryption:
             bucket.put_bucket_encryption(
                 oss2.models.ServerSideEncryptionRule(configuration.encryption)

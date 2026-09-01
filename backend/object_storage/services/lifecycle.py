@@ -409,6 +409,12 @@ def _configuration_from_desired(desired):
         raise BucketConfigurationError(str(error)) from error
 
 
+def _configuration_from_applied(applied):
+    if not applied:
+        return None
+    return _configuration_from_desired(applied)
+
+
 def update_bucket_configuration(
     *,
     bucket,
@@ -431,11 +437,13 @@ def update_bucket_configuration(
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
         locked.desired_config_snapshot = snapshot
+        locked.config_state = Bucket.ConfigurationState.PENDING
         locked.config_error_code = ""
         locked.config_error_summary = ""
         locked.save(
             update_fields=(
                 "desired_config_snapshot",
+                "config_state",
                 "config_error_code",
                 "config_error_summary",
                 "updated_at",
@@ -459,34 +467,47 @@ def _apply_bucket_configuration(bucket_id, *, provider=None, actor=None, reason=
     bucket = Bucket.objects.select_related("resource_pool").get(pk=bucket_id)
     desired = bucket.desired_config_snapshot
     configuration = _configuration_from_desired(desired)
+    previous_configuration = _configuration_from_applied(bucket.applied_config_snapshot)
     provider = provider or _provider(bucket)
     try:
         provider.update_bucket_configuration(
             bucket,
             configuration,
+            previous_configuration=previous_configuration,
             allow_public_read=(configuration.acl == "public_read" and _is_admin(actor)),
         )
     except Exception as error:
+        error_code = str(
+            getattr(error, "error_code", "") or "BUCKET_CONFIGURATION_UPDATE_FAILED"
+        )
         with transaction.atomic():
             locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
-            locked.config_error_code = "BUCKET_CONFIGURATION_UPDATE_FAILED"
+            locked.config_error_code = error_code
             locked.config_error_summary = str(error)[:255]
+            locked.config_state = (
+                Bucket.ConfigurationState.UNKNOWN
+                if error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+                else Bucket.ConfigurationState.RETRYABLE_ERROR
+            )
             locked.save(
                 update_fields=(
                     "config_error_code",
                     "config_error_summary",
+                    "config_state",
                     "updated_at",
                 )
             )
-        raise BucketConfigurationError("BUCKET_CONFIGURATION_UPDATE_FAILED") from error
+        raise BucketConfigurationError(error_code) from error
     with transaction.atomic():
         locked = Bucket.objects.select_for_update().get(pk=bucket.pk)
         locked.applied_config_snapshot = desired
+        locked.config_state = Bucket.ConfigurationState.APPLIED
         locked.config_error_code = ""
         locked.config_error_summary = ""
         locked.save(
             update_fields=(
                 "applied_config_snapshot",
+                "config_state",
                 "config_error_code",
                 "config_error_summary",
                 "updated_at",

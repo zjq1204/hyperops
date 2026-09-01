@@ -171,5 +171,6 @@ class ObjectStorageProvider(Protocol):
         bucket,
         configuration,
         *,
+        previous_configuration=None,
         allow_public_read=False,
     ): ...

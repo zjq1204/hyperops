@@ -264,6 +264,7 @@ def _create_reserved_batch(
                 "bucket_configuration": default_bucket_configuration_snapshot(config),
             },
             desired_config_snapshot=default_bucket_configuration_snapshot(config),
+            config_state=Bucket.ConfigurationState.PENDING,
             cloud_marker=f"hyperops:bucket:item:{item.pk}",
             state=Bucket.State.REQUESTED,
         )
@@ -946,6 +947,17 @@ def _desired_bucket_configuration(bucket):
         raise ObjectStorageProviderError("BUCKET_CONFIGURATION_INVALID") from error
 
 
+def _applied_bucket_configuration(bucket):
+    if not bucket.applied_config_snapshot:
+        return None
+    try:
+        return BucketConfiguration.from_snapshot(bucket.applied_config_snapshot)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ObjectStorageProviderError(
+            "BUCKET_APPLIED_CONFIGURATION_INVALID"
+        ) from error
+
+
 def _reconcile_existing_bucket_configuration(
     item,
     bucket,
@@ -959,6 +971,7 @@ def _reconcile_existing_bucket_configuration(
         lambda: provider.update_bucket_configuration(
             bucket,
             configuration,
+            previous_configuration=_applied_bucket_configuration(bucket),
             allow_public_read=False,
         ),
         item_ids=(item.pk,),
@@ -1022,12 +1035,14 @@ def _ensure_bucket(item, provider, owner_token):
             )
             bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
             bucket.applied_config_snapshot = bucket.desired_config_snapshot
+            bucket.config_state = Bucket.ConfigurationState.APPLIED
             bucket.config_error_code = ""
             bucket.config_error_summary = ""
             bucket.last_synced_at = timezone.now()
             bucket.save(
                 update_fields=(
                     "applied_config_snapshot",
+                    "config_state",
                     "config_error_code",
                     "config_error_summary",
                     "last_synced_at",
@@ -1110,17 +1125,36 @@ def _ensure_bucket(item, provider, owner_token):
                 item_ids=(item.pk,),
             )
             locked_bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
+            recoverable_configuration = exists and owned
+            rollback_failed = (
+                _error_code(error) == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+            )
             locked_bucket.state = (
-                Bucket.State.WAITING_RETRY if temporary else Bucket.State.FAILED
+                Bucket.State.WAITING_RETRY
+                if temporary or recoverable_configuration
+                else Bucket.State.FAILED
             )
             update_fields = ["state", "updated_at"]
-            if exists and owned:
+            if recoverable_configuration:
                 locked_bucket.config_error_code = _error_code(
                     error, "BUCKET_CONFIGURATION_UPDATE_FAILED"
                 )
                 locked_bucket.config_error_summary = locked_bucket.config_error_code
-                update_fields.extend(("config_error_code", "config_error_summary"))
+                locked_bucket.config_state = (
+                    Bucket.ConfigurationState.UNKNOWN
+                    if rollback_failed
+                    else Bucket.ConfigurationState.RETRYABLE_ERROR
+                )
+                update_fields.extend(
+                    ("config_error_code", "config_error_summary", "config_state")
+                )
             locked_bucket.save(update_fields=tuple(update_fields))
+        if recoverable_configuration and not temporary and not rollback_failed:
+            raise ObjectStorageProviderError(
+                "BUCKET_CONFIGURATION_UPDATE_FAILED",
+                retryable=True,
+                request_id=_request_id(error),
+            ) from error
         raise
     with transaction.atomic():
         _lock_application_claim(
@@ -1131,6 +1165,7 @@ def _ensure_bucket(item, provider, owner_token):
         bucket = Bucket.objects.select_for_update().get(pk=bucket.pk)
         bucket.state = Bucket.State.ACTIVE
         bucket.applied_config_snapshot = bucket.desired_config_snapshot
+        bucket.config_state = Bucket.ConfigurationState.APPLIED
         bucket.config_error_code = ""
         bucket.config_error_summary = ""
         bucket.last_synced_at = timezone.now()
@@ -1138,6 +1173,7 @@ def _ensure_bucket(item, provider, owner_token):
             update_fields=(
                 "state",
                 "applied_config_snapshot",
+                "config_state",
                 "config_error_code",
                 "config_error_summary",
                 "last_synced_at",
@@ -1737,6 +1773,81 @@ def execute_application_batch(batch_id, *, execution_key=""):
 
 def execute_application(application_id, *, execution_key=""):
     return execute_application_batch(application_id, execution_key=execution_key)
+
+
+def retry_application_bucket_configuration(bucket_id, *, enqueue=True, actor=None):
+    """Reset one recoverable Bucket configuration item for the fixed retry path."""
+
+    with transaction.atomic():
+        bucket = Bucket.objects.select_for_update().get(pk=bucket_id)
+        if bucket.config_state == Bucket.ConfigurationState.UNKNOWN:
+            raise ApplicationServiceError("BUCKET_CONFIGURATION_STATE_UNKNOWN")
+        if not (
+            bucket.state == Bucket.State.WAITING_RETRY
+            and bucket.config_state == Bucket.ConfigurationState.RETRYABLE_ERROR
+        ):
+            raise ApplicationServiceError("BUCKET_CONFIGURATION_RETRY_NOT_ALLOWED")
+        item = (
+            ApplicationItem.objects.select_for_update()
+            .filter(bucket=bucket)
+            .order_by("pk")
+            .first()
+        )
+        if item is None or item.status not in {
+            ApplicationItem.Status.WAITING_RETRY,
+            ApplicationItem.Status.FAILED,
+            ApplicationItem.Status.MANUAL_REQUIRED,
+        }:
+            raise ApplicationServiceError("BUCKET_CONFIGURATION_RETRY_NOT_ALLOWED")
+        batch = ApplicationBatch.objects.select_for_update().get(pk=item.batch_id)
+        if batch.running_task_id or batch.owner_token:
+            raise ApplicationServiceError("APPLICATION_IN_PROGRESS")
+
+        item.status = ApplicationItem.Status.WAITING_RETRY
+        item.current_stage = "BUCKET_CREATING"
+        item.error_code = ""
+        item.error_summary = ""
+        item.save(
+            update_fields=(
+                "status",
+                "current_stage",
+                "error_code",
+                "error_summary",
+                "updated_at",
+            )
+        )
+        batch.status = ApplicationBatch.Status.PENDING
+        batch.current_stage = "BUCKET_CREATING"
+        batch.error_code = ""
+        batch.error_summary = ""
+        batch.finished_at = None
+        batch.save(
+            update_fields=(
+                "status",
+                "current_stage",
+                "error_code",
+                "error_summary",
+                "finished_at",
+                "updated_at",
+            )
+        )
+        record_audit_event(
+            actor=actor or batch.applicant,
+            action="storage.bucket.configuration_retry_requested",
+            target_type="Bucket",
+            target_id=bucket.pk,
+            result="accepted",
+            safe_metadata={
+                "application_id": batch.pk,
+                "item_id": item.pk,
+                "bucket_id": bucket.pk,
+            },
+        )
+    if enqueue:
+        from object_storage.tasks import run_storage_application_batch
+
+        run_storage_application_batch.delay(batch.pk)
+    return batch
 
 
 def mark_batch_manual_required(batch_id, error, *, expected_claim_version):

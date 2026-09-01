@@ -34,7 +34,9 @@ RETRYABLE_CODES = {
 
 
 def is_temporary_provider_error(error):
-    return getattr(error, "error_code", "") in RETRYABLE_CODES
+    return bool(getattr(error, "retryable", False)) or (
+        getattr(error, "error_code", "") in RETRYABLE_CODES
+    )
 
 
 def map_provider_error(exc):

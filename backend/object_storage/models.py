@@ -286,6 +286,12 @@ class Bucket(TimestampedModel):
         FAILED = "failed", "Failed"
         CANCELLED = "cancelled", "Cancelled"
 
+    class ConfigurationState(models.TextChoices):
+        APPLIED = "applied", "Applied"
+        PENDING = "pending", "Pending"
+        RETRYABLE_ERROR = "retryable_error", "Retryable error"
+        UNKNOWN = "unknown", "Unknown"
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -327,6 +333,11 @@ class Bucket(TimestampedModel):
     applied_config_snapshot = models.JSONField(default=dict, blank=True)
     config_error_code = models.CharField(max_length=64, blank=True, default="")
     config_error_summary = models.CharField(max_length=255, blank=True, default="")
+    config_state = models.CharField(
+        max_length=24,
+        choices=ConfigurationState.choices,
+        default=ConfigurationState.APPLIED,
+    )
     deletion_error_code = models.CharField(max_length=64, blank=True, default="")
     deletion_error_summary = models.CharField(max_length=255, blank=True, default="")
 

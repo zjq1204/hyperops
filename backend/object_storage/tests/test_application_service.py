@@ -89,12 +89,20 @@ class FakeProvider:
         bucket,
         configuration,
         *,
+        previous_configuration=None,
         allow_public_read=False,
     ):
         self.calls.append(("configure_bucket", bucket.name))
         if self.configuration_errors:
             raise self.configuration_errors.pop(0)
-        self.configurations.append((bucket.name, configuration, allow_public_read))
+        self.configurations.append(
+            (
+                bucket.name,
+                configuration,
+                previous_configuration,
+                allow_public_read,
+            )
+        )
         return SimpleNamespace(request_id="request-configure-bucket")
 
     def reconcile_object_policy(self, identity, buckets):
@@ -309,6 +317,73 @@ def test_bucket_configuration_partial_failure_is_reconciled_on_owned_retry(
     assert bucket.config_error_code == ""
     assert "create_bucket" not in [call[0] for call in provider.calls]
     assert "configure_bucket" in [call[0] for call in provider.calls]
+
+
+def test_non_temporary_initial_configuration_failure_remains_recoverable(
+    batch_context, monkeypatch
+):
+    from object_storage.models import ApplicationBatch, ApplicationItem, Bucket
+    from object_storage.services import applications
+    from object_storage.services.policy import count_quota_consuming_buckets
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    user, _pool, create = batch_context
+    batch = create()
+    provider = FakeProvider()
+    provider.configuration_errors.append(
+        ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
+    )
+    monkeypatch.setattr(applications, "get_provider_for_pool", lambda _pool: provider)
+
+    with pytest.raises(
+        ObjectStorageProviderError,
+        match="BUCKET_CONFIGURATION_UPDATE_FAILED",
+    ) as captured:
+        applications.execute_application_batch(batch.pk, execution_key="configure:0")
+
+    bucket = batch.items.get().bucket
+    bucket.refresh_from_db()
+    batch.refresh_from_db()
+    assert captured.value.retryable is True
+    assert bucket.name in provider.buckets
+    assert bucket.state == Bucket.State.WAITING_RETRY
+    assert bucket.applied_config_snapshot == {}
+    assert bucket.config_error_code == "PROVIDER_PERMISSION_DENIED"
+    assert batch.items.get().status == ApplicationItem.Status.WAITING_RETRY
+    assert batch.status == ApplicationBatch.Status.RUNNING
+    assert count_quota_consuming_buckets(user) == 1
+
+    item = batch.items.get()
+    item.status = ApplicationItem.Status.MANUAL_REQUIRED
+    item.save(update_fields=("status", "updated_at"))
+    batch.status = ApplicationBatch.Status.MANUAL_REQUIRED
+    batch.save(update_fields=("status", "updated_at"))
+    applications.retry_application_bucket_configuration(
+        bucket.pk,
+        enqueue=False,
+    )
+    item.refresh_from_db()
+    batch.refresh_from_db()
+    assert item.status == ApplicationItem.Status.WAITING_RETRY
+    assert batch.status == ApplicationBatch.Status.PENDING
+
+    provider.calls.clear()
+    result = applications.execute_application_batch(
+        batch.pk,
+        execution_key="configure:1",
+    )
+
+    bucket.refresh_from_db()
+    item = batch.items.get()
+    result.refresh_from_db()
+    assert bucket.state == Bucket.State.ACTIVE
+    assert bucket.applied_config_snapshot == bucket.desired_config_snapshot
+    assert bucket.config_error_code == ""
+    assert item.status == ApplicationItem.Status.SUCCEEDED
+    assert result.status == ApplicationBatch.Status.SUCCEEDED
+    assert "create_bucket" not in [call[0] for call in provider.calls]
+    assert "configure_bucket" in [call[0] for call in provider.calls]
+    assert "policy" in [call[0] for call in provider.calls]
 
 
 def test_permanent_item_failure_does_not_block_successful_sibling(

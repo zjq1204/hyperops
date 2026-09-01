@@ -546,6 +546,170 @@ def test_bucket_configuration_requires_explicit_public_read_authorization():
     )
 
 
+def test_existing_bucket_storage_class_change_fails_before_cloud_mutation():
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="managed-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+    provider.create_owned_bucket(
+        bucket,
+        BucketConfiguration(storage_class="IA"),
+    )
+    oss.updated_configuration = None
+
+    with pytest.raises(
+        ObjectStorageProviderError,
+        match="BUCKET_STORAGE_CLASS_UPDATE_UNSUPPORTED",
+    ):
+        provider.update_bucket_configuration(
+            bucket,
+            BucketConfiguration(storage_class="Standard"),
+            previous_configuration=BucketConfiguration(storage_class="IA"),
+        )
+
+    assert oss.updated_configuration is None
+
+
+def test_bucket_configuration_failure_rolls_back_to_previous_configuration():
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="managed-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+    provider.create_owned_bucket(bucket)
+    desired = BucketConfiguration(
+        acl="public_read",
+        encryption="KMS",
+        versioning=True,
+        lifecycle={"rules": [{"id": "expire", "prefix": "", "expiration_days": 7}]},
+    )
+    previous = BucketConfiguration(
+        acl="private",
+        storage_class="Standard",
+        encryption="AES256",
+        versioning=False,
+        lifecycle={},
+    )
+    calls = []
+
+    def update(*, bucket_name, configuration):
+        calls.append((bucket_name, configuration))
+        if len(calls) == 1:
+            raise ObjectStorageProviderError("PROVIDER_PERMISSION_DENIED")
+        return {"request_id": "rollback-request"}
+
+    oss.update_bucket_configuration = update
+
+    with pytest.raises(ObjectStorageProviderError, match="PROVIDER_PERMISSION_DENIED"):
+        provider.update_bucket_configuration(
+            bucket,
+            desired,
+            previous_configuration=previous,
+            allow_public_read=True,
+        )
+
+    assert calls == [(bucket.name, desired), (bucket.name, previous)]
+
+
+def test_bucket_configuration_rollback_failure_reports_unknown_cloud_state():
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    provider, _ram, oss = _provider()
+    bucket = SimpleNamespace(
+        name="managed-bucket",
+        region="cn-hangzhou",
+        cloud_marker="hyperops:bucket:42",
+    )
+    provider.create_owned_bucket(bucket)
+    desired = BucketConfiguration(acl="public_read", versioning=True)
+    previous = BucketConfiguration(acl="private", versioning=False)
+    calls = []
+
+    def fail(*, bucket_name, configuration):
+        calls.append((bucket_name, configuration))
+        raise ObjectStorageProviderError("PROVIDER_OPERATION_FAILED")
+
+    oss.update_bucket_configuration = fail
+
+    with pytest.raises(
+        ObjectStorageProviderError,
+        match="BUCKET_CONFIGURATION_ROLLBACK_FAILED",
+    ) as captured:
+        provider.update_bucket_configuration(
+            bucket,
+            desired,
+            previous_configuration=previous,
+            allow_public_read=True,
+        )
+
+    assert captured.value.retryable is False
+    assert calls == [(bucket.name, desired), (bucket.name, previous)]
+
+
+def test_oss_gateway_restores_complete_private_standard_configuration(monkeypatch):
+    from object_storage.providers.aliyun import AliyunOssGateway
+    from object_storage.providers.base import BucketConfiguration
+
+    calls = []
+
+    class FakeBucket:
+        def put_bucket_acl(self, value):
+            calls.append(("acl", value))
+            return SimpleNamespace(request_id="acl-request")
+
+        def put_bucket_storage_class(self, value):
+            calls.append(("storage_class", value))
+
+        def put_bucket_encryption(self, rule):
+            calls.append(("encryption", rule.sse_algorithm))
+
+        def put_bucket_versioning(self, config):
+            calls.append(("versioning", config.status))
+
+        def delete_bucket_lifecycle(self):
+            calls.append(("lifecycle", "deleted"))
+
+    gateway = AliyunOssGateway(
+        access_key_id="management-ak",
+        access_key_secret="management-sk",
+        region="cn-hangzhou",
+    )
+    monkeypatch.setattr(gateway, "_bucket", lambda _name: FakeBucket())
+
+    gateway.update_bucket_configuration(
+        bucket_name="managed-bucket",
+        configuration=BucketConfiguration(
+            acl="private",
+            storage_class="Standard",
+            encryption="AES256",
+            versioning=False,
+            lifecycle={},
+        ),
+    )
+
+    assert [name for name, _value in calls] == [
+        "acl",
+        "storage_class",
+        "encryption",
+        "versioning",
+        "lifecycle",
+    ]
+    assert calls[1] == ("storage_class", "Standard")
+    assert calls[2] == ("encryption", "AES256")
+    assert calls[3] == ("versioning", "Suspended")
+    assert calls[4] == ("lifecycle", "deleted")
+
+
 def test_oss_gateway_persists_and_reconciles_exact_owner_marker(monkeypatch):
     from object_storage.providers.aliyun import AliyunOssGateway
 

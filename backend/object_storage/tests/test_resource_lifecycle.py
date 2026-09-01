@@ -503,6 +503,53 @@ def test_bucket_configuration_keeps_applied_snapshot_when_provider_fails(
     }
     assert bucket.applied_config_snapshot == {"acl": "private"}
     assert bucket.config_error_code == "BUCKET_CONFIGURATION_UPDATE_FAILED"
+    assert bucket.config_state == Bucket.ConfigurationState.RETRYABLE_ERROR
+
+
+def test_bucket_configuration_rollback_failure_marks_cloud_state_unknown(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        BucketConfigurationError,
+        update_bucket_configuration,
+    )
+    from object_storage.services.provider_errors import ObjectStorageProviderError
+
+    bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    bucket.applied_config_snapshot = {
+        "acl": "private",
+        "storage_class": "Standard",
+        "encryption": "AES256",
+        "versioning": False,
+        "lifecycle": {},
+    }
+    bucket.save(update_fields=("applied_config_snapshot", "updated_at"))
+    provider = LifecycleProvider()
+    provider.update_bucket_configuration = lambda *args, **kwargs: (
+        _ for _ in ()
+    ).throw(ObjectStorageProviderError("BUCKET_CONFIGURATION_ROLLBACK_FAILED"))
+
+    with pytest.raises(
+        BucketConfigurationError,
+        match="BUCKET_CONFIGURATION_ROLLBACK_FAILED",
+    ):
+        update_bucket_configuration(
+            bucket=bucket,
+            actor=_feature_admin(user_factory),
+            desired={"acl": "public_read"},
+            provider=provider,
+            enqueue=False,
+            reason="approved public documentation",
+            bucket_name=bucket.name,
+            confirmed=True,
+        )
+
+    bucket.refresh_from_db()
+    assert bucket.applied_config_snapshot["acl"] == "private"
+    assert bucket.desired_config_snapshot["acl"] == "public_read"
+    assert bucket.config_error_code == "BUCKET_CONFIGURATION_ROLLBACK_FAILED"
+    assert bucket.config_state == Bucket.ConfigurationState.UNKNOWN
 
 
 def test_confirmed_admin_public_read_update_reaches_provider_authorized(
@@ -512,6 +559,15 @@ def test_confirmed_admin_public_read_update_reaches_provider_authorized(
     from object_storage.services.lifecycle import update_bucket_configuration
 
     bucket = bucket_factory(owner=user_factory(), state=Bucket.State.ACTIVE)
+    previous = {
+        "acl": "private",
+        "storage_class": "Standard",
+        "encryption": "AES256",
+        "versioning": False,
+        "lifecycle": {},
+    }
+    bucket.applied_config_snapshot = previous
+    bucket.save(update_fields=("applied_config_snapshot", "updated_at"))
     provider = LifecycleProvider()
 
     update_bucket_configuration(
@@ -527,7 +583,9 @@ def test_confirmed_admin_public_read_update_reaches_provider_authorized(
 
     bucket.refresh_from_db()
     assert bucket.applied_config_snapshot["acl"] == "public_read"
-    assert provider.configuration_options == [{"allow_public_read": True}]
+    options = provider.configuration_options[0]
+    assert options["previous_configuration"].as_snapshot() == previous
+    assert options["allow_public_read"] is True
     audit = AuditEvent.objects.get(
         action="storage.bucket.configuration.updated",
         target_id=str(bucket.pk),
