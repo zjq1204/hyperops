@@ -355,6 +355,7 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             'auth_info',
             'groups',
             'is_staff',
+            'is_superuser',
             'roles',
             'access_profile',
             'auth_source',
@@ -370,6 +371,7 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             'display_name',
             'groups',
             'is_staff',
+            'is_superuser',
             'roles',
             'access_profile',
         ]

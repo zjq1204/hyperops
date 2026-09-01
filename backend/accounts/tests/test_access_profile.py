@@ -9,9 +9,21 @@ from accounts.access import (
     normalize_platform_key,
 )
 from accounts.models import Role
+from accounts.serializers import UserDetailsSerializer
 
 
 class AccessProfileTests(TestCase):
+    def test_user_details_exposes_superuser_marker_for_admin_guards(self):
+        user = User.objects.create_superuser(
+            username="platform-root",
+            email="platform-root@example.com",
+            password="password123",
+        )
+
+        payload = UserDetailsSerializer(user).data
+
+        self.assertIs(payload["is_superuser"], True)
+
     def test_operation_permissions_are_unioned_across_roles(self):
         user = User.objects.create_user(username="credential-operator")
         first = Role.objects.create(
