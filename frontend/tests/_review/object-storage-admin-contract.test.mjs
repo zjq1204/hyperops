@@ -56,3 +56,14 @@ test('admin controls preserve protected secret and recovery actions', () => {
   assert.match(buckets, /releaseBucket/)
   assert.match(buckets, /recoverBucket/)
 })
+
+test('authentication pages use the platform-wide Feishu contract', () => {
+  const authentication = read('admin/pages/Management/Authentication.vue')
+  const feishu = read('admin/pages/Management/FeishuAuthentication.vue')
+  const combined = `${authentication}\n${feishu}`
+
+  assert.match(authentication, /getFeishu\(\)/)
+  assert.match(feishu, /saveFeishu\(body\)/)
+  assert.match(feishu, /validateFeishu\(\)/)
+  assert.doesNotMatch(combined, /listTenants|tenantId|query:\s*\{\s*tenant/)
+})
