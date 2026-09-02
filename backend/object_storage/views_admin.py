@@ -10,6 +10,7 @@ from object_storage.models import (
     AccessKey,
     ApplicationBatch,
     ApplicationItem,
+    ApiIdempotencyRecord,
     AuditEvent,
     Bucket,
     CloudIdentity,
@@ -27,6 +28,8 @@ from object_storage.providers.aliyun import build_aliyun_provider
 from object_storage.serializers_admin import (
     AccessGroupSummarySerializer,
     AccessKeyAdminSerializer,
+    ApiIdempotencyRecordAdminSerializer,
+    ApiIdempotencyResolveSerializer,
     ApplicationBatchAdminSerializer,
     ApplicationBatchDetailAdminSerializer,
     AuditEventAdminSerializer,
@@ -83,6 +86,7 @@ from object_storage.services.platform import (
     validate_feishu_config,
     validate_resource_pool,
 )
+from object_storage.services.idempotency import resolve_idempotency_outcome
 
 
 def _no_store(response):
@@ -200,6 +204,7 @@ class AccessGroupListView(RejectTenantScopeMixin, generics.ListAPIView):
 
 class PlatformSettingsView(AdminMutationAPIView):
     idempotency_reclaimable = True
+    idempotency_reclaim_safe = True
 
     def get(self, request):
         return Response(
@@ -358,6 +363,7 @@ class UserQuotaListView(RejectTenantScopeMixin, generics.ListAPIView):
 
 class UserQuotaDetailView(AdminMutationAPIView):
     idempotency_reclaimable = True
+    idempotency_reclaim_safe = True
 
     def get(self, request, user_id):
         quota = get_object_or_404(
@@ -493,6 +499,53 @@ class AuditEventAdminDetailView(RejectTenantScopeMixin, generics.RetrieveAPIView
     serializer_class = AuditEventAdminSerializer
     queryset = AuditEvent.objects.all()
     lookup_url_kwarg = "event_id"
+
+
+class IdempotencyRecordAdminListView(RejectTenantScopeMixin, generics.ListAPIView):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = ApiIdempotencyRecordAdminSerializer
+
+    def get_queryset(self):
+        status_value = self.request.query_params.get("status")
+        allowed = {choice for choice, _label in ApiIdempotencyRecord.Status.choices}
+        if status_value and status_value not in allowed:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"status": "IDEMPOTENCY_STATUS_INVALID"})
+        return (
+            ApiIdempotencyRecord.objects.select_related("actor")
+            .filter(status=status_value or ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN)
+            .order_by("-created_at", "-id")
+        )
+
+
+class IdempotencyRecordAdminDetailView(
+    RejectTenantScopeMixin, generics.RetrieveAPIView
+):
+    permission_classes = [HasObjectStorageAdminAccess]
+    serializer_class = ApiIdempotencyRecordAdminSerializer
+    queryset = ApiIdempotencyRecord.objects.select_related("actor").all()
+    lookup_url_kwarg = "record_id"
+
+
+class IdempotencyRecordAdminResolveView(AdminMutationAPIView):
+    def post(self, request, record_id):
+        serializer = ApiIdempotencyResolveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = get_object_or_404(ApiIdempotencyRecord, pk=record_id)
+        try:
+            result = resolve_idempotency_outcome(
+                record=record,
+                actor=request.user,
+                request_id=request.idempotency_key,
+                **serializer.validated_data,
+            )
+        except ValueError as error:
+            return _error(str(error), status.HTTP_409_CONFLICT)
+        if result == "deleted":
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        record.refresh_from_db()
+        return Response(ApiIdempotencyRecordAdminSerializer(record).data)
 
 
 class AccessKeyActionView(AdminMutationAPIView):

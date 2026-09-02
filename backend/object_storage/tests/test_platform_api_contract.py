@@ -305,7 +305,13 @@ def test_admin_can_resolve_unknown_idempotency_record_for_reconciliation(
         lease_until=timezone.now() - timedelta(seconds=1),
     )
 
-    resolve_idempotency_outcome(record=record, actor=admin, resolution="retry")
+    resolve_idempotency_outcome(
+        record=record,
+        actor=admin,
+        resolution="delete",
+        current_status=ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN,
+        reason="external operation reconciled",
+    )
 
     assert not ApiIdempotencyRecord.objects.filter(pk=record.pk).exists()
 
@@ -433,3 +439,212 @@ def test_sensitive_idempotency_in_progress_fails_closed(
     assert response.json()["data"]["error_code"] == "IDEMPOTENCY_IN_PROGRESS"
     assert response["Cache-Control"] == "no-store"
     assert calls == []
+
+
+def test_safe_idempotency_does_not_cache_a_5xx_and_retries_same_key(
+    admin_client, monkeypatch
+):
+    from object_storage.models import ApiIdempotencyRecord
+    from object_storage.services import platform
+
+    client, admin = admin_client
+    original = platform.validate_and_save_platform_config
+    calls = []
+
+    def fail_once(**kwargs):
+        calls.append("failed")
+        raise RuntimeError("temporary failure")
+
+    monkeypatch.setattr(
+        "object_storage.views_admin.validate_and_save_platform_config", fail_once
+    )
+    url = "/api/v1/object-storage/management/settings/"
+    body = '{"default_bucket_quota":8}'
+    first = client.put(
+        url,
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="safe-5xx-retry",
+    )
+    record = ApiIdempotencyRecord.objects.get(
+        actor=admin, idempotency_key="safe-5xx-retry"
+    )
+    assert first.status_code == 500
+    assert record.status == ApiIdempotencyRecord.Status.IN_PROGRESS
+    assert record.lease_until is None
+    assert record.response_body is None
+
+    monkeypatch.setattr(
+        "object_storage.views_admin.validate_and_save_platform_config", original
+    )
+    second = client.put(
+        url,
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="safe-5xx-retry",
+    )
+
+    record.refresh_from_db()
+    assert second.status_code == 200
+    assert calls == ["failed"]
+    assert record.status == ApiIdempotencyRecord.Status.COMPLETED
+
+
+def test_unsafe_idempotency_marks_a_5xx_as_outcome_unknown(admin_client, monkeypatch):
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    monkeypatch.setattr(
+        "object_storage.serializers_admin.PlatformFeishuConfigAdminSerializer.save",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("temporary")),
+    )
+    url = "/api/v1/object-storage/management/feishu-settings/"
+    response = client.patch(
+        url,
+        {"app_id": "cli-temporary"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="unsafe-5xx-outcome",
+    )
+
+    record = ApiIdempotencyRecord.objects.get(
+        actor=admin, idempotency_key="unsafe-5xx-outcome"
+    )
+    assert response.status_code == 500
+    assert record.status == ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN
+
+
+def test_sensitive_idempotency_marks_a_5xx_as_outcome_unknown(
+    admin_client, cloud_identity_factory, access_key_factory, monkeypatch
+):
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    key = access_key_factory(cloud_identity=cloud_identity_factory())
+    monkeypatch.setattr(
+        "object_storage.views_admin.reveal_access_key",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("provider timeout")),
+    )
+    url = f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/"
+    response = client.post(
+        url,
+        {"reason": "incident investigation"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-5xx-outcome",
+    )
+
+    record = ApiIdempotencyRecord.objects.get(
+        actor=admin, idempotency_key="sensitive-5xx-outcome"
+    )
+    assert response.status_code == 500
+    assert record.status == ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN
+    assert record.response_body is None
+
+
+def test_idempotency_recovery_api_lists_details_and_requires_admin_reason(
+    admin_client, django_user_model
+):
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    record = ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope="POST:/api/v1/object-storage/provider/",
+        idempotency_key="recovery-api-record",
+        payload_digest="a" * 64,
+        status=ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN,
+    )
+    listed = client.get(
+        "/api/v1/object-storage/management/idempotency-records/?status=outcome_unknown"
+    )
+    detail = client.get(
+        f"/api/v1/object-storage/management/idempotency-records/{record.id}/"
+    )
+    missing_reason = client.post(
+        f"/api/v1/object-storage/management/idempotency-records/{record.id}/resolve/",
+        {"current_status": "outcome_unknown", "resolution": "delete"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="recovery-missing-reason",
+    )
+    ordinary = django_user_model.objects.create_user(username="not-storage-admin")
+    client.force_login(ordinary)
+    denied = client.get(
+        "/api/v1/object-storage/management/idempotency-records/?status=outcome_unknown"
+    )
+
+    assert listed.status_code == 200
+    assert listed.json()["data"]["results"][0]["id"] == record.id
+    assert detail.status_code == 200
+    assert detail.json()["data"]["status"] == "outcome_unknown"
+    assert missing_reason.status_code == 400
+    assert denied.status_code == 403
+
+
+def test_idempotency_recovery_api_uses_status_cas_and_explicit_resolution(admin_client):
+    from object_storage.models import ApiIdempotencyRecord, AuditEvent
+
+    client, admin = admin_client
+    record = ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope="POST:/api/v1/object-storage/provider/",
+        idempotency_key="recovery-api-delete",
+        payload_digest="b" * 64,
+        status=ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN,
+    )
+    stale = client.post(
+        f"/api/v1/object-storage/management/idempotency-records/{record.id}/resolve/",
+        {
+            "reason": "provider and database reconciled",
+            "current_status": "completed",
+            "resolution": "delete",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="recovery-stale-status",
+    )
+    deleted = client.post(
+        f"/api/v1/object-storage/management/idempotency-records/{record.id}/resolve/",
+        {
+            "reason": "provider and database reconciled",
+            "current_status": "outcome_unknown",
+            "resolution": "delete",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="recovery-delete-record",
+    )
+
+    assert stale.status_code == 409
+    assert stale.json()["data"]["error_code"] == "IDEMPOTENCY_STATUS_CHANGED"
+    assert deleted.status_code == 204
+    assert not ApiIdempotencyRecord.objects.filter(pk=record.pk).exists()
+    assert AuditEvent.objects.filter(
+        action="storage.api.idempotency.resolve",
+        target_id=str(record.id),
+        result="succeeded",
+    ).exists()
+
+
+def test_idempotency_recovery_api_can_mark_outcome_completed(admin_client):
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    record = ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope="POST:/api/v1/object-storage/provider/",
+        idempotency_key="recovery-api-complete",
+        payload_digest="c" * 64,
+        status=ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN,
+    )
+    response = client.post(
+        f"/api/v1/object-storage/management/idempotency-records/{record.id}/resolve/",
+        {
+            "reason": "external operation confirmed complete",
+            "current_status": "outcome_unknown",
+            "resolution": "complete",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="recovery-complete-record",
+    )
+
+    record.refresh_from_db()
+    assert response.status_code == 200
+    assert record.status == ApiIdempotencyRecord.Status.COMPLETED
+    assert record.response_body is None

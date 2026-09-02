@@ -61,6 +61,12 @@ class IdempotencyOutcomeUnknown(APIException):
     default_code = "IDEMPOTENCY_OUTCOME_UNKNOWN"
 
 
+class IdempotencyStatusChanged(APIException):
+    status_code = 409
+    default_detail = "The idempotency record status changed before resolution"
+    default_code = "IDEMPOTENCY_STATUS_CHANGED"
+
+
 def has_object_storage_admin_access(user):
     """Require an explicit object-storage feature, never Django staff status."""
 
@@ -133,6 +139,13 @@ class RequireIdempotencyKeyMixin:
 
     idempotency_sensitive = False
     idempotency_reclaimable = False
+    idempotency_reclaim_safe = False
+
+    def _is_reclaim_safe(self):
+        return bool(
+            getattr(self, "idempotency_reclaim_safe", False)
+            or getattr(self, "idempotency_reclaimable", False)
+        )
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -162,7 +175,7 @@ class RequireIdempotencyKeyMixin:
             return record, None
         if record.lease_until and record.lease_until > timezone.now():
             return record, IdempotencyInProgress()
-        if self.idempotency_reclaimable:
+        if self._is_reclaim_safe():
             record.owner_token = secrets.token_urlsafe(24)
             record.lease_until = timezone.now() + timedelta(seconds=300)
             record.attempt_count += 1
@@ -218,6 +231,23 @@ class RequireIdempotencyKeyMixin:
     def _complete_idempotency(self, request, response):
         record = getattr(request, "_object_storage_idempotency_record", None)
         if record is None:
+            return
+        is_success = 200 <= response.status_code < 300
+        is_deterministic_client_error = 400 <= response.status_code < 500
+        if not (is_success or is_deterministic_client_error):
+            update = {
+                "owner_token": "",
+                "lease_until": None,
+                "response_status": None,
+                "response_body": None,
+            }
+            if not (self._is_reclaim_safe() and not self.idempotency_sensitive):
+                update["status"] = ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN
+            ApiIdempotencyRecord.objects.filter(
+                pk=record.pk,
+                owner_token=record.owner_token,
+                status=ApiIdempotencyRecord.Status.IN_PROGRESS,
+            ).update(**update)
             return
         body = None
         if not self.idempotency_sensitive:

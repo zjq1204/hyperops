@@ -13,6 +13,7 @@ from object_storage.models import (
     ApplicationBatch,
     ApplicationEvent,
     ApplicationItem,
+    ApiIdempotencyRecord,
     AuditEvent,
     Bucket,
     CloudIdentity,
@@ -32,6 +33,36 @@ class AccessGroupSummarySerializer(serializers.ModelSerializer):
         model = Group
         fields = ("id", "name")
         read_only_fields = fields
+
+
+class ApiIdempotencyRecordAdminSerializer(serializers.ModelSerializer):
+    actor_username = serializers.CharField(source="actor.get_username", read_only=True)
+
+    class Meta:
+        model = ApiIdempotencyRecord
+        fields = (
+            "id",
+            "actor_id",
+            "actor_username",
+            "scope",
+            "idempotency_key",
+            "payload_digest",
+            "status",
+            "response_status",
+            "lease_until",
+            "attempt_count",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class ApiIdempotencyResolveSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, allow_blank=False)
+    current_status = serializers.ChoiceField(
+        choices=tuple(choice for choice, _label in ApiIdempotencyRecord.Status.choices)
+    )
+    resolution = serializers.ChoiceField(choices=("delete", "complete"))
 
 
 class PlatformObjectStorageConfigAdminSerializer(serializers.ModelSerializer):

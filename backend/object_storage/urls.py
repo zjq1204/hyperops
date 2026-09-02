@@ -12,6 +12,9 @@ from object_storage.views_admin import (
     ApplicationBatchAdminDetailView,
     ApplicationBatchAdminListView,
     ApplicationBatchRetryView,
+    IdempotencyRecordAdminDetailView,
+    IdempotencyRecordAdminListView,
+    IdempotencyRecordAdminResolveView,
     AuditEventAdminDetailView,
     AuditEventAdminListView,
     BucketActionUncertaintyAcknowledgeView,
@@ -348,6 +351,21 @@ urlpatterns = [
         "management/audit-events/<int:event_id>/",
         AuditEventAdminDetailView.as_view(),
         name="management_audit_event_detail",
+    ),
+    path(
+        "management/idempotency-records/",
+        IdempotencyRecordAdminListView.as_view(),
+        name="management_idempotency_records",
+    ),
+    path(
+        "management/idempotency-records/<int:record_id>/",
+        IdempotencyRecordAdminDetailView.as_view(),
+        name="management_idempotency_record_detail",
+    ),
+    path(
+        "management/idempotency-records/<int:record_id>/resolve/",
+        IdempotencyRecordAdminResolveView.as_view(),
+        name="management_idempotency_record_resolve",
     ),
     path(
         "management/users/<int:user_id>/suspend/",
