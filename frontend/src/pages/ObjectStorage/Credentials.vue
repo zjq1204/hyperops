@@ -16,21 +16,8 @@
         </BaseButton>
       </template>
 
-      <ObjectStorageNav />
-
-      <InlineAlert
-        class="mb-5"
-        variant="info"
-        :title="t('objectStorage.credentials.sharedScopeTitle')"
-        :message="
-          t('objectStorage.credentials.sharedScopeMessage', {
-            count: buckets.length
-          })
-        "
-      />
-
       <section
-        class="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]"
+        class="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]"
       >
         <div class="space-y-5">
           <section class="workspace-panel workspace-panel--padded">
@@ -45,63 +32,82 @@
               </div>
             </div>
 
+            <PageErrorState
+              v-if="overviewLoadError && !overviewNotConfigured"
+              :message="t('objectStorage.errors.loadCredentials')"
+              @retry="loadOverviewData"
+            />
+            <EmptyState
+              v-else-if="overviewNotConfigured"
+              :title="t('objectStorage.notConfigured')"
+              :description="t('objectStorage.notConfiguredHint')"
+            />
             <div
-              v-if="credentials.length"
-              class="divide-y divide-slate-100 border-y border-slate-200"
+              v-else-if="overviewLoading"
+              class="py-10 text-center text-sm text-slate-500"
             >
-              <article
-                v-for="credential in credentials"
-                :key="credential.id"
-                class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between"
+              {{ t('common.loading') }}
+            </div>
+            <template v-else>
+              <div
+                v-if="credentials.length"
+                class="divide-y divide-slate-100 border-y border-slate-200"
+              >
+                <article
+                  v-for="credential in credentials"
+                  :key="credential.id"
+                  class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p class="font-mono text-sm font-semibold text-slate-950">
+                      {{
+                        t('objectStorage.credentials.endingIn', {
+                          lastFour: credential.last_four
+                        })
+                      }}
+                    </p>
+                    <p class="mt-1 text-xs text-slate-500">
+                      {{
+                        t('objectStorage.credentials.createdAt', {
+                          date: formatDate(credential.created_at)
+                        })
+                      }}
+                    </p>
+                  </div>
+                  <StatusBadge :status="credentialStatus(credential)" />
+                </article>
+              </div>
+              <EmptyState
+                v-else
+                :title="t('objectStorage.credentials.emptyTitle')"
+                :description="t('objectStorage.credentials.emptyHint')"
+              />
+
+              <dl
+                class="mt-5 grid gap-4 border-y border-slate-200 py-4 sm:grid-cols-2"
               >
                 <div>
-                  <p class="font-mono text-sm font-semibold text-slate-950">
+                  <dt class="text-xs font-medium text-slate-400">
+                    {{ t('objectStorage.credentials.scopeLabel') }}
+                  </dt>
+                  <dd class="mt-1 text-sm font-semibold text-slate-900">
                     {{
-                      t('objectStorage.credentials.endingIn', {
-                        lastFour: credential.last_four
+                      t('objectStorage.credentials.scopeValue', {
+                        count: buckets.length
                       })
                     }}
-                  </p>
-                  <p class="mt-1 text-xs text-slate-500">
-                    {{
-                      t('objectStorage.credentials.createdAt', {
-                        date: formatDate(credential.created_at)
-                      })
-                    }}
-                  </p>
+                  </dd>
                 </div>
-                <StatusBadge :status="credentialStatus(credential)" />
-              </article>
-            </div>
-            <EmptyState
-              v-else
-              :title="t('objectStorage.credentials.emptyTitle')"
-            />
-
-            <dl
-              class="mt-5 grid gap-4 border-y border-slate-200 py-4 sm:grid-cols-2"
-            >
-              <div>
-                <dt class="text-xs font-medium text-slate-400">
-                  {{ t('objectStorage.credentials.scopeLabel') }}
-                </dt>
-                <dd class="mt-1 text-sm font-semibold text-slate-900">
-                  {{
-                    t('objectStorage.credentials.scopeValue', {
-                      count: buckets.length
-                    })
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs font-medium text-slate-400">
-                  {{ t('objectStorage.credentials.secretPolicyLabel') }}
-                </dt>
-                <dd class="mt-1 text-sm font-semibold text-slate-900">
-                  {{ t('objectStorage.credentials.secretPolicyValue') }}
-                </dd>
-              </div>
-            </dl>
+                <div>
+                  <dt class="text-xs font-medium text-slate-400">
+                    {{ t('objectStorage.credentials.secretPolicyLabel') }}
+                  </dt>
+                  <dd class="mt-1 text-sm font-semibold text-slate-900">
+                    {{ t('objectStorage.credentials.secretPolicyValue') }}
+                  </dd>
+                </div>
+              </dl>
+            </template>
           </section>
 
           <section class="workspace-panel workspace-panel--padded">
@@ -116,52 +122,70 @@
               </div>
             </div>
 
-            <form
-              v-if="!secretMaterial"
-              class="mt-5 grid gap-4"
-              @submit.prevent="retrieveCredentials"
-            >
-              <label class="max-w-md space-y-2">
-                <span class="admin-filter-label">{{
-                  t('objectStorage.credentials.applicationIdLabel')
-                }}</span>
-                <select
-                  v-model="deliveryApplicationId"
-                  class="admin-filter-control"
-                  required
-                >
-                  <option value="" disabled>
-                    {{
-                      t('objectStorage.credentials.applicationIdPlaceholder')
-                    }}
-                  </option>
-                  <option
-                    v-for="application in deliveryApplications"
-                    :key="application.id"
-                    :value="String(application.id)"
-                  >
-                    {{
-                      t('objectStorage.credentials.deliveryOption', {
-                        id: application.id,
-                        date: formatDate(application.created_at)
-                      })
-                    }}
-                  </option>
-                </select>
-              </label>
-              <p class="text-xs leading-5 text-slate-500">
-                {{ t('objectStorage.credentials.applicationIdHelp') }}
-              </p>
-              <div>
-                <BaseButton
-                  type="submit"
-                  :loading="delivering"
-                  :disabled="!deliveryApplicationId"
-                >
-                  {{ t('objectStorage.credentials.retrieveAction') }}
-                </BaseButton>
+            <template v-if="!secretMaterial">
+              <PageErrorState
+                v-if="applicationsLoadError && !applicationsNotConfigured"
+                :message="t('objectStorage.errors.loadCredentials')"
+                @retry="loadApplicationsData"
+              />
+              <EmptyState
+                v-else-if="applicationsNotConfigured"
+                :title="t('objectStorage.notConfigured')"
+                :description="t('objectStorage.notConfiguredHint')"
+              />
+              <div
+                v-else-if="applicationsLoading"
+                class="mt-5 py-10 text-center text-sm text-slate-500"
+              >
+                {{ t('common.loading') }}
               </div>
-            </form>
+              <form
+                v-else
+                class="mt-5 grid gap-4"
+                @submit.prevent="retrieveCredentials"
+              >
+                <label class="max-w-md space-y-2">
+                  <span class="admin-filter-label">{{
+                    t('objectStorage.credentials.applicationIdLabel')
+                  }}</span>
+                  <select
+                    v-model="deliveryApplicationId"
+                    class="admin-filter-control"
+                    required
+                  >
+                    <option value="" disabled>
+                      {{
+                        t('objectStorage.credentials.applicationIdPlaceholder')
+                      }}
+                    </option>
+                    <option
+                      v-for="application in deliveryApplications"
+                      :key="application.id"
+                      :value="String(application.id)"
+                    >
+                      {{
+                        t('objectStorage.credentials.deliveryOption', {
+                          id: application.id,
+                          date: formatDate(application.created_at)
+                        })
+                      }}
+                    </option>
+                  </select>
+                </label>
+                <p class="text-xs leading-5 text-slate-500">
+                  {{ t('objectStorage.credentials.applicationIdHelp') }}
+                </p>
+                <div>
+                  <BaseButton
+                    type="submit"
+                    :loading="delivering"
+                    :disabled="!deliveryApplicationId"
+                  >
+                    {{ t('objectStorage.credentials.retrieveAction') }}
+                  </BaseButton>
+                </div>
+              </form>
+            </template>
 
             <section
               v-else
@@ -217,9 +241,22 @@
                     <input
                       :value="secretMaterial.secret_access_key"
                       class="admin-filter-control min-w-0 flex-1 font-mono"
+                      :type="showSecretMaterial ? 'text' : 'password'"
                       readonly
                       autocomplete="off"
                     />
+                    <BaseButton
+                      size="sm"
+                      variant="secondary"
+                      :aria-pressed="showSecretMaterial"
+                      @click="showSecretMaterial = !showSecretMaterial"
+                    >
+                      {{
+                        showSecretMaterial
+                          ? t('objectStorage.credentials.hideSecret')
+                          : t('objectStorage.credentials.showSecret')
+                      }}
+                    </BaseButton>
                     <BaseButton
                       size="sm"
                       variant="secondary"
@@ -246,7 +283,20 @@
             </div>
           </div>
 
-          <div v-if="loading" class="py-10 text-center text-sm text-slate-500">
+          <PageErrorState
+            v-if="rotationLoadError && !rotationNotConfigured"
+            :message="t('objectStorage.errors.loadCredentials')"
+            @retry="loadRotationData"
+          />
+          <EmptyState
+            v-else-if="rotationNotConfigured"
+            :title="t('objectStorage.notConfigured')"
+            :description="t('objectStorage.notConfiguredHint')"
+          />
+          <div
+            v-else-if="rotationLoading"
+            class="py-10 text-center text-sm text-slate-500"
+          >
             {{ t('common.loading') }}
           </div>
           <template v-else>
@@ -333,13 +383,15 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import objectStorageApi from '@/api/objectStorage'
+import objectStorageApi, {
+  isObjectStorageNotConfigured
+} from '@/api/objectStorage'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import ObjectStorageNav from '@/components/layout/ObjectStorageNav.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineAlert from '@/components/ui/InlineAlert.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import PageErrorState from '@/components/ui/PageErrorState.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useToast } from '@/composables/useToast'
 import { formatDateIsoLocale } from '@/utils/formatting'
@@ -350,13 +402,26 @@ const buckets = ref([])
 const credentials = ref([])
 const applications = ref([])
 const rotationPreview = ref(null)
-const loading = ref(false)
+const overviewLoading = ref(false)
+const applicationsLoading = ref(false)
+const rotationLoading = ref(false)
+const overviewLoadError = ref(false)
+const applicationsLoadError = ref(false)
+const rotationLoadError = ref(false)
+const overviewNotConfigured = ref(false)
+const applicationsNotConfigured = ref(false)
+const rotationNotConfigured = ref(false)
 const deliveryApplicationId = ref('')
 const delivering = ref(false)
 const secretMaterial = ref(null)
+const showSecretMaterial = ref(false)
 const rotationConfirmed = ref(false)
 const rotating = ref(false)
 const rotationApplication = ref(null)
+const loading = computed(
+  () =>
+    overviewLoading.value || applicationsLoading.value || rotationLoading.value
+)
 const deliveryApplications = computed(() =>
   applications.value.filter(
     (application) => application.status === 'delivery_ready'
@@ -384,6 +449,7 @@ function credentialStatus(credential) {
 
 function clearSecretMaterial() {
   secretMaterial.value = null
+  showSecretMaterial.value = false
 }
 
 async function copySecret(value) {
@@ -395,31 +461,86 @@ async function copySecret(value) {
   }
 }
 
-async function loadSafeData() {
-  loading.value = true
+async function loadOverviewData() {
+  overviewLoading.value = true
+  overviewLoadError.value = false
+  overviewNotConfigured.value = false
   try {
-    const [overview, preview, applicationRows] = await Promise.all([
-      objectStorageApi.getOverview(),
-      objectStorageApi.getRotationPreview(),
-      objectStorageApi.listApplications()
-    ])
+    const overview = await objectStorageApi.getOverview()
     buckets.value = Array.isArray(overview?.buckets) ? overview.buckets : []
     credentials.value = Array.isArray(overview?.credentials)
       ? overview.credentials
       : []
+    return true
+  } catch (error) {
+    buckets.value = []
+    credentials.value = []
+    overviewLoadError.value = true
+    overviewNotConfigured.value = isObjectStorageNotConfigured(error)
+    return false
+  } finally {
+    overviewLoading.value = false
+  }
+}
+
+async function loadApplicationsData() {
+  applicationsLoading.value = true
+  applicationsLoadError.value = false
+  applicationsNotConfigured.value = false
+  try {
+    const applicationRows = await objectStorageApi.listApplications()
     applications.value = Array.isArray(applicationRows) ? applicationRows : []
     if (!deliveryApplicationId.value && deliveryApplications.value.length) {
       deliveryApplicationId.value = String(deliveryApplications.value[0].id)
     }
-    rotationPreview.value = preview
-  } catch {
-    buckets.value = []
-    credentials.value = []
+    return true
+  } catch (error) {
     applications.value = []
-    rotationPreview.value = null
-    showError(t('objectStorage.errors.loadCredentials'))
+    deliveryApplicationId.value = ''
+    applicationsLoadError.value = true
+    applicationsNotConfigured.value = isObjectStorageNotConfigured(error)
+    return false
   } finally {
-    loading.value = false
+    applicationsLoading.value = false
+  }
+}
+
+async function loadRotationData() {
+  rotationLoading.value = true
+  rotationLoadError.value = false
+  rotationNotConfigured.value = false
+  try {
+    rotationPreview.value = await objectStorageApi.getRotationPreview()
+    return true
+  } catch (error) {
+    rotationPreview.value = null
+    rotationLoadError.value = true
+    rotationNotConfigured.value = isObjectStorageNotConfigured(error)
+    return false
+  } finally {
+    rotationLoading.value = false
+  }
+}
+
+async function loadSafeData() {
+  const results = await Promise.allSettled([
+    loadOverviewData(),
+    loadApplicationsData(),
+    loadRotationData()
+  ])
+  const loadStates = [
+    [results[0], overviewNotConfigured.value],
+    [results[1], applicationsNotConfigured.value],
+    [results[2], rotationNotConfigured.value]
+  ]
+  if (
+    loadStates.some(
+      ([result, isNotConfigured]) =>
+        result.status === 'rejected' ||
+        (result.value === false && !isNotConfigured)
+    )
+  ) {
+    showError(t('objectStorage.errors.loadCredentials'))
   }
 }
 
@@ -433,6 +554,7 @@ async function retrieveCredentials() {
     const token = delivery?.token
     if (!token) throw new Error('DELIVERY_TOKEN_UNAVAILABLE')
     secretMaterial.value = await objectStorageApi.deliverCredentials(token)
+    showSecretMaterial.value = false
     applications.value = applications.value.filter(
       (application) => String(application.id) !== String(applicationId)
     )

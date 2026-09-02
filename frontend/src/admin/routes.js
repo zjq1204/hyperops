@@ -31,6 +31,24 @@ export const adminRoutes = [
     component: () => import('@/admin/pages/Management/Ldap.vue'),
     meta: { requiresAuth: true, requiredFeature: 'admin_users' }
   },
+  {
+    path: '/management/authentication',
+    name: 'AdminAuthentication',
+    component: () => import('@/admin/pages/Management/Authentication.vue'),
+    meta: { requiresAuth: true, requiredFeature: 'admin_users' }
+  },
+  {
+    path: '/management/authentication/feishu',
+    name: 'AdminFeishuAuthentication',
+    component: () =>
+      import('@/admin/pages/Management/FeishuAuthentication.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
   // Jenkins Admin
   {
     path: '/management/jenkins',
@@ -319,9 +337,9 @@ export const adminRoutes = [
     }
   },
   {
-    path: '/management/object-storage/enterprise-access',
-    name: 'AdminObjectStorageEnterpriseAccess',
-    component: () => import('@/admin/pages/ObjectStorage/EnterpriseAccess.vue'),
+    path: '/management/object-storage/settings',
+    name: 'AdminObjectStorageSettings',
+    component: () => import('@/admin/pages/ObjectStorage/StorageSettings.vue'),
     meta: {
       requiresAuth: true,
       requiresSuperuser: true,
@@ -330,9 +348,9 @@ export const adminRoutes = [
     }
   },
   {
-    path: '/management/object-storage/resources',
-    name: 'AdminObjectStorageResources',
-    component: () => import('@/admin/pages/ObjectStorage/Resources.vue'),
+    path: '/management/object-storage/buckets',
+    name: 'AdminObjectStorageBuckets',
+    component: () => import('@/admin/pages/ObjectStorage/Buckets.vue'),
     meta: {
       requiresAuth: true,
       requiresSuperuser: true,
@@ -341,9 +359,20 @@ export const adminRoutes = [
     }
   },
   {
-    path: '/management/object-storage/tasks',
-    name: 'AdminObjectStorageTasks',
-    component: () => import('@/admin/pages/ObjectStorage/Tasks.vue'),
+    path: '/management/object-storage/access-keys',
+    name: 'AdminObjectStorageAccessKeys',
+    component: () => import('@/admin/pages/ObjectStorage/AccessKeys.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresSuperuser: true,
+      requiredFeature: 'admin_object_storage',
+      requiresModuleFlag: 'enable_object_storage'
+    }
+  },
+  {
+    path: '/management/object-storage/applications',
+    name: 'AdminObjectStorageApplications',
+    component: () => import('@/admin/pages/ObjectStorage/Applications.vue'),
     meta: {
       requiresAuth: true,
       requiresSuperuser: true,

@@ -11,27 +11,26 @@
         <BaseButton variant="secondary" :loading="loading" @click="loadData">
           {{ t('common.refresh') }}
         </BaseButton>
-        <BaseButton @click="goToBuckets">
+        <BaseButton v-if="!notConfigured" @click="goToBuckets">
           {{ t('objectStorage.actions.addBucket') }}
         </BaseButton>
       </template>
 
-      <ObjectStorageNav />
+      <PageErrorState
+        v-if="loadError && !notConfigured"
+        :message="t('objectStorage.errors.loadOverview')"
+        @retry="loadData"
+      />
+      <EmptyState
+        v-else-if="notConfigured"
+        :title="t('objectStorage.notConfigured')"
+        :description="t('objectStorage.notConfiguredHint')"
+      />
 
-      <InlineAlert
-        v-if="loadError"
-        variant="error"
-        :title="t('objectStorage.errors.loadBucketsTitle')"
-        :message="t('objectStorage.errors.loadBuckets')"
+      <section
+        v-if="!loadError && !notConfigured"
+        class="grid gap-4 md:grid-cols-3"
       >
-        <template #actions>
-          <BaseButton size="sm" variant="secondary" @click="loadData">
-            {{ t('common.tryAgain') }}
-          </BaseButton>
-        </template>
-      </InlineAlert>
-
-      <section class="grid gap-4 md:grid-cols-3">
         <BaseCard shadow="none" class="border border-slate-200">
           <div class="flex items-start justify-between gap-4">
             <div>
@@ -146,6 +145,7 @@
       </section>
 
       <section
+        v-if="!loadError && !notConfigured"
         class="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]"
       >
         <section class="workspace-panel workspace-panel--padded">
@@ -191,7 +191,11 @@
               <StatusBadge :status="bucketStatus(bucket.state)" />
             </article>
           </div>
-          <EmptyState v-else :title="t('objectStorage.overview.noBuckets')">
+          <EmptyState
+            v-else
+            :title="t('objectStorage.overview.noBuckets')"
+            :description="t('objectStorage.overview.noBucketsHint')"
+          >
             <template #actions>
               <BaseButton size="sm" @click="goToBuckets">
                 {{ t('objectStorage.actions.addFirstBucket') }}
@@ -238,7 +242,10 @@
         </section>
       </section>
 
-      <section class="mt-5 workspace-panel workspace-panel--padded">
+      <section
+        v-if="!loadError && !notConfigured"
+        class="mt-5 workspace-panel workspace-panel--padded"
+      >
         <div class="section-heading">
           <div>
             <h2 class="section-title">
@@ -278,6 +285,7 @@
         <EmptyState
           v-else
           :title="t('objectStorage.applications.emptyTitle')"
+          :description="t('objectStorage.applications.emptyHint')"
         />
       </section>
     </PageFrame>
@@ -288,14 +296,15 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import objectStorageApi from '@/api/objectStorage'
+import objectStorageApi, {
+  isObjectStorageNotConfigured
+} from '@/api/objectStorage'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import ObjectStorageNav from '@/components/layout/ObjectStorageNav.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseCard from '@/components/ui/BaseCard.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import InlineAlert from '@/components/ui/InlineAlert.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import PageErrorState from '@/components/ui/PageErrorState.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatDateIsoLocale } from '@/utils/formatting'
 
@@ -310,6 +319,7 @@ const overview = reactive({
 })
 const loading = ref(false)
 const loadError = ref(false)
+const notConfigured = ref(false)
 
 const buckets = computed(() => overview.buckets)
 const recentBuckets = computed(() => buckets.value.slice(0, 3))
@@ -377,6 +387,7 @@ function goToBuckets() {
 async function loadData() {
   loading.value = true
   loadError.value = false
+  notConfigured.value = false
   try {
     const payload = await objectStorageApi.getOverview()
     Object.assign(overview, {
@@ -390,8 +401,9 @@ async function loadData() {
         ? payload.applications
         : []
     })
-  } catch {
+  } catch (error) {
     loadError.value = true
+    notConfigured.value = isObjectStorageNotConfigured(error)
     Object.assign(overview, {
       quota: { used: 0, limit: 0 },
       cloud_identity: null,

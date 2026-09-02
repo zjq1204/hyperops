@@ -32,6 +32,13 @@ function mutationConfig() {
   }
 }
 
+export function isObjectStorageNotConfigured(error) {
+  return (
+    error?.code === 'OBJECT_STORAGE_NOT_CONFIGURED' ||
+    error?.response?.data?.data?.error_code === 'OBJECT_STORAGE_NOT_CONFIGURED'
+  )
+}
+
 export const objectStorageReadCapabilities = Object.freeze({
   overview: true,
   applicationList: true,

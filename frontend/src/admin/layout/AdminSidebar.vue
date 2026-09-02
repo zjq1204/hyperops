@@ -232,11 +232,11 @@ const allNavSections = computed(() => [
         ]
       },
       {
-        path: '/management/ldap',
-        label: t('adminNav.ldap'),
+        path: '/management/authentication',
+        label: t('adminNav.authentication'),
         iconPaths: [
-          'M4 7a3 3 0 013-3h3v3a3 3 0 11-6 0zm10-3h3a3 3 0 110 6h-3V4zM4 17a3 3 0 003 3h3v-3a3 3 0 10-6 0zm10 3h3a3 3 0 100-6h-3v6z',
-          'M10 7h4M10 17h4M12 9v6'
+          'M12 3a4 4 0 014 4v2h1a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7a2 2 0 012-2h1V7a4 4 0 014-4z',
+          'M9 11h6M9 15h4'
         ]
       }
     ]
@@ -474,19 +474,24 @@ const allNavSections = computed(() => [
         iconPaths: ['M4 13a8 8 0 0116 0', 'M12 13l3-3', 'M5 19h14']
       },
       {
-        path: '/management/object-storage/enterprise-access',
-        label: t('adminNav.objectStorageEnterpriseAccess'),
+        path: '/management/object-storage/settings',
+        label: t('adminNav.objectStorageSettings'),
         iconPaths: ['M4 5h16v14H4z', 'M8 9h8', 'M8 13h5']
       },
       {
-        path: '/management/object-storage/resources',
-        label: t('adminNav.objectStorageResources'),
+        path: '/management/object-storage/buckets',
+        label: t('adminNav.objectStorageBuckets'),
         iconPaths: ['M4 6h16v12H4z', 'M8 10h8', 'M8 14h5']
       },
       {
-        path: '/management/object-storage/tasks',
-        label: t('adminNav.objectStorageTasks'),
+        path: '/management/object-storage/access-keys',
+        label: t('adminNav.objectStorageAccessKeys'),
         iconPaths: ['M6 4h12v16H6z', 'M9 8h6', 'M9 12h6', 'M9 16h4']
+      },
+      {
+        path: '/management/object-storage/applications',
+        label: t('adminNav.objectStorageApplications'),
+        iconPaths: ['M5 4h14v16H5z', 'M8 8h8', 'M8 12h5', 'M8 16h8']
       },
       {
         path: '/management/object-storage/audit',
@@ -513,14 +518,30 @@ const navSections = computed(() =>
     })
     .map((section) => ({
       ...section,
-      items: section.items.filter(
-        (item) =>
+      items: section.items.filter((item) => {
+        if (item.requiresSuperuser && !currentUser.value?.is_superuser) {
+          return false
+        }
+        if (
+          item.requiredModuleFlag &&
+          !userStore.hasModuleFlag(item.requiredModuleFlag)
+        ) {
+          return false
+        }
+        if (
+          item.requiredFeature &&
+          !hasFeature(currentUser.value, item.requiredFeature)
+        ) {
+          return false
+        }
+        return (
           !item.requiredOperationPermission ||
           hasOperationPermission(
             currentUser.value,
             item.requiredOperationPermission
           )
-      )
+        )
+      })
     }))
     .filter((section) => section.items.length)
 )

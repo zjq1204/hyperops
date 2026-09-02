@@ -1,21 +1,11 @@
 import apiClient from '@/api/index'
 import { extractResponseData } from '@/utils/api'
 
-const managementEndpoint = '/v1/object-storage/management'
+const endpoint = '/v1/object-storage/management'
 
 function normalizeList(payload) {
   if (Array.isArray(payload)) return payload
-  if (payload && Array.isArray(payload.results)) return payload.results
-  return []
-}
-
-function createIdempotencyKey() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
-  return `admin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-}
-
-function mutationConfig() {
-  return { headers: { 'Idempotency-Key': createIdempotencyKey() } }
+  return Array.isArray(payload?.results) ? payload.results : []
 }
 
 function read(request) {
@@ -26,172 +16,162 @@ function readList(request) {
   return read(request).then(normalizeList)
 }
 
+function idempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `admin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function mutationConfig({ noStore = false } = {}) {
+  const headers = { 'Idempotency-Key': idempotencyKey() }
+  if (noStore) headers['Cache-Control'] = 'no-store'
+  return { headers }
+}
+
+function action(path, body = {}, options = {}) {
+  return read(apiClient.post(`${endpoint}/${path}/`, body, mutationConfig(options)))
+}
+
 export const objectStorageAdminApi = {
-  listTenants() {
-    return readList(apiClient.get(`${managementEndpoint}/tenants/`))
+  getSettings() {
+    return read(apiClient.get(`${endpoint}/settings/`))
   },
-  createTenant(body) {
+  updateSettings(body) {
+    return read(apiClient.patch(`${endpoint}/settings/`, body, mutationConfig()))
+  },
+  listAccessGroups() {
+    return readList(apiClient.get(`${endpoint}/access-groups/`))
+  },
+  getFeishu() {
+    return read(apiClient.get(`${endpoint}/feishu-settings/`))
+  },
+  saveFeishu(body) {
     return read(
-      apiClient.post(`${managementEndpoint}/tenants/`, body, mutationConfig())
+      apiClient.patch(`${endpoint}/feishu-settings/`, body, mutationConfig())
     )
   },
-  updateTenant(tenantId, body) {
-    return read(
-      apiClient.patch(
-        `${managementEndpoint}/tenants/${tenantId}/`,
-        body,
-        mutationConfig()
-      )
-    )
+  validateFeishu() {
+    return action('feishu-settings/validate')
   },
-  getFeishu(tenantId) {
-    return read(
-      apiClient.get(`${managementEndpoint}/tenants/${tenantId}/feishu/`)
-    )
+  listResourcePools() {
+    return readList(apiClient.get(`${endpoint}/resource-pools/`))
   },
-  saveFeishu(tenantId, body) {
+  createResourcePool(body) {
     return read(
-      apiClient.put(
-        `${managementEndpoint}/tenants/${tenantId}/feishu/`,
-        body,
-        mutationConfig()
-      )
-    )
-  },
-  validateFeishu(tenantId) {
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/tenants/${tenantId}/feishu/validate/`,
-        {},
-        mutationConfig()
-      )
-    )
-  },
-  listResourcePools(tenantId) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/tenants/${tenantId}/resource-pools/`)
-    )
-  },
-  createResourcePool(tenantId, body) {
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/tenants/${tenantId}/resource-pools/`,
-        body,
-        mutationConfig()
-      )
+      apiClient.post(`${endpoint}/resource-pools/`, body, mutationConfig())
     )
   },
   updateResourcePool(poolId, body) {
     return read(
       apiClient.patch(
-        `${managementEndpoint}/resource-pools/${poolId}/`,
+        `${endpoint}/resource-pools/${poolId}/`,
         body,
         mutationConfig()
       )
     )
   },
   validateResourcePool(poolId) {
+    return action(`resource-pools/${poolId}/validate`)
+  },
+  listUserQuotas() {
+    return readList(apiClient.get(`${endpoint}/user-quotas/`))
+  },
+  getUserQuota(userId) {
+    return read(apiClient.get(`${endpoint}/user-quotas/${userId}/`))
+  },
+  updateUserQuota(userId, body) {
     return read(
-      apiClient.post(
-        `${managementEndpoint}/resource-pools/${poolId}/validate/`,
-        {},
+      apiClient.patch(
+        `${endpoint}/user-quotas/${userId}/`,
+        body,
         mutationConfig()
       )
     )
   },
-  listMembers(tenantId) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/members/`, {
-        params: { tenant_id: tenantId }
-      })
-    )
+  listCloudIdentities() {
+    return readList(apiClient.get(`${endpoint}/cloud-identities/`))
   },
-  listCloudIdentities(tenantId) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/cloud-identities/`, {
-        params: { tenant_id: tenantId }
-      })
-    )
+  getCloudIdentity(identityId) {
+    return read(apiClient.get(`${endpoint}/cloud-identities/${identityId}/`))
   },
-  listBuckets(tenantId) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/buckets/`, {
-        params: { tenant_id: tenantId }
-      })
-    )
+  listBuckets() {
+    return readList(apiClient.get(`${endpoint}/buckets/`))
   },
-  listAccessKeys(tenantId) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/access-keys/`, {
-        params: { tenant_id: tenantId }
-      })
-    )
+  getBucket(bucketId) {
+    return read(apiClient.get(`${endpoint}/buckets/${bucketId}/`))
   },
-  listApplications(tenantId) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/applications/`, {
-        params: { tenant_id: tenantId }
-      })
-    )
+  releaseBucket(bucketId, body) {
+    return action(`buckets/${bucketId}/release`, body)
   },
-  getApplication(applicationId) {
+  recoverBucket(bucketId, body) {
+    return action(`buckets/${bucketId}/recover`, body)
+  },
+  deleteBucket(bucketId, body) {
+    return action(`buckets/${bucketId}/delete`, body)
+  },
+  retryDeleteBucket(bucketId, body) {
+    return action(`buckets/${bucketId}/retry-delete`, body)
+  },
+  updateBucketConfiguration(bucketId, body) {
     return read(
-      apiClient.get(`${managementEndpoint}/applications/${applicationId}/`)
-    )
-  },
-  retryApplication(applicationId, reason) {
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/applications/${applicationId}/retry/`,
-        { reason },
+      apiClient.patch(
+        `${endpoint}/buckets/${bucketId}/configuration/`,
+        body,
         mutationConfig()
       )
     )
   },
-  resolveApplication(applicationId, reason) {
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/applications/${applicationId}/resolve/`,
-        { reason },
-        mutationConfig()
-      )
-    )
+  retryBucketConfiguration(bucketId, body) {
+    return action(`buckets/${bucketId}/configuration/retry`, body)
+  },
+  observeBucketUncertainty(bucketId, body) {
+    return action(`buckets/${bucketId}/uncertainty/observe`, body)
+  },
+  acknowledgeBucketUncertainty(bucketId, body) {
+    return action(`buckets/${bucketId}/uncertainty/acknowledge`, body)
+  },
+  listAccessKeys() {
+    return readList(apiClient.get(`${endpoint}/access-keys/`))
+  },
+  getAccessKey(keyId) {
+    return read(apiClient.get(`${endpoint}/access-keys/${keyId}/`))
+  },
+  disableAccessKey(keyId, body) {
+    return action(`access-keys/${keyId}/disable`, body)
+  },
+  enableAccessKey(keyId, body) {
+    return action(`access-keys/${keyId}/enable`, body)
+  },
+  rotateAccessKey(keyId, body) {
+    return action(`access-keys/${keyId}/rotate`, body)
+  },
+  revokeAccessKey(keyId, body) {
+    return action(`access-keys/${keyId}/revoke`, body)
   },
   revealAccessKey(keyId, reason) {
-    const config = mutationConfig()
-    config.headers['Cache-Control'] = 'no-store'
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/access-keys/${keyId}/reveal/`,
-        { reason },
-        config
-      )
-    )
+    return action(`access-keys/${keyId}/reveal`, { reason }, { noStore: true })
   },
-  suspendMember(memberId, reason) {
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/members/${memberId}/suspend/`,
-        { reason },
-        mutationConfig()
-      )
-    )
+  listApplications() {
+    return readList(apiClient.get(`${endpoint}/applications/`))
   },
-  reactivateMember(memberId, reason) {
-    return read(
-      apiClient.post(
-        `${managementEndpoint}/members/${memberId}/reactivate/`,
-        { reason },
-        mutationConfig()
-      )
-    )
+  getApplication(applicationId) {
+    return read(apiClient.get(`${endpoint}/applications/${applicationId}/`))
+  },
+  retryApplication(applicationId, reason) {
+    return action(`applications/${applicationId}/retry`, { reason })
   },
   listAuditEvents(params = {}) {
-    return readList(
-      apiClient.get(`${managementEndpoint}/audit-events/`, { params })
-    )
+    return readList(apiClient.get(`${endpoint}/audit-events/`, { params }))
+  },
+  getAuditEvent(eventId) {
+    return read(apiClient.get(`${endpoint}/audit-events/${eventId}/`))
+  },
+  suspendUser(userId, reason) {
+    return action(`users/${userId}/suspend`, { reason })
+  },
+  reactivateUser(userId, reason) {
+    return action(`users/${userId}/reactivate`, { reason })
   }
 }
 
-export { createIdempotencyKey }
+export { idempotencyKey as createIdempotencyKey }
 export default objectStorageAdminApi

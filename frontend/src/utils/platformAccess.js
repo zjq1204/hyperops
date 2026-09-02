@@ -22,7 +22,7 @@ export const FEATURE_DEFINITIONS = [
   },
   {
     key: 'object_storage',
-    label: 'Object Storage',
+    label: '对象存储',
     defaultPath: '/object-storage/overview',
     platform: 'workspace',
     parentKey: 'workspace'
@@ -71,7 +71,7 @@ export const FEATURE_DEFINITIONS = [
   },
   {
     key: 'admin_object_storage',
-    label: 'Object Storage Administration',
+    label: '对象存储管理',
     defaultPath: '/management/object-storage/overview',
     platform: 'admin_console',
     parentKey: 'admin_console'
@@ -113,7 +113,8 @@ const FEATURE_ALIASES = {
     'admin_gitlab',
     'admin_notifications',
     'admin_actions',
-    'admin_monitoring'
+    'admin_monitoring',
+    'admin_object_storage'
   ],
   jenkins: ['workspace_dashboard', 'workspace_jenkins'],
   gitlab: ['workspace_dashboard', 'workspace_jenkins'],
@@ -129,7 +130,8 @@ const FEATURE_ALIASES = {
     'admin_gitlab',
     'admin_notifications',
     'admin_actions',
-    'admin_monitoring'
+    'admin_monitoring',
+    'admin_object_storage'
   ],
   gitlab_admin: [
     'admin_users',
@@ -137,7 +139,8 @@ const FEATURE_ALIASES = {
     'admin_gitlab',
     'admin_notifications',
     'admin_actions',
-    'admin_monitoring'
+    'admin_monitoring',
+    'admin_object_storage'
   ],
   llm_console: [
     'admin_users',
@@ -145,7 +148,8 @@ const FEATURE_ALIASES = {
     'admin_gitlab',
     'admin_notifications',
     'admin_actions',
-    'admin_monitoring'
+    'admin_monitoring',
+    'admin_object_storage'
   ],
   task_management_console: [
     'admin_users',
@@ -153,7 +157,8 @@ const FEATURE_ALIASES = {
     'admin_gitlab',
     'admin_notifications',
     'admin_actions',
-    'admin_monitoring'
+    'admin_monitoring',
+    'admin_object_storage'
   ],
   notification_console: [
     'admin_users',
@@ -161,7 +166,8 @@ const FEATURE_ALIASES = {
     'admin_gitlab',
     'admin_notifications',
     'admin_actions',
-    'admin_monitoring'
+    'admin_monitoring',
+    'admin_object_storage'
   ]
 }
 

@@ -16,17 +16,8 @@
         </BaseButton>
       </template>
 
-      <ObjectStorageNav />
-
-      <InlineAlert
-        v-if="loadError"
-        variant="error"
-        :title="t('objectStorage.applications.loadErrorTitle')"
-        :message="t('objectStorage.applications.loadErrorMessage')"
-      />
-
       <section
-        class="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]"
+        class="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]"
       >
         <section class="workspace-panel workspace-panel--padded">
           <div class="section-heading">
@@ -50,6 +41,18 @@
           <div v-if="loading" class="py-12 text-center text-sm text-slate-500">
             {{ t('common.loading') }}
           </div>
+
+          <PageErrorState
+            v-else-if="loadError && !notConfigured"
+            :message="t('objectStorage.applications.loadErrorMessage')"
+            @retry="loadApplications"
+          />
+
+          <EmptyState
+            v-else-if="notConfigured"
+            :title="t('objectStorage.notConfigured')"
+            :description="t('objectStorage.notConfiguredHint')"
+          />
 
           <div
             v-else-if="applications.length"
@@ -184,10 +187,14 @@
           <EmptyState
             v-else
             :title="t('objectStorage.applications.emptyTitle')"
+            :description="t('objectStorage.applications.emptyHint')"
           />
         </section>
 
-        <section class="workspace-panel workspace-panel--padded self-start">
+        <section
+          v-if="!notConfigured"
+          class="workspace-panel workspace-panel--padded self-start"
+        >
           <div class="section-heading">
             <div>
               <h2 class="section-title">
@@ -220,13 +227,15 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import objectStorageApi from '@/api/objectStorage'
+import objectStorageApi, {
+  isObjectStorageNotConfigured
+} from '@/api/objectStorage'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import ObjectStorageNav from '@/components/layout/ObjectStorageNav.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineAlert from '@/components/ui/InlineAlert.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import PageErrorState from '@/components/ui/PageErrorState.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useToast } from '@/composables/useToast'
 import { formatDateIsoLocale } from '@/utils/formatting'
@@ -236,6 +245,7 @@ const { showSuccess, showError } = useToast()
 const applications = ref([])
 const loading = ref(false)
 const loadError = ref(false)
+const notConfigured = ref(false)
 const expandedId = ref(null)
 const selectedDetail = ref(null)
 const detailLoading = ref(false)
@@ -274,11 +284,13 @@ function isRetryable(application) {
 async function loadApplications() {
   loading.value = true
   loadError.value = false
+  notConfigured.value = false
   try {
     applications.value = await objectStorageApi.listApplications()
-  } catch {
+  } catch (error) {
     applications.value = []
     loadError.value = true
+    notConfigured.value = isObjectStorageNotConfigured(error)
   } finally {
     loading.value = false
   }

@@ -146,6 +146,19 @@
     font-family: inherit;
   }
 
+  .object-storage-page .page-eyebrow {
+    display: inline-flex !important;
+  }
+
+  .object-storage-page .page-subtitle,
+  .object-storage-page .section-copy {
+    display: block !important;
+  }
+
+  .object-storage-page .admin-filter-label {
+    @apply ml-0 text-[11px] tracking-[0.12em] text-slate-600;
+  }
+
   .workspace-entry-list {
     @apply divide-y divide-slate-200/70;
   }

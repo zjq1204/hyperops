@@ -1598,7 +1598,8 @@
   },
   "objectStorage": {
     "title": "Object Storage",
-    "notConfigured": "Object storage access is not configured yet.",
+    "notConfigured": "Object storage is not configured yet",
+    "notConfiguredHint": "This account does not have an available object storage tenant or membership yet. Contact an administrator to finish the setup.",
     "nav": {
       "label": "Object storage workspace navigation"
     },
@@ -1634,6 +1635,7 @@
       "myBuckets": "My buckets",
       "myBucketsHint": "Only resources owned by the current account are shown.",
       "noBuckets": "No buckets requested yet",
+      "noBucketsHint": "Submitted and completed bucket applications will appear here.",
       "quickActions": "Common actions",
       "quickActionsHint": "Go directly to the relevant resource page.",
       "latestApplications": "Latest applications",
@@ -1689,6 +1691,7 @@
       "sharedScopeMessage": "This account owns {count} bucket(s), all using the same RAM-user credentials. Adding a bucket does not modify existing buckets or rotate the keys.",
       "summaryTitle": "Safe summary",
       "emptyTitle": "No access credentials",
+      "emptyHint": "Credentials appear here after an application completes successfully.",
       "summaryHint": "Only safe metadata such as last four characters, status, and creation time is shown.",
       "scopeLabel": "Authorisation scope",
       "scopeValue": "{count} bucket(s) owned by this account",
@@ -1707,6 +1710,8 @@
       "accessKeyId": "AccessKey ID",
       "secretAccessKey": "AccessKey Secret",
       "clearAction": "Clear display",
+      "showSecret": "Show secret",
+      "hideSecret": "Hide secret",
       "rotationTitle": "Rotate credentials",
       "rotationHint": "Create a new key. If two keys already exist, the platform removes the oldest one first.",
       "rotationCandidate": "Will be replaced",
@@ -1726,6 +1731,7 @@
       "historyHint": "Newest first, with compact status and clear next actions.",
       "count": "{count} total",
       "emptyTitle": "No applications yet",
+      "emptyHint": "Application history will appear here after you submit a bucket or credential operation.",
       "loadErrorTitle": "Applications are temporarily unavailable",
       "loadErrorMessage": "Your applications could not be loaded. Try again shortly.",
       "detailErrorTitle": "Execution details are temporarily unavailable",
@@ -1780,6 +1786,7 @@
       "APPLICATION_EXECUTION_FAILED": "The application failed. Retry or contact an administrator."
     },
     "errors": {
+      "loadOverview": "The resource overview is temporarily unavailable. Try again shortly.",
       "loadBucketsTitle": "Buckets are temporarily unavailable",
       "loadBuckets": "Your buckets could not be loaded. Try again shortly.",
       "submitApplication": "The application could not be submitted. Check the values and try again.",

@@ -1610,7 +1610,8 @@
   },
   "objectStorage": {
     "title": "对象存储",
-    "notConfigured": "对象存储接入尚未配置。",
+    "notConfigured": "对象存储暂未配置",
+    "notConfiguredHint": "当前账号还没有可用的对象存储租户或成员权限，请联系管理员完成配置。",
     "nav": {
       "label": "对象存储工作区导航"
     },
@@ -1646,6 +1647,7 @@
       "myBuckets": "我的 Bucket",
       "myBucketsHint": "这里只展示当前账号拥有的资源。",
       "noBuckets": "暂未申请 Bucket",
+      "noBucketsHint": "提交申请并执行成功后，Bucket 会显示在这里。",
       "quickActions": "常用操作",
       "quickActionsHint": "直接进入对应的资源管理页面。",
       "latestApplications": "最近申请",
@@ -1701,6 +1703,7 @@
       "sharedScopeMessage": "当前账号拥有 {count} 个 Bucket，它们使用同一组 RAM 用户访问凭据。新增 Bucket 不会修改已有 Bucket 或自动更换密钥。",
       "summaryTitle": "安全摘要",
       "emptyTitle": "暂无访问凭据",
+      "emptyHint": "完成一次申请并执行成功后，凭据会显示在这里。",
       "summaryHint": "这里只展示末四位、状态和创建时间等安全元数据。",
       "scopeLabel": "授权范围",
       "scopeValue": "当前账号的 {count} 个 Bucket",
@@ -1719,6 +1722,8 @@
       "accessKeyId": "AccessKey ID",
       "secretAccessKey": "AccessKey Secret",
       "clearAction": "清除显示",
+      "showSecret": "显示 Secret",
+      "hideSecret": "隐藏 Secret",
       "rotationTitle": "轮换凭据",
       "rotationHint": "创建新密钥；当已有两组时，平台会先移除最早的一组。",
       "rotationCandidate": "本次将被替换",
@@ -1738,6 +1743,7 @@
       "historyHint": "按最新提交时间排序，展示精简状态和可处理事项。",
       "count": "共 {count} 条",
       "emptyTitle": "暂无申请记录",
+      "emptyHint": "提交 Bucket 或凭据操作后，处理记录会显示在这里。",
       "loadErrorTitle": "申请记录暂时无法加载",
       "loadErrorMessage": "未能读取当前账号的申请记录，请稍后重试。",
       "detailErrorTitle": "执行详情暂时无法加载",
@@ -1792,6 +1798,7 @@
       "APPLICATION_EXECUTION_FAILED": "申请执行失败，请重试或联系管理员。"
     },
     "errors": {
+      "loadOverview": "资源概览暂时无法读取，请稍后重试。",
       "loadBucketsTitle": "Bucket 暂时无法加载",
       "loadBuckets": "未能读取当前账号的 Bucket，请稍后重试。",
       "submitApplication": "申请提交失败，请检查内容后重试。",

@@ -4,6 +4,12 @@
       <slot name="icon" />
     </div>
     <h3 class="text-xl font-semibold text-slate-900">{{ title }}</h3>
+    <p
+      v-if="description"
+      class="empty-state__description mt-2 max-w-md text-sm leading-6 text-slate-500"
+    >
+      {{ description }}
+    </p>
     <div v-if="$slots.actions" class="mt-6 flex flex-wrap justify-center gap-3">
       <slot name="actions" />
     </div>

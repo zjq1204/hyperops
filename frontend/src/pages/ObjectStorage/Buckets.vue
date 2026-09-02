@@ -10,7 +10,7 @@
         <BaseButton variant="secondary" :loading="loading" @click="loadBuckets">
           {{ t('common.refresh') }}
         </BaseButton>
-        <BaseButton @click="toggleCreateForm">
+        <BaseButton v-if="!notConfigured" @click="toggleCreateForm">
           {{
             showCreateForm
               ? t('common.close')
@@ -18,8 +18,6 @@
           }}
         </BaseButton>
       </template>
-
-      <ObjectStorageNav />
 
       <section
         v-if="showCreateForm"
@@ -139,14 +137,6 @@
         </template>
       </InlineAlert>
 
-      <InlineAlert
-        v-if="loadError"
-        class="mb-5"
-        variant="error"
-        :title="t('objectStorage.errors.loadBucketsTitle')"
-        :message="t('objectStorage.errors.loadBuckets')"
-      />
-
       <section class="workspace-panel workspace-panel--padded">
         <div class="section-heading">
           <div>
@@ -165,6 +155,18 @@
         <div v-if="loading" class="py-12 text-center text-sm text-slate-500">
           {{ t('common.loading') }}
         </div>
+
+        <PageErrorState
+          v-else-if="loadError && !notConfigured"
+          :message="t('objectStorage.errors.loadBuckets')"
+          @retry="loadBuckets"
+        />
+
+        <EmptyState
+          v-else-if="notConfigured"
+          :title="t('objectStorage.notConfigured')"
+          :description="t('objectStorage.notConfiguredHint')"
+        />
 
         <div
           v-else-if="buckets.length"
@@ -280,7 +282,11 @@
           </article>
         </div>
 
-        <EmptyState v-else :title="t('objectStorage.buckets.emptyTitle')">
+        <EmptyState
+          v-else
+          :title="t('objectStorage.buckets.emptyTitle')"
+          :description="t('objectStorage.buckets.emptyHint')"
+        >
           <template #actions>
             <BaseButton size="sm" @click="openCreateForm">
               {{ t('objectStorage.actions.addFirstBucket') }}
@@ -295,13 +301,15 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import objectStorageApi from '@/api/objectStorage'
+import objectStorageApi, {
+  isObjectStorageNotConfigured
+} from '@/api/objectStorage'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import ObjectStorageNav from '@/components/layout/ObjectStorageNav.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineAlert from '@/components/ui/InlineAlert.vue'
 import PageFrame from '@/components/ui/PageFrame.vue'
+import PageErrorState from '@/components/ui/PageErrorState.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useToast } from '@/composables/useToast'
 
@@ -310,6 +318,7 @@ const { showSuccess, showError } = useToast()
 const buckets = ref([])
 const loading = ref(false)
 const loadError = ref(false)
+const notConfigured = ref(false)
 const showCreateForm = ref(false)
 const submitting = ref(false)
 const submittedApplication = ref(null)
@@ -377,11 +386,14 @@ function closeRelease() {
 async function loadBuckets() {
   loading.value = true
   loadError.value = false
+  notConfigured.value = false
   try {
     buckets.value = await objectStorageApi.listBuckets()
-  } catch {
+  } catch (error) {
     buckets.value = []
     loadError.value = true
+    notConfigured.value = isObjectStorageNotConfigured(error)
+    showCreateForm.value = false
   } finally {
     loading.value = false
   }

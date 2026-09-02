@@ -34,3 +34,16 @@ test('object storage management navigation requires a superuser', () => {
     /section\.requiresSuperuser\s*&&\s*!currentUser\.value\?\.is_superuser/
   )
 })
+
+test('admin console access includes object storage management by default', () => {
+  const access = fs.readFileSync(
+    new URL('../../src/utils/platformAccess.js', import.meta.url),
+    'utf8'
+  )
+
+  const aliasStart = access.indexOf('admin_console: [')
+  const aliasEnd = access.indexOf('\n  ],', aliasStart)
+  const alias = access.slice(aliasStart, aliasEnd)
+
+  assert.match(alias, /admin_object_storage/)
+})
