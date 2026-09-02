@@ -252,7 +252,9 @@ async function loadFeishuSources() {
   try {
     feishuSources.value = [await objectStorageAdminApi.getFeishu()]
   } catch {
-    feishuSources.value = []
+    // Keep the setup entry visible when the singleton is not configured yet
+    // or the first read is temporarily unavailable.
+    feishuSources.value = [null]
   }
 }
 

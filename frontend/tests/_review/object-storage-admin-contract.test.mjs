@@ -65,5 +65,6 @@ test('authentication pages use the platform-wide Feishu contract', () => {
   assert.match(authentication, /getFeishu\(\)/)
   assert.match(feishu, /saveFeishu\(body\)/)
   assert.match(feishu, /validateFeishu\(\)/)
+  assert.match(authentication, /feishuSources\.value = \[null\]/)
   assert.doesNotMatch(combined, /listTenants|tenantId|query:\s*\{\s*tenant/)
 })
