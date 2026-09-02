@@ -657,7 +657,11 @@ def test_bucket_configuration_reconciliation_records_observation_without_unfreez
     assert reconciled.config_state == Bucket.ConfigurationState.UNKNOWN
     assert reconciled.applied_config_snapshot == {}
     assert reconciled.configuration_operation_token == "frozen-config-token"
-    assert reconciled.configuration_observed_snapshot == desired
+    assert reconciled.configuration_observed_snapshot["payload"] == desired
+    assert (
+        reconciled.configuration_observed_snapshot["operation_type"] == "configuration"
+    )
+    assert "frozen-config-token" not in str(reconciled.configuration_observed_snapshot)
     assert AuditEvent.objects.filter(
         action="storage.bucket.configuration.reconciled",
         target_id=str(bucket.pk),
@@ -672,6 +676,7 @@ def test_bucket_configuration_manual_resolution_requires_current_fence_and_admin
     from object_storage.services.lifecycle import (
         LifecycleError,
         acknowledge_bucket_configuration_uncertainty,
+        reconcile_bucket_configuration_uncertainty,
     )
 
     desired = {"acl": "private"}
@@ -724,6 +729,12 @@ def test_bucket_configuration_manual_resolution_requires_current_fence_and_admin
             **{**arguments, "operation_token": "stale-token"},
         )
 
+    reconcile_bucket_configuration_uncertainty(
+        bucket=bucket,
+        actor=actor,
+        provider=LifecycleProvider(),
+        reason="cloud configuration observed",
+    )
     acknowledged = acknowledge_bucket_configuration_uncertainty(
         actor=actor,
         **arguments,
@@ -736,6 +747,36 @@ def test_bucket_configuration_manual_resolution_requires_current_fence_and_admin
         target_id=str(bucket.pk),
         reason="cloud request verified outside platform",
     ).exists()
+
+
+def test_bucket_configuration_ack_requires_a_matching_persistent_observation(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        acknowledge_bucket_configuration_uncertainty,
+    )
+
+    bucket = bucket_factory(state=Bucket.State.ACTIVE)
+    bucket.desired_config_snapshot = {"acl": "private"}
+    bucket.config_state = Bucket.ConfigurationState.UNKNOWN
+    bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.configuration_generation = 11
+    bucket.configuration_operation_token = "config-without-observation"
+    bucket.save()
+
+    with pytest.raises(LifecycleError, match="OBSERVATION_REQUIRED"):
+        acknowledge_bucket_configuration_uncertainty(
+            bucket=bucket,
+            actor=_feature_admin(user_factory),
+            reason="checked cloud console",
+            bucket_name=bucket.name,
+            operation_type="configuration",
+            operation_generation=11,
+            operation_token="config-without-observation",
+            resolution="desired",
+        )
 
 
 def test_bucket_lifecycle_reconciliation_records_absence_without_unfreezing(
@@ -773,10 +814,13 @@ def test_bucket_lifecycle_reconciliation_records_absence_without_unfreezing(
     assert reconciled.state == Bucket.State.DELETION_BLOCKED
     assert reconciled.action_owner_token == "frozen-delete-token"
     assert reconciled.deletion_error_code == "CLOUD_MUTATION_OUTCOME_UNKNOWN"
-    assert reconciled.action_observed_snapshot == {
+    assert reconciled.action_observed_snapshot["payload"] == {
         "exists": False,
         "owned": False,
+        "ownership_known": True,
     }
+    assert reconciled.action_observed_snapshot["operation_type"] == "delete"
+    assert "frozen-delete-token" not in str(reconciled.action_observed_snapshot)
 
 
 def test_bucket_action_manual_resolution_requires_exact_operation_confirmation(
@@ -786,6 +830,7 @@ def test_bucket_action_manual_resolution_requires_exact_operation_confirmation(
     from object_storage.services.lifecycle import (
         LifecycleError,
         acknowledge_bucket_action_uncertainty,
+        reconcile_bucket_action_uncertainty,
     )
 
     bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
@@ -822,10 +867,144 @@ def test_bucket_action_manual_resolution_requires_exact_operation_confirmation(
             **{**arguments, "operation_generation": 3}
         )
 
+    class AbsentProvider(LifecycleProvider):
+        def find_owned_bucket(self, selected):
+            return SimpleNamespace(exists=False, owned=False, marker="")
+
+    reconcile_bucket_action_uncertainty(
+        bucket=bucket,
+        actor=actor,
+        provider=AbsentProvider(),
+        reason="cloud absence observed",
+    )
     resolved = acknowledge_bucket_action_uncertainty(**arguments)
 
     assert resolved.state == Bucket.State.RELEASED
     assert resolved.action_owner_token == ""
+
+
+def test_bucket_action_ack_requires_observation_and_compatible_resolution(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        acknowledge_bucket_action_uncertainty,
+        reconcile_bucket_action_uncertainty,
+    )
+
+    bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    bucket.action_generation = 12
+    bucket.action_owner_token = "delete-observation-token"
+    bucket.action_type = "delete"
+    bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.save()
+    actor = _feature_admin(user_factory)
+    arguments = {
+        "bucket": bucket,
+        "actor": actor,
+        "reason": "cloud state checked",
+        "bucket_name": bucket.name,
+        "operation_type": "delete",
+        "operation_generation": 12,
+        "operation_token": "delete-observation-token",
+        "resolved_state": Bucket.State.RELEASED,
+    }
+
+    with pytest.raises(LifecycleError, match="OBSERVATION_REQUIRED"):
+        acknowledge_bucket_action_uncertainty(**arguments)
+
+    reconcile_bucket_action_uncertainty(
+        bucket=bucket,
+        actor=actor,
+        provider=LifecycleProvider(),
+        reason="cloud bucket still exists",
+    )
+    with pytest.raises(LifecycleError, match="OBSERVATION_RESOLUTION_MISMATCH"):
+        acknowledge_bucket_action_uncertainty(**arguments)
+
+
+def test_bucket_action_ack_rejects_an_unknown_ownership_observation(
+    bucket_factory, user_factory
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        acknowledge_bucket_action_uncertainty,
+    )
+    from object_storage.services.observations import build_operation_observation
+
+    bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    bucket.action_generation = 15
+    bucket.action_owner_token = "unknown-ownership-token"
+    bucket.action_type = "delete"
+    bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    bucket.action_observed_snapshot = build_operation_observation(
+        operation_type="delete",
+        operation_generation=15,
+        operation_token="unknown-ownership-token",
+        payload={"exists": False, "owned": False, "ownership_known": False},
+    )
+    bucket.save()
+
+    with pytest.raises(LifecycleError, match="OBSERVATION_RESOLUTION_MISMATCH"):
+        acknowledge_bucket_action_uncertainty(
+            bucket=bucket,
+            actor=_feature_admin(user_factory),
+            reason="provider observation failed",
+            bucket_name=bucket.name,
+            operation_type="delete",
+            operation_generation=15,
+            operation_token="unknown-ownership-token",
+            resolved_state=Bucket.State.RELEASED,
+        )
+
+
+@pytest.mark.parametrize("stale_kind", ["expired", "wrong_generation", "wrong_token"])
+def test_bucket_action_ack_rejects_stale_observation_fence(
+    bucket_factory, user_factory, stale_kind
+):
+    from object_storage.models import Bucket
+    from object_storage.services.lifecycle import (
+        LifecycleError,
+        acknowledge_bucket_action_uncertainty,
+    )
+    from object_storage.services.observations import build_operation_observation
+
+    bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
+    bucket.action_generation = 14
+    bucket.action_owner_token = "current-action-token"
+    bucket.action_type = "delete"
+    bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    observed_at = (
+        timezone.now() - timedelta(hours=1)
+        if stale_kind == "expired"
+        else timezone.now()
+    )
+    bucket.action_observed_snapshot = build_operation_observation(
+        operation_type="delete",
+        operation_generation=13 if stale_kind == "wrong_generation" else 14,
+        operation_token=(
+            "stale-action-token"
+            if stale_kind == "wrong_token"
+            else "current-action-token"
+        ),
+        payload={"exists": False, "owned": False},
+        now=observed_at,
+    )
+    bucket.save()
+
+    with pytest.raises(LifecycleError, match="OBSERVATION_STALE"):
+        acknowledge_bucket_action_uncertainty(
+            bucket=bucket,
+            actor=_feature_admin(user_factory),
+            reason="cloud absence checked",
+            bucket_name=bucket.name,
+            operation_type="delete",
+            operation_generation=14,
+            operation_token="current-action-token",
+            resolved_state=Bucket.State.RELEASED,
+        )
 
 
 def test_late_bucket_configuration_result_cannot_overwrite_expiry_freeze(

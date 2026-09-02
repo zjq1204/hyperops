@@ -3,6 +3,7 @@ import json
 import secrets
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
@@ -12,6 +13,7 @@ from object_storage.models import (
     FeishuSyncResult,
     PlatformFeishuConfig,
 )
+from object_storage.services.audit import record_audit_event
 from object_storage.services.platform import feishu_config_fingerprint
 
 CONFIRMATION_TTL_SECONDS = 300
@@ -51,6 +53,63 @@ def _canonical_hash(snapshot):
         snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _timestamp(value):
+    return value.isoformat() if value else ""
+
+
+def _local_baseline(config, *, lock=False):
+    identities_query = FeishuIdentity.objects.select_related("user").order_by("id")
+    if lock:
+        identities_query = identities_query.select_for_update()
+    identities = list(identities_query)
+    user_ids = [identity.user_id for identity in identities]
+
+    users_query = get_user_model().objects.filter(pk__in=user_ids).order_by("id")
+    if lock:
+        users_query = users_query.select_for_update()
+    users = {user.pk: user for user in users_query}
+
+    member_ids = []
+    if config.access_group_id and user_ids:
+        membership_model = config.access_group.user_set.through
+        memberships = membership_model.objects.filter(
+            group_id=config.access_group_id,
+            user_id__in=user_ids,
+        ).order_by("user_id")
+        if lock:
+            memberships = memberships.select_for_update()
+        member_ids = list(memberships.values_list("user_id", flat=True))
+
+    payload = {
+        "access_group_id": config.access_group_id,
+        "access_group_member_ids": member_ids,
+        "identities": [
+            {
+                "id": identity.pk,
+                "user_id": identity.user_id,
+                "updated_at": _timestamp(identity.updated_at),
+                "union_id": identity.union_id,
+                "display_name": identity.display_name,
+                "department_snapshot": identity.department_snapshot,
+                "profile_snapshot": identity.profile_snapshot,
+                "is_active": identity.is_active,
+                "deactivated_at": _timestamp(identity.deactivated_at),
+            }
+            for identity in identities
+        ],
+        "users": [
+            {
+                "id": user_id,
+                "username": users[user_id].get_username(),
+                "email": users[user_id].email,
+                "is_active": users[user_id].is_active,
+            }
+            for user_id in sorted(users)
+        ],
+    }
+    return _canonical_hash(payload), identities
 
 
 def _identity_from_payload(payload):
@@ -152,6 +211,7 @@ def create_sync_preview(*, config, actor_id, remote_identities):
         "counts": counts,
     }
     snapshot_hash = _canonical_hash(snapshot)
+    local_baseline_hash, _identities = _local_baseline(config)
     token = secrets.token_urlsafe(32)
     FeishuSyncConfirmation.objects.create(
         actor_id=actor_id,
@@ -159,6 +219,7 @@ def create_sync_preview(*, config, actor_id, remote_identities):
         token_digest=hashlib.sha256(token.encode("utf-8")).hexdigest(),
         config_fingerprint=feishu_config_fingerprint(config),
         snapshot_hash=snapshot_hash,
+        local_baseline_hash=local_baseline_hash,
         snapshot=snapshot,
         actions=actions,
         expires_at=timezone.now() + timedelta(seconds=CONFIRMATION_TTL_SECONDS),
@@ -244,6 +305,9 @@ def confirm_sync(*, token, idempotency_key, actor_id):
             or feishu_config_fingerprint(config) != confirmation.config_fingerprint
         ):
             raise FeishuSyncConfirmationError("PREVIEW_STALE")
+        local_baseline_hash, locked_identities = _local_baseline(config, lock=True)
+        if local_baseline_hash != confirmation.local_baseline_hash:
+            raise FeishuSyncConfirmationError("PREVIEW_STALE")
         previous = (
             FeishuSyncResult.objects.select_for_update()
             .filter(actor_id=actor_id, idempotency_key=idempotency_key)
@@ -266,8 +330,7 @@ def confirm_sync(*, token, idempotency_key, actor_id):
             "new_remote": 0,
         }
         existing_by_open_id = {
-            identity.open_id: identity
-            for identity in FeishuIdentity.objects.select_for_update()
+            identity.open_id: identity for identity in locked_identities
         }
         for action in confirmation.actions:
             category = action["category"]
@@ -315,4 +378,16 @@ def confirm_sync(*, token, idempotency_key, actor_id):
         confirmation.status = FeishuSyncConfirmation.Status.CONSUMED
         confirmation.consumed_at = timezone.now()
         confirmation.save(update_fields=("status", "consumed_at"))
+        record_audit_event(
+            actor=confirmation.actor,
+            action="feishu.identity.sync",
+            target_type="PlatformFeishuConfig",
+            target_id="default",
+            result="succeeded",
+            request_id=idempotency_key,
+            safe_metadata={
+                "success_count": result["updated_count"],
+                "count": result["deactivated_count"] + result["outside_scope_count"],
+            },
+        )
         return result

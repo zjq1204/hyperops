@@ -391,11 +391,16 @@ class UserQuotaDetailView(AdminMutationAPIView):
 
     def delete(self, request, user_id):
         action = "storage.api.user_quota.delete"
-        if _mutation_seen(request, action, "UserBucketQuota", user_id):
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        quota = get_object_or_404(UserBucketQuota, user_id=user_id)
-        _record_mutation(request, action, "UserBucketQuota", user_id, user_id=user_id)
-        quota.delete()
+        with transaction.atomic():
+            if _mutation_seen(request, action, "UserBucketQuota", user_id):
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            quota = get_object_or_404(
+                UserBucketQuota.objects.select_for_update(), user_id=user_id
+            )
+            _record_mutation(
+                request, action, "UserBucketQuota", user_id, user_id=user_id
+            )
+            quota.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

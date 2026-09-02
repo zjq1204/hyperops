@@ -127,6 +127,7 @@ class FeishuSyncConfirmation(models.Model):
     token_digest = models.CharField(max_length=64, unique=True)
     config_fingerprint = models.CharField(max_length=64)
     snapshot_hash = models.CharField(max_length=64)
+    local_baseline_hash = models.CharField(max_length=64, blank=True, default="")
     snapshot = models.JSONField()
     actions = models.JSONField()
     status = models.CharField(

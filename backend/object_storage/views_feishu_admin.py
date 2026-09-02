@@ -100,17 +100,4 @@ class FeishuSyncConfirmView(FeishuSyncMutationView):
             )
         except FeishuSyncConfirmationError as exc:
             return _error(exc.error_code, status.HTTP_400_BAD_REQUEST)
-        record_audit_event(
-            actor=request.user,
-            action="feishu.identity.sync",
-            target_type="PlatformFeishuConfig",
-            target_id="default",
-            result="succeeded",
-            safe_metadata={
-                "success_count": payload["updated_count"],
-                "count": (
-                    payload["deactivated_count"] + payload["outside_scope_count"]
-                ),
-            },
-        )
         return _no_store(Response(payload))

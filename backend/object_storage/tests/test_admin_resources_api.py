@@ -386,6 +386,8 @@ def test_bucket_uncertainty_acknowledgements_call_real_services_without_500(
     admin_client, bucket_factory
 ):
     from object_storage.models import Bucket
+    from object_storage.providers.base import BucketConfiguration
+    from object_storage.services.observations import build_operation_observation
 
     client, _admin = admin_client
     action_bucket = bucket_factory(state=Bucket.State.DELETION_BLOCKED)
@@ -393,6 +395,12 @@ def test_bucket_uncertainty_acknowledgements_call_real_services_without_500(
     action_bucket.action_owner_token = "frozen-delete-token"
     action_bucket.action_type = "delete"
     action_bucket.deletion_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
+    action_bucket.action_observed_snapshot = build_operation_observation(
+        operation_type="delete",
+        operation_generation=4,
+        operation_token="frozen-delete-token",
+        payload={"exists": False, "owned": False, "ownership_known": True},
+    )
     action_bucket.save()
     action_url = (
         f"/api/v1/object-storage/management/buckets/{action_bucket.id}"
@@ -433,6 +441,14 @@ def test_bucket_uncertainty_acknowledgements_call_real_services_without_500(
     config_bucket.config_error_code = "CLOUD_MUTATION_OUTCOME_UNKNOWN"
     config_bucket.configuration_generation = 7
     config_bucket.configuration_operation_token = "frozen-config-token"
+    config_bucket.configuration_observed_snapshot = build_operation_observation(
+        operation_type="configuration",
+        operation_generation=7,
+        operation_token="frozen-config-token",
+        payload=BucketConfiguration.from_snapshot(
+            config_bucket.desired_config_snapshot
+        ).as_snapshot(),
+    )
     config_bucket.save()
     config_url = (
         f"/api/v1/object-storage/management/buckets/{config_bucket.id}"

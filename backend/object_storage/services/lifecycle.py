@@ -15,6 +15,11 @@ from object_storage.models import AccessKey, Bucket, CloudIdentity
 from object_storage.permissions import has_object_storage_admin_access
 from object_storage.providers.base import BucketConfiguration
 from object_storage.services.audit import record_audit_event
+from object_storage.services.observations import (
+    ObservationError,
+    build_operation_observation,
+    validate_operation_observation,
+)
 from object_storage.services.policy import BucketQuotaExceeded, check_bucket_capacity
 from object_storage.services.provider_errors import ObjectStorageProviderError
 
@@ -81,7 +86,12 @@ def recover_expired_bucket_configuration_claim(bucket_id, *, provider=None, now=
         locked.config_state = Bucket.ConfigurationState.UNKNOWN
         locked.config_error_code = UNCERTAIN_MUTATION_ERROR
         locked.config_error_summary = locked.config_error_code
-        locked.configuration_observed_snapshot = observed
+        locked.configuration_observed_snapshot = build_operation_observation(
+            operation_type="configuration",
+            operation_generation=locked.configuration_generation,
+            operation_token=token,
+            payload=observed,
+        )
         locked.save(
             update_fields=(
                 "config_state",
@@ -146,12 +156,17 @@ def recover_expired_bucket_action_claim(bucket_id, *, provider=None, now=None):
         locked.state = Bucket.State.DELETION_BLOCKED
         locked.deletion_error_code = UNCERTAIN_MUTATION_ERROR
         locked.deletion_error_summary = locked.deletion_error_code
-        locked.action_observed_snapshot = {
-            "exists": exists,
-            "owned": owned,
-            "ownership_known": ownership_known,
-            **inspection_observed,
-        }
+        locked.action_observed_snapshot = build_operation_observation(
+            operation_type=action_type,
+            operation_generation=generation,
+            operation_token=token,
+            payload={
+                "exists": exists,
+                "owned": owned,
+                "ownership_known": ownership_known,
+                **inspection_observed,
+            },
+        )
         locked.save(
             update_fields=(
                 "state",
@@ -176,6 +191,42 @@ def _assert_manual_reconciliation_actor(actor, reason):
         raise LifecycleError("RECONCILIATION_REASON_REQUIRED")
 
 
+def _observation_is_empty(observed):
+    return not any(
+        int(observed.get(field, 0) or 0)
+        for field in (
+            "object_count",
+            "version_count",
+            "delete_marker_count",
+            "multipart_upload_count",
+        )
+    )
+
+
+def _compatible_bucket_action_states(operation_type, observed):
+    if observed.get("ownership_known") is not True:
+        return set()
+    exists = observed.get("exists") is True
+    owned = observed.get("owned") is True
+    if not exists:
+        return {Bucket.State.RELEASED}
+    if operation_type in {"delete", "retry_delete"}:
+        return {Bucket.State.DELETION_BLOCKED}
+    if operation_type == "recover":
+        return {Bucket.State.ACTIVE} if owned else {Bucket.State.DELETION_BLOCKED}
+    if operation_type == "release":
+        if not owned:
+            return {Bucket.State.DELETION_BLOCKED}
+        return {
+            (
+                Bucket.State.PENDING_DELETION
+                if _observation_is_empty(observed)
+                else Bucket.State.ACTIVE
+            )
+        }
+    return set()
+
+
 def reconcile_bucket_configuration_uncertainty(
     *, bucket, actor, provider=None, reason=""
 ):
@@ -195,6 +246,7 @@ def reconcile_bucket_configuration_uncertainty(
         ):
             raise BucketConfigurationError("BUCKET_CONFIGURATION_NOT_FROZEN")
         token = locked.configuration_operation_token
+        generation = locked.configuration_generation
         desired = dict(locked.desired_config_snapshot)
         applied = dict(locked.applied_config_snapshot)
     selected_provider = provider or _provider(locked)
@@ -208,10 +260,16 @@ def reconcile_bucket_configuration_uncertainty(
         current = Bucket.objects.select_for_update().get(pk=locked.pk)
         if not (
             current.configuration_operation_token == token
+            and current.configuration_generation == generation
             and current.config_error_code == UNCERTAIN_MUTATION_ERROR
         ):
             return current
-        current.configuration_observed_snapshot = observed
+        current.configuration_observed_snapshot = build_operation_observation(
+            operation_type="configuration",
+            operation_generation=generation,
+            operation_token=token,
+            payload=observed,
+        )
         current.save(
             update_fields=(
                 "configuration_observed_snapshot",
@@ -258,6 +316,15 @@ def acknowledge_bucket_configuration_uncertainty(
             and locked.configuration_operation_token == operation_token
         ):
             raise BucketConfigurationError("RESOURCE_OPERATION_CONFIRMATION_MISMATCH")
+        try:
+            observed = validate_operation_observation(
+                locked.configuration_observed_snapshot,
+                operation_type=operation_type,
+                operation_generation=operation_generation,
+                operation_token=operation_token,
+            )
+        except ObservationError as error:
+            raise BucketConfigurationError(error.error_code) from error
         if resolution == "unknown":
             raise BucketConfigurationError("MANUAL_RECONCILIATION_REQUIRED")
         snapshot = (
@@ -273,6 +340,8 @@ def acknowledge_bucket_configuration_uncertainty(
         )
         if snapshot is None:
             raise BucketConfigurationError("BUCKET_CONFIGURATION_RESOLUTION_INVALID")
+        if observed != snapshot:
+            raise BucketConfigurationError("OBSERVATION_RESOLUTION_MISMATCH")
         locked.applied_config_snapshot = snapshot
         locked.config_state = (
             Bucket.ConfigurationState.APPLIED
@@ -324,12 +393,15 @@ def reconcile_bucket_action_uncertainty(*, bucket, actor, provider=None, reason=
         ):
             raise LifecycleError("BUCKET_ACTION_NOT_FROZEN")
         token = locked.action_owner_token
+        generation = locked.action_generation
+        operation_type = locked.action_type
     selected_provider = provider or _provider(locked)
     ownership = selected_provider.find_owned_bucket(locked)
     exists = bool(ownership if isinstance(ownership, bool) else ownership.exists)
     observed = {
         "exists": exists,
         "owned": bool(ownership if isinstance(ownership, bool) else ownership.owned),
+        "ownership_known": True,
     }
     if exists:
         owned = observed["owned"]
@@ -350,10 +422,17 @@ def reconcile_bucket_action_uncertainty(*, bucket, actor, provider=None, reason=
         current = Bucket.objects.select_for_update().get(pk=locked.pk)
         if not (
             current.action_owner_token == token
+            and current.action_generation == generation
+            and current.action_type == operation_type
             and current.deletion_error_code == UNCERTAIN_MUTATION_ERROR
         ):
             return current
-        current.action_observed_snapshot = observed
+        current.action_observed_snapshot = build_operation_observation(
+            operation_type=operation_type,
+            operation_generation=generation,
+            operation_token=token,
+            payload=observed,
+        )
         current.save(
             update_fields=(
                 "action_observed_snapshot",
@@ -404,6 +483,18 @@ def acknowledge_bucket_action_uncertainty(
             and locked.action_owner_token == operation_token
         ):
             raise LifecycleError("RESOURCE_OPERATION_CONFIRMATION_MISMATCH")
+        try:
+            observed = validate_operation_observation(
+                locked.action_observed_snapshot,
+                operation_type=operation_type,
+                operation_generation=operation_generation,
+                operation_token=operation_token,
+            )
+        except ObservationError as error:
+            raise LifecycleError(error.error_code) from error
+        compatible_states = _compatible_bucket_action_states(operation_type, observed)
+        if resolved_state not in compatible_states:
+            raise LifecycleError("OBSERVATION_RESOLUTION_MISMATCH")
         locked.state = resolved_state
         if resolved_state == Bucket.State.RELEASED:
             locked.pending_delete_at = None

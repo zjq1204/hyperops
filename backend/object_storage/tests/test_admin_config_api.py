@@ -293,6 +293,37 @@ def test_user_quota_override_requires_a_valid_quota(admin_client, user_factory):
     assert not UserBucketQuota.objects.filter(user=user).exists()
 
 
+def test_user_quota_delete_rolls_back_when_audit_write_fails(
+    admin_client, user_factory, monkeypatch
+):
+    from object_storage.models import AuditEvent, UserBucketQuota
+    from object_storage.services.audit import record_audit_event as real_record
+
+    client, _admin = admin_client
+    user = user_factory()
+    quota = UserBucketQuota.objects.create(user=user, bucket_quota=7)
+
+    def fail_after_write(**kwargs):
+        real_record(**kwargs)
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(
+        "object_storage.views_admin.record_audit_event", fail_after_write
+    )
+
+    response = client.delete(
+        f"/api/v1/object-storage/management/user-quotas/{user.id}/",
+        HTTP_IDEMPOTENCY_KEY="quota-delete-audit-failure",
+    )
+
+    assert response.status_code == 500
+    assert UserBucketQuota.objects.filter(pk=quota.pk).exists()
+    assert not AuditEvent.objects.filter(
+        action="storage.api.user_quota.delete",
+        request_id="quota-delete-audit-failure",
+    ).exists()
+
+
 def test_legacy_tenant_configuration_routes_do_not_exist(admin_client):
     client, _admin = admin_client
 

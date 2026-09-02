@@ -764,6 +764,138 @@ def test_confirmation_failure_rolls_back_token_consumption(
     assert existing.display_name == "New"
 
 
+def test_confirmation_audit_failure_rolls_back_identity_group_token_and_result(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch
+):
+    from object_storage.models import (
+        AuditEvent,
+        FeishuSyncConfirmation,
+        FeishuSyncResult,
+    )
+    from object_storage.services import feishu_sync
+    from object_storage.services.audit import record_audit_event as real_record
+
+    existing = feishu_identity_factory(open_id="ou_audit", display_name="Old")
+    client.force_login(platform_admin)
+    preview = _preview(
+        client,
+        monkeypatch,
+        identities=[_identity("ou_audit", display_name="New")],
+    )
+    token = _payload(preview)["confirmation_token"]
+
+    def fail_after_write(**kwargs):
+        real_record(**kwargs)
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(feishu_sync, "record_audit_event", fail_after_write)
+
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        feishu_sync.confirm_sync(
+            token=token,
+            idempotency_key="audit-rollback",
+            actor_id=platform_admin.id,
+        )
+
+    confirmation = FeishuSyncConfirmation.objects.get()
+    existing.refresh_from_db()
+    assert existing.display_name == "Old"
+    assert not existing.user.groups.filter(pk=feishu_config.access_group_id).exists()
+    assert confirmation.status == FeishuSyncConfirmation.Status.READY
+    assert confirmation.consumed_at is None
+    assert not FeishuSyncResult.objects.filter(
+        actor=platform_admin, idempotency_key="audit-rollback"
+    ).exists()
+    assert not AuditEvent.objects.filter(
+        action="feishu.identity.sync", request_id="audit-rollback"
+    ).exists()
+
+
+def test_preview_persists_local_baseline_hash(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch
+):
+    from object_storage.models import FeishuSyncConfirmation
+
+    feishu_identity_factory(open_id="ou_baseline")
+    client.force_login(platform_admin)
+
+    response = _preview(client, monkeypatch, identities=[_identity("ou_baseline")])
+
+    confirmation = FeishuSyncConfirmation.objects.get()
+    assert response.status_code == 200
+    assert len(confirmation.local_baseline_hash) == 64
+
+
+def test_older_preview_cannot_overwrite_a_newer_confirmed_local_state(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch
+):
+    existing = feishu_identity_factory(open_id="ou_ordered", display_name="Old")
+    client.force_login(platform_admin)
+    older = _preview(
+        client,
+        monkeypatch,
+        identities=[_identity("ou_ordered", display_name="Older Remote")],
+    )
+    newer = _preview(
+        client,
+        monkeypatch,
+        identities=[_identity("ou_ordered", display_name="Newer Remote")],
+    )
+
+    newer_confirm = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {
+            "confirmation_token": _payload(newer)["confirmation_token"],
+            "idempotency_key": "confirm-newer-preview",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="confirm-newer-preview-api",
+    )
+    older_confirm = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {
+            "confirmation_token": _payload(older)["confirmation_token"],
+            "idempotency_key": "confirm-older-preview",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="confirm-older-preview-api",
+    )
+
+    existing.refresh_from_db()
+    assert newer_confirm.status_code == 200
+    assert older_confirm.status_code == 400
+    assert _payload(older_confirm)["error_code"] == "PREVIEW_STALE"
+    assert existing.display_name == "Newer Remote"
+
+
+def test_preview_is_stale_when_access_group_membership_changes(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch
+):
+    existing = feishu_identity_factory(open_id="ou_membership", display_name="Old")
+    client.force_login(platform_admin)
+    preview = _preview(
+        client,
+        monkeypatch,
+        identities=[_identity("ou_membership", display_name="Remote")],
+    )
+    existing.user.groups.add(feishu_config.access_group)
+
+    response = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {
+            "confirmation_token": _payload(preview)["confirmation_token"],
+            "idempotency_key": "membership-stale",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="membership-stale-api",
+    )
+
+    existing.refresh_from_db()
+    assert response.status_code == 400
+    assert _payload(response)["error_code"] == "PREVIEW_STALE"
+    assert existing.display_name == "Old"
+
+
 @pytest.mark.parametrize("change", ["app_id", "access_group"])
 def test_confirmation_rejects_preview_when_platform_config_changed(
     client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch, change

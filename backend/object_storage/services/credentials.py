@@ -18,6 +18,11 @@ from object_storage.models import (
 )
 from object_storage.permissions import has_object_storage_admin_access
 from object_storage.services.audit import record_audit_event
+from object_storage.services.observations import (
+    ObservationError,
+    build_operation_observation,
+    validate_operation_observation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -727,6 +732,13 @@ def _provider_key_items(result):
     return tuple(getattr(result, "items", result))
 
 
+def _normalize_provider_key_status(value):
+    return {
+        "enabled": AccessKey.CloudState.ACTIVE,
+        "disabled": AccessKey.CloudState.INACTIVE,
+    }.get(str(value or "").lower(), str(value or "").lower())
+
+
 def _claim_credential_operation(
     identity_id,
     *,
@@ -1026,6 +1038,7 @@ def reconcile_credential_operation_uncertainty(*, identity, actor, provider, rea
         ):
             raise CredentialRotationError("CREDENTIAL_OPERATION_NOT_FROZEN")
         token = locked.credential_operation_token
+        generation = locked.credential_operation_generation
         operation_type = locked.credential_operation_type
         local = {
             key.access_key_fingerprint: key.cloud_state
@@ -1036,7 +1049,9 @@ def reconcile_credential_operation_uncertainty(*, identity, actor, provider, rea
         }
     cloud_items = _provider_key_items(provider.list_access_keys(locked))
     cloud = {
-        str(item.fingerprint): str(getattr(item, "status", "") or "").lower()
+        str(item.fingerprint): _normalize_provider_key_status(
+            getattr(item, "status", "")
+        )
         for item in cloud_items
     }
     observed = {
@@ -1044,7 +1059,7 @@ def reconcile_credential_operation_uncertainty(*, identity, actor, provider, rea
             {
                 "fingerprint": str(item.fingerprint),
                 "last_four": str(getattr(item, "last_four", "") or ""),
-                "status": str(getattr(item, "status", "") or "").lower(),
+                "status": _normalize_provider_key_status(getattr(item, "status", "")),
             }
             for item in sorted(cloud_items, key=lambda item: str(item.fingerprint))
         ]
@@ -1053,10 +1068,17 @@ def reconcile_credential_operation_uncertainty(*, identity, actor, provider, rea
         current = CloudIdentity.objects.select_for_update().get(pk=locked.pk)
         if not (
             current.credential_operation_token == token
+            and current.credential_operation_generation == generation
+            and current.credential_operation_type == operation_type
             and current.credential_operation_error_code == UNCERTAIN_MUTATION_ERROR
         ):
             return current
-        current.credential_observed_snapshot = observed
+        current.credential_observed_snapshot = build_operation_observation(
+            operation_type=operation_type,
+            operation_generation=generation,
+            operation_token=token,
+            payload=observed,
+        )
         current.save(
             update_fields=(
                 "credential_observed_snapshot",
@@ -1113,44 +1135,103 @@ def acknowledge_credential_operation_uncertainty(
             raise CredentialRotationError("CREDENTIAL_RESOLUTION_STATE_INVALID")
         key_id = locked.credential_operation_key_id
         token = locked.credential_operation_token
+        try:
+            observed = validate_operation_observation(
+                locked.credential_observed_snapshot,
+                operation_type=operation_type,
+                operation_generation=operation_generation,
+                operation_token=operation_token,
+            )
+        except ObservationError as error:
+            raise CredentialRotationError(error.error_code) from error
+        expected_identity_state = {
+            "suspend": CloudIdentity.State.SUSPENDED,
+            "reactivate": CloudIdentity.State.ACTIVE,
+        }.get(operation_type, CloudIdentity.State.ACTIVE)
+        if resolved_state != expected_identity_state:
+            raise CredentialRotationError("OBSERVATION_RESOLUTION_MISMATCH")
+        local_keys = list(
+            locked.access_keys.select_for_update()
+            .filter(deleted_at__isnull=True)
+            .order_by("id")
+        )
+        local_by_fingerprint = {key.access_key_fingerprint: key for key in local_keys}
+        observed_rows = observed.get("keys", [])
+        observed_by_fingerprint = {
+            str(item.get("fingerprint") or ""): _normalize_provider_key_status(
+                item.get("status")
+            )
+            for item in observed_rows
+        }
+        if len(observed_by_fingerprint) != len(observed_rows):
+            raise CredentialRotationError("OBSERVATION_RESOLUTION_MISMATCH")
         if key_id:
-            key = AccessKey.objects.select_for_update().filter(pk=key_id).first()
-            if key is not None and key.operation_token == token:
-                if resolved_key_state not in {
-                    AccessKey.CloudState.ACTIVE,
-                    AccessKey.CloudState.INACTIVE,
-                    AccessKey.CloudState.DELETED,
-                }:
-                    raise CredentialRotationError("CREDENTIAL_KEY_RESOLUTION_REQUIRED")
-                key.cloud_state = resolved_key_state
-                key.local_state = (
-                    AccessKey.LocalState.RETIRED
-                    if resolved_key_state == AccessKey.CloudState.DELETED
-                    else (
-                        AccessKey.LocalState.ACTIVE
-                        if resolved_key_state == AccessKey.CloudState.ACTIVE
-                        else AccessKey.LocalState.DISABLED
-                    )
+            key = next((item for item in local_keys if item.pk == key_id), None)
+            if (
+                key is None
+                or key.operation_token != token
+                or key.operation_type != operation_type
+            ):
+                raise CredentialRotationError(
+                    "RESOURCE_OPERATION_CONFIRMATION_MISMATCH"
                 )
-                if resolved_key_state == AccessKey.CloudState.DELETED:
-                    key.deleted_at = key.deleted_at or timezone.now()
-                _clear_key_operation(key)
-                key.operation_acquired_at = None
-                key.operation_lease_until = None
-                key.operation_error_code = ""
-                key.save(
-                    update_fields=(
-                        "cloud_state",
-                        "local_state",
-                        "deleted_at",
-                        "operation_token",
-                        "operation_type",
-                        "operation_acquired_at",
-                        "operation_lease_until",
-                        "operation_error_code",
-                        "updated_at",
-                    )
+            if resolved_key_state not in {
+                AccessKey.CloudState.ACTIVE,
+                AccessKey.CloudState.INACTIVE,
+                AccessKey.CloudState.DELETED,
+            }:
+                raise CredentialRotationError("CREDENTIAL_KEY_RESOLUTION_REQUIRED")
+            observed_status = observed_by_fingerprint.get(
+                key.access_key_fingerprint, AccessKey.CloudState.DELETED
+            )
+            expected_key_state = {
+                "active": AccessKey.CloudState.ACTIVE,
+                "inactive": AccessKey.CloudState.INACTIVE,
+                "deleted": AccessKey.CloudState.DELETED,
+            }.get(observed_status)
+            if resolved_key_state != expected_key_state:
+                raise CredentialRotationError("OBSERVATION_RESOLUTION_MISMATCH")
+            expected_fingerprints = set(local_by_fingerprint)
+            if resolved_key_state == AccessKey.CloudState.DELETED:
+                expected_fingerprints.discard(key.access_key_fingerprint)
+            if set(observed_by_fingerprint) != expected_fingerprints:
+                raise CredentialRotationError("OBSERVATION_RESOLUTION_MISMATCH")
+            key.cloud_state = resolved_key_state
+            key.local_state = (
+                AccessKey.LocalState.RETIRED
+                if resolved_key_state == AccessKey.CloudState.DELETED
+                else (
+                    AccessKey.LocalState.ACTIVE
+                    if resolved_key_state == AccessKey.CloudState.ACTIVE
+                    else AccessKey.LocalState.DISABLED
                 )
+            )
+            if resolved_key_state == AccessKey.CloudState.DELETED:
+                key.deleted_at = key.deleted_at or timezone.now()
+            _clear_key_operation(key)
+            key.operation_acquired_at = None
+            key.operation_lease_until = None
+            key.operation_error_code = ""
+            key.save(
+                update_fields=(
+                    "cloud_state",
+                    "local_state",
+                    "deleted_at",
+                    "operation_token",
+                    "operation_type",
+                    "operation_acquired_at",
+                    "operation_lease_until",
+                    "operation_error_code",
+                    "updated_at",
+                )
+            )
+        elif set(observed_by_fingerprint) != set(local_by_fingerprint):
+            raise CredentialRotationError("OBSERVATION_RESOLUTION_MISMATCH")
+        if operation_type == "suspend" and any(
+            state != AccessKey.CloudState.INACTIVE
+            for state in observed_by_fingerprint.values()
+        ):
+            raise CredentialRotationError("OBSERVATION_RESOLUTION_MISMATCH")
         locked.state = resolved_state
         _clear_credential_operation(locked)
         locked.save(
@@ -1175,7 +1256,7 @@ def acknowledge_credential_operation_uncertainty(
         safe_metadata={
             "user_id": locked.user_id,
             "status": resolved_state,
-            "count": len(locked.credential_observed_snapshot.get("keys", [])),
+            "count": len(observed.get("keys", [])),
         },
     )
     return CloudIdentity.objects.get(pk=locked.pk)
