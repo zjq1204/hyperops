@@ -2,6 +2,7 @@ import hashlib
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.db import transaction
 from rest_framework import serializers
 
 from object_storage.crypto import encrypt_secret
@@ -139,6 +140,7 @@ class PlatformFeishuConfigAdminSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         secret = validated_data.pop("app_secret", None)
         previous_group_id = instance.access_group_id

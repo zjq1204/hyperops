@@ -1,7 +1,9 @@
 import itertools
+from datetime import timedelta
 
 import pytest
 from django.core.cache import cache
+from django.utils import timezone
 
 pytestmark = pytest.mark.django_db
 FEISHU_REQUEST_SEQUENCE = itertools.count(1)
@@ -617,19 +619,18 @@ def test_consumed_token_is_still_rejected_after_31_seconds(
 def test_unconsumed_token_is_expired_after_confirmation_ttl(
     client, feishu_config, platform_admin, monkeypatch
 ):
-    from django.core.cache.backends import base
+    import hashlib
 
-    from object_storage.services.feishu_sync import CONFIRMATION_TTL_SECONDS
+    from object_storage.models import FeishuSyncConfirmation
 
     client.force_login(platform_admin)
     preview = _preview(client, monkeypatch, identities=[])
     token = _payload(preview)["confirmation_token"]
-    current_time = base.time.time()
-    monkeypatch.setattr(
-        base.time,
-        "time",
-        lambda: current_time + CONFIRMATION_TTL_SECONDS + 1,
+    confirmation = FeishuSyncConfirmation.objects.get(
+        token_digest=hashlib.sha256(token.encode()).hexdigest()
     )
+    confirmation.expires_at = timezone.now() - timedelta(seconds=1)
+    confirmation.save(update_fields=("expires_at",))
 
     response = client.post(
         "/api/v1/object-storage/management/feishu/sync/confirm/",
@@ -713,6 +714,88 @@ def test_same_idempotency_key_and_snapshot_returns_the_original_result(
     assert first.status_code == 200
     assert replay.status_code == 409
     assert _payload(replay)["error_code"] == "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+
+
+def test_confirmation_failure_rolls_back_token_consumption(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch
+):
+    from object_storage import views_feishu_admin
+    from object_storage.models import FeishuSyncConfirmation
+    from object_storage.services import feishu_sync
+
+    existing = feishu_identity_factory(open_id="ou_retry", display_name="Old")
+    client.force_login(platform_admin)
+    preview = _preview(
+        client,
+        monkeypatch,
+        identities=[_identity("ou_retry", display_name="New")],
+    )
+    token = _payload(preview)["confirmation_token"]
+    real_update = feishu_sync._update_existing
+    monkeypatch.setattr(
+        feishu_sync,
+        "_update_existing",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("mid-sync")),
+    )
+
+    with pytest.raises(RuntimeError, match="mid-sync"):
+        views_feishu_admin.confirm_sync(
+            token=token,
+            idempotency_key="rollback-confirmation",
+            actor_id=platform_admin.id,
+        )
+
+    confirmation = FeishuSyncConfirmation.objects.get()
+    existing.refresh_from_db()
+    assert confirmation.status == FeishuSyncConfirmation.Status.READY
+    assert confirmation.consumed_at is None
+    assert existing.display_name == "Old"
+
+    monkeypatch.setattr(feishu_sync, "_update_existing", real_update)
+    result = views_feishu_admin.confirm_sync(
+        token=token,
+        idempotency_key="rollback-confirmation",
+        actor_id=platform_admin.id,
+    )
+    confirmation.refresh_from_db()
+    existing.refresh_from_db()
+    assert result["updated_count"] == 1
+    assert confirmation.status == FeishuSyncConfirmation.Status.CONSUMED
+    assert existing.display_name == "New"
+
+
+@pytest.mark.parametrize("change", ["app_id", "access_group"])
+def test_confirmation_rejects_preview_when_platform_config_changed(
+    client, feishu_config, platform_admin, feishu_identity_factory, monkeypatch, change
+):
+    from django.contrib.auth.models import Group
+
+    existing = feishu_identity_factory(open_id="ou_stale", display_name="Old")
+    client.force_login(platform_admin)
+    preview = _preview(
+        client,
+        monkeypatch,
+        identities=[_identity("ou_stale", display_name="Stale New")],
+    )
+    token = _payload(preview)["confirmation_token"]
+    if change == "app_id":
+        feishu_config.app_id = "cli_changed_after_preview"
+        feishu_config.save(update_fields=("app_id", "updated_at"))
+    else:
+        feishu_config.access_group = Group.objects.create(name="Changed Feishu Group")
+        feishu_config.save(update_fields=("access_group", "updated_at"))
+
+    response = client.post(
+        "/api/v1/object-storage/management/feishu/sync/confirm/",
+        {"confirmation_token": token, "idempotency_key": f"stale-{change}"},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY=f"stale-confirm-{change}",
+    )
+
+    existing.refresh_from_db()
+    assert response.status_code == 400
+    assert _payload(response)["error_code"] == "PREVIEW_STALE"
+    assert existing.display_name == "Old"
 
 
 def test_sensitive_sync_idempotency_claims_without_persisting_payloads(

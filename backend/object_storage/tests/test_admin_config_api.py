@@ -105,6 +105,45 @@ def test_platform_feishu_settings_encrypt_secret_and_preserve_group_intent(
     assert identity.user.groups.filter(pk=group.id).exists()
 
 
+def test_platform_feishu_settings_roll_back_when_access_group_sync_fails(
+    admin_client, monkeypatch
+):
+    from django.contrib.auth.models import Group
+
+    from object_storage.models import PlatformFeishuConfig
+
+    client, _admin = admin_client
+    original_group = Group.objects.create(name="Original Feishu Group")
+    replacement_group = Group.objects.create(name="Replacement Feishu Group")
+    config = PlatformFeishuConfig.objects.create(
+        singleton_key="default",
+        app_id="cli_original",
+        app_secret_encrypted="encrypted-original-secret",
+        oauth_callback_url="https://example.test/feishu/original",
+        access_group=original_group,
+    )
+    monkeypatch.setattr(
+        "object_storage.serializers_admin.sync_platform_feishu_access_group",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("sync failed")),
+    )
+
+    response = client.patch(
+        "/api/v1/object-storage/management/feishu-settings/",
+        {
+            "app_id": "cli_replacement",
+            "access_group": replacement_group.id,
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="feishu-settings-atomic-failure",
+    )
+
+    config.refresh_from_db()
+    assert response.status_code == 500
+    assert config.app_id == "cli_original"
+    assert config.access_group_id == original_group.id
+    assert config.oauth_callback_url == "https://example.test/feishu/original"
+
+
 def test_feishu_enable_requires_validated_complete_platform_config(admin_client):
     from django.contrib.auth.models import Group
     from object_storage.models import PlatformFeishuConfig

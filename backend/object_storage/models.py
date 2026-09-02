@@ -25,6 +25,7 @@ class ApiIdempotencyRecord(TimestampedModel):
     class Status(models.TextChoices):
         IN_PROGRESS = "in_progress", "In progress"
         COMPLETED = "completed", "Completed"
+        OUTCOME_UNKNOWN = "outcome_unknown", "Outcome unknown"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -41,6 +42,9 @@ class ApiIdempotencyRecord(TimestampedModel):
     )
     response_status = models.PositiveSmallIntegerField(null=True, blank=True)
     response_body = models.JSONField(null=True, blank=True)
+    lease_until = models.DateTimeField(null=True, blank=True)
+    owner_token = models.CharField(max_length=64, blank=True, default="")
+    attempt_count = models.PositiveIntegerField(default=1)
 
     class Meta:
         constraints = [
@@ -102,6 +106,57 @@ class PlatformFeishuConfig(TimestampedModel):
 
     def __str__(self):
         return "Platform Feishu configuration"
+
+
+class FeishuSyncConfirmation(models.Model):
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        CONSUMED = "consumed", "Consumed"
+        EXPIRED = "expired", "Expired"
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="object_storage_feishu_sync_confirmations",
+    )
+    config = models.ForeignKey(
+        PlatformFeishuConfig,
+        on_delete=models.PROTECT,
+        related_name="sync_confirmations",
+    )
+    token_digest = models.CharField(max_length=64, unique=True)
+    config_fingerprint = models.CharField(max_length=64)
+    snapshot_hash = models.CharField(max_length=64)
+    snapshot = models.JSONField()
+    actions = models.JSONField()
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.READY,
+    )
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class FeishuSyncResult(models.Model):
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="object_storage_feishu_sync_results",
+    )
+    idempotency_key = models.CharField(max_length=128)
+    snapshot_hash = models.CharField(max_length=64)
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["actor", "idempotency_key"],
+                name="storage_feishu_sync_actor_idempotency_unique",
+            )
+        ]
 
 
 class PlatformObjectStorageConfig(TimestampedModel):
@@ -932,6 +987,8 @@ class AuditEvent(models.Model):
 OBJECT_STORAGE_BUSINESS_MODELS = (
     ApiIdempotencyRecord,
     PlatformFeishuConfig,
+    FeishuSyncConfirmation,
+    FeishuSyncResult,
     PlatformObjectStorageConfig,
     UserBucketQuota,
     StorageResourcePool,

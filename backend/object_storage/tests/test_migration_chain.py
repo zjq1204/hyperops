@@ -5,7 +5,7 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
 pytestmark = pytest.mark.django_db(transaction=True)
-CURRENT_LEAF = ("object_storage", "0018_api_idempotency_actor_cascade")
+CURRENT_LEAF = ("object_storage", "0019_api_recovery_state")
 
 
 def test_0003_uses_a_migration_local_default_callable():

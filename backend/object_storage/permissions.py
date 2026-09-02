@@ -1,8 +1,11 @@
 import hashlib
 import json
+import secrets
+from datetime import timedelta
 from types import SimpleNamespace
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
@@ -50,6 +53,12 @@ class IdempotencyResultNotReplayable(APIException):
     status_code = 409
     default_detail = "The completed sensitive result cannot be replayed"
     default_code = "IDEMPOTENCY_RESULT_NOT_REPLAYABLE"
+
+
+class IdempotencyOutcomeUnknown(APIException):
+    status_code = 409
+    default_detail = "The previous operation outcome is unknown"
+    default_code = "IDEMPOTENCY_OUTCOME_UNKNOWN"
 
 
 def has_object_storage_admin_access(user):
@@ -123,6 +132,7 @@ class RequireIdempotencyKeyMixin:
     """Require and atomically replay non-sensitive mutation responses."""
 
     idempotency_sensitive = False
+    idempotency_reclaimable = False
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -140,6 +150,29 @@ class RequireIdempotencyKeyMixin:
 
     def _idempotency_scope(self, request):
         return f"{request.method}:{request.path}"
+
+    def _claim_locked_idempotency(self, record, payload_digest, *, created=False):
+        if record.payload_digest != payload_digest:
+            return record, IdempotencyKeyReused()
+        if record.status == ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN:
+            return record, IdempotencyOutcomeUnknown()
+        if record.status == ApiIdempotencyRecord.Status.COMPLETED:
+            return record, None
+        if created:
+            return record, None
+        if record.lease_until and record.lease_until > timezone.now():
+            return record, IdempotencyInProgress()
+        if self.idempotency_reclaimable:
+            record.owner_token = secrets.token_urlsafe(24)
+            record.lease_until = timezone.now() + timedelta(seconds=300)
+            record.attempt_count += 1
+            record.save(update_fields=("owner_token", "lease_until", "attempt_count"))
+            return record, None
+        record.status = ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN
+        record.owner_token = ""
+        record.lease_until = None
+        record.save(update_fields=("status", "owner_token", "lease_until"))
+        return record, IdempotencyOutcomeUnknown()
 
     def _lookup_or_create_idempotency(self, request, payload_digest):
         scope = self._idempotency_scope(request)
@@ -160,20 +193,26 @@ class RequireIdempotencyKeyMixin:
                         scope=scope,
                         idempotency_key=request.idempotency_key,
                         payload_digest=payload_digest,
+                        owner_token=secrets.token_urlsafe(24),
+                        lease_until=timezone.now() + timedelta(seconds=300),
+                        attempt_count=1,
                     )
-                    record._new_idempotency_record = True
+                    created = True
+                else:
+                    created = False
+                record, error = self._claim_locked_idempotency(
+                    record, payload_digest, created=created
+                )
         except IntegrityError:
-            record = ApiIdempotencyRecord.objects.get(
-                actor=request.user,
-                scope=scope,
-                idempotency_key=request.idempotency_key,
-            )
-        if record.payload_digest != payload_digest:
-            raise IdempotencyKeyReused()
-        if not getattr(record, "_new_idempotency_record", False):
-            if record.status == ApiIdempotencyRecord.Status.COMPLETED:
-                return record
-            raise IdempotencyInProgress()
+            with transaction.atomic():
+                record = ApiIdempotencyRecord.objects.select_for_update().get(
+                    actor=request.user,
+                    scope=scope,
+                    idempotency_key=request.idempotency_key,
+                )
+                record, error = self._claim_locked_idempotency(record, payload_digest)
+        if error is not None:
+            raise error
         return record
 
     def _complete_idempotency(self, request, response):
@@ -183,10 +222,16 @@ class RequireIdempotencyKeyMixin:
         body = None
         if not self.idempotency_sensitive:
             body = json.loads(json.dumps(response.data, default=str))
-        ApiIdempotencyRecord.objects.filter(pk=record.pk).update(
+        ApiIdempotencyRecord.objects.filter(
+            pk=record.pk,
+            owner_token=record.owner_token,
+            status=ApiIdempotencyRecord.Status.IN_PROGRESS,
+        ).update(
             status=ApiIdempotencyRecord.Status.COMPLETED,
             response_status=response.status_code,
             response_body=body,
+            owner_token="",
+            lease_until=None,
         )
 
     def dispatch(self, request, *args, **kwargs):

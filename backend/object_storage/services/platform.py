@@ -105,6 +105,9 @@ def _feishu_config_fingerprint(config):
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+feishu_config_fingerprint = _feishu_config_fingerprint
+
+
 def get_feishu_config():
     config, _created = PlatformFeishuConfig.objects.get_or_create(
         singleton_key=DEFAULT_SINGLETON_KEY
@@ -383,6 +386,91 @@ def validate_and_save_platform_config(
     object_storage_config = object_storage_config or get_object_storage_config()
     updates = _storage_field_updates(object_storage_fields, storage_fields)
     _validate_storage_field_values(updates)
+    if updates and (feishu_config is not None or resource_pool is not None):
+        object_snapshot = object_storage_config.updated_at
+        selected_feishu = feishu_config
+        feishu_snapshot = None
+        feishu_validation = None
+        if selected_feishu is not None:
+            selected_feishu = PlatformFeishuConfig.objects.get(pk=selected_feishu.pk)
+            feishu_snapshot = _feishu_config_fingerprint(selected_feishu)
+            try:
+                feishu_validation = _validator_result(
+                    (feishu_validator or _default_feishu_validator)(selected_feishu)
+                )
+            except Exception as exc:
+                raise PlatformConfigurationError(
+                    _error_code(exc, "FEISHU_VALIDATION_FAILED"), cause=exc
+                ) from exc
+        selected_pool = resource_pool
+        pool_snapshot = None
+        pool_validation = None
+        if selected_pool is not None:
+            selected_pool = _load_resource_pool(selected_pool)
+            pool_snapshot = _resource_pool_snapshot(selected_pool)
+            try:
+                pool_validation = _validator_result(
+                    (pool_validator or _default_pool_validator)(selected_pool)
+                )
+            except Exception as exc:
+                raise PlatformConfigurationError(
+                    _error_code(exc, "PROVIDER_VALIDATION_FAILED"), cause=exc
+                ) from exc
+            if not pool_validation.account_id:
+                raise PlatformConfigurationError("CLOUD_ACCOUNT_UNVERIFIED")
+            if pool_validation.account_id != str(selected_pool.cloud_account_id):
+                raise PlatformConfigurationError("CLOUD_ACCOUNT_MISMATCH")
+        with transaction.atomic():
+            locked_storage = (
+                PlatformObjectStorageConfig.objects.select_for_update().get(
+                    pk=object_storage_config.pk
+                )
+            )
+            if locked_storage.updated_at != object_snapshot:
+                raise PlatformConfigurationError("CONFIG_CHANGED_DURING_VALIDATION")
+            locked_feishu = None
+            if selected_feishu is not None:
+                locked_feishu = PlatformFeishuConfig.objects.select_for_update().get(
+                    pk=selected_feishu.pk
+                )
+                if _feishu_config_fingerprint(locked_feishu) != feishu_snapshot:
+                    raise PlatformConfigurationError("CONFIG_CHANGED_DURING_VALIDATION")
+            locked_pool = None
+            if selected_pool is not None:
+                locked_pool = _lock_resource_pool(selected_pool.pk)
+                _assert_pool_snapshot_unchanged(locked_pool, pool_snapshot)
+            for field, value in updates.items():
+                setattr(locked_storage, field, value)
+            locked_storage.save(update_fields=tuple(updates) + ("updated_at",))
+            if locked_feishu is not None:
+                locked_feishu.validation_status = (
+                    PlatformFeishuConfig.ValidationStatus.VALID
+                )
+                locked_feishu.validation_error_code = ""
+                locked_feishu.last_validated_at = timezone.now()
+                locked_feishu.save(
+                    update_fields=(
+                        "validation_status",
+                        "validation_error_code",
+                        "last_validated_at",
+                        "updated_at",
+                    )
+                )
+            if locked_pool is not None:
+                locked_pool.validation_status = (
+                    StorageResourcePool.ValidationStatus.VALID
+                )
+                locked_pool.validation_error_code = ""
+                locked_pool.last_validated_at = timezone.now()
+                locked_pool.save(
+                    update_fields=(
+                        "validation_status",
+                        "validation_error_code",
+                        "last_validated_at",
+                        "updated_at",
+                    )
+                )
+        return {"feishu": feishu_validation, "resource_pool": pool_validation}
     if updates:
         for field, value in updates.items():
             setattr(object_storage_config, field, value)

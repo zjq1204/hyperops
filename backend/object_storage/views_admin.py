@@ -199,6 +199,8 @@ class AccessGroupListView(RejectTenantScopeMixin, generics.ListAPIView):
 
 
 class PlatformSettingsView(AdminMutationAPIView):
+    idempotency_reclaimable = True
+
     def get(self, request):
         return Response(
             PlatformObjectStorageConfigAdminSerializer(get_object_storage_config()).data
@@ -355,6 +357,8 @@ class UserQuotaListView(RejectTenantScopeMixin, generics.ListAPIView):
 
 
 class UserQuotaDetailView(AdminMutationAPIView):
+    idempotency_reclaimable = True
+
     def get(self, request, user_id):
         quota = get_object_or_404(
             UserBucketQuota.objects.select_related("user"), user_id=user_id

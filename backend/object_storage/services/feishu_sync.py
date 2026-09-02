@@ -1,26 +1,26 @@
 import hashlib
 import json
 import secrets
+from datetime import timedelta
 
-from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
-from object_storage.models import FeishuIdentity, PlatformFeishuConfig
+from object_storage.models import (
+    FeishuIdentity,
+    FeishuSyncConfirmation,
+    FeishuSyncResult,
+    PlatformFeishuConfig,
+)
+from object_storage.services.platform import feishu_config_fingerprint
 
 CONFIRMATION_TTL_SECONDS = 300
-IDEMPOTENCY_TTL_SECONDS = 86400
 
 
 class FeishuSyncConfirmationError(RuntimeError):
     def __init__(self, error_code):
         self.error_code = error_code
         super().__init__(error_code)
-
-
-def _cache_key(kind, value):
-    digest = hashlib.sha256(str(value).encode("utf-8")).hexdigest()
-    return f"object-storage:feishu-sync:{kind}:v2:{digest}"
 
 
 def _status_reason(identity):
@@ -153,16 +153,15 @@ def create_sync_preview(*, config, actor_id, remote_identities):
     }
     snapshot_hash = _canonical_hash(snapshot)
     token = secrets.token_urlsafe(32)
-    cache.set(
-        _cache_key("confirmation", token),
-        {
-            "config_id": config.id,
-            "actor_id": actor_id,
-            "snapshot_hash": snapshot_hash,
-            "snapshot": snapshot,
-            "actions": actions,
-        },
-        timeout=CONFIRMATION_TTL_SECONDS,
+    FeishuSyncConfirmation.objects.create(
+        actor_id=actor_id,
+        config=config,
+        token_digest=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        config_fingerprint=feishu_config_fingerprint(config),
+        snapshot_hash=snapshot_hash,
+        snapshot=snapshot,
+        actions=actions,
+        expires_at=timezone.now() + timedelta(seconds=CONFIRMATION_TTL_SECONDS),
     )
     return {
         "items": items,
@@ -217,60 +216,60 @@ def _update_existing(identity, remote, access_group):
     return reason
 
 
-def _get_confirmation(token):
-    if not token:
-        return None
-    return cache.get(_cache_key("confirmation", token))
-
-
-def _consume_confirmation(token):
-    if not token:
-        return None
-    key = _cache_key("confirmation", token)
-    if not cache.add(f"{key}:consume", True, timeout=CONFIRMATION_TTL_SECONDS):
-        return None
-    return cache.get(key)
-
-
 def confirm_sync(*, token, idempotency_key, actor_id):
-    confirmation = _get_confirmation(token)
-    result_key = _cache_key("idempotency", f"{actor_id}:{idempotency_key}")
-    previous = cache.get(result_key)
-    if previous is not None:
-        if confirmation is None:
-            raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_EXPIRED")
-        if previous["snapshot_hash"] != confirmation.get("snapshot_hash", ""):
-            raise FeishuSyncConfirmationError("IDEMPOTENCY_KEY_REUSED")
-        return previous["result"]
-    if confirmation is None:
-        raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_EXPIRED")
-    if confirmation.get("actor_id") != actor_id:
-        raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_INVALID")
-    consumed = _consume_confirmation(token)
-    if consumed is None:
-        raise FeishuSyncConfirmationError("TOKEN_ALREADY_CONSUMED")
+    token_digest = hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
 
-    remote_by_open_id = {
-        item["open_id"]: _identity_from_payload(item)
-        for item in confirmation["snapshot"]["identities"]
-    }
-    counts = {
-        "updates": 0,
-        "account_disabled": 0,
-        "deleted": 0,
-        "outside_scope": 0,
-        "unchanged": 0,
-        "new_remote": 0,
-    }
     with transaction.atomic():
-        config = PlatformFeishuConfig.objects.select_for_update().get(
-            pk=confirmation["config_id"], singleton_key="default"
+        confirmation = (
+            FeishuSyncConfirmation.objects.select_for_update()
+            .select_related("config")
+            .filter(token_digest=token_digest, actor_id=actor_id)
+            .first()
         )
+        if confirmation is None:
+            raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_INVALID")
+        if confirmation.status == FeishuSyncConfirmation.Status.CONSUMED:
+            raise FeishuSyncConfirmationError("TOKEN_ALREADY_CONSUMED")
+        if confirmation.expires_at <= timezone.now():
+            confirmation.status = FeishuSyncConfirmation.Status.EXPIRED
+            confirmation.save(update_fields=("status",))
+            raise FeishuSyncConfirmationError("FEISHU_CONFIRMATION_EXPIRED")
+        config = PlatformFeishuConfig.objects.select_for_update().get(
+            pk=confirmation.config_id, singleton_key="default"
+        )
+        if (
+            not config.enabled
+            or config.validation_status != PlatformFeishuConfig.ValidationStatus.VALID
+            or config.access_group_id is None
+            or feishu_config_fingerprint(config) != confirmation.config_fingerprint
+        ):
+            raise FeishuSyncConfirmationError("PREVIEW_STALE")
+        previous = (
+            FeishuSyncResult.objects.select_for_update()
+            .filter(actor_id=actor_id, idempotency_key=idempotency_key)
+            .first()
+        )
+        if previous is not None:
+            if previous.snapshot_hash != confirmation.snapshot_hash:
+                raise FeishuSyncConfirmationError("IDEMPOTENCY_KEY_REUSED")
+            return previous.result
+        remote_by_open_id = {
+            item["open_id"]: _identity_from_payload(item)
+            for item in confirmation.snapshot["identities"]
+        }
+        counts = {
+            "updates": 0,
+            "account_disabled": 0,
+            "deleted": 0,
+            "outside_scope": 0,
+            "unchanged": 0,
+            "new_remote": 0,
+        }
         existing_by_open_id = {
             identity.open_id: identity
             for identity in FeishuIdentity.objects.select_for_update()
         }
-        for action in confirmation["actions"]:
+        for action in confirmation.actions:
             category = action["category"]
             identity = existing_by_open_id.get(action["open_id"])
             if category == "new_remote":
@@ -298,18 +297,22 @@ def confirm_sync(*, token, idempotency_key, actor_id):
                 remote = remote_by_open_id[action["open_id"]]
             _update_existing(identity, remote, config.access_group)
             counts[category] += 1
-    result = {
-        "updated_count": counts["updates"],
-        "deactivated_count": counts["account_disabled"] + counts["deleted"],
-        "account_disabled_count": counts["account_disabled"],
-        "deleted_count": counts["deleted"],
-        "outside_scope_count": counts["outside_scope"],
-        "skipped_new_remote": counts["new_remote"],
-        "unchanged_count": counts["unchanged"],
-    }
-    cache.set(
-        result_key,
-        {"snapshot_hash": confirmation["snapshot_hash"], "result": result},
-        timeout=IDEMPOTENCY_TTL_SECONDS,
-    )
-    return result
+        result = {
+            "updated_count": counts["updates"],
+            "deactivated_count": counts["account_disabled"] + counts["deleted"],
+            "account_disabled_count": counts["account_disabled"],
+            "deleted_count": counts["deleted"],
+            "outside_scope_count": counts["outside_scope"],
+            "skipped_new_remote": counts["new_remote"],
+            "unchanged_count": counts["unchanged"],
+        }
+        FeishuSyncResult.objects.create(
+            actor_id=actor_id,
+            idempotency_key=idempotency_key,
+            snapshot_hash=confirmation.snapshot_hash,
+            result=result,
+        )
+        confirmation.status = FeishuSyncConfirmation.Status.CONSUMED
+        confirmation.consumed_at = timezone.now()
+        confirmation.save(update_fields=("status", "consumed_at"))
+        return result

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from django.urls import get_resolver
+from django.utils import timezone
 
 from object_storage.crypto import encrypt_secret
 
@@ -124,6 +125,8 @@ def test_non_sensitive_write_replays_exact_response_and_rejects_payload_reuse(
 
 
 def test_idempotency_in_progress_fails_closed(admin_client, settings, monkeypatch):
+    from datetime import timedelta
+
     from object_storage.models import ApiIdempotencyRecord
 
     client, admin = admin_client
@@ -134,6 +137,8 @@ def test_idempotency_in_progress_fails_closed(admin_client, settings, monkeypatc
         idempotency_key="settings-in-progress",
         payload_digest=hashlib.sha256(body.encode()).hexdigest(),
         status=ApiIdempotencyRecord.Status.IN_PROGRESS,
+        owner_token="active-owner",
+        lease_until=timezone.now() + timedelta(minutes=5),
     )
 
     response = client.put(
@@ -145,6 +150,164 @@ def test_idempotency_in_progress_fails_closed(admin_client, settings, monkeypatc
 
     assert response.status_code == 409
     assert response.json()["data"]["error_code"] == "IDEMPOTENCY_IN_PROGRESS"
+
+
+def test_expired_pure_database_idempotency_claim_can_be_reacquired(admin_client):
+    from datetime import timedelta
+
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    body = '{"default_bucket_quota":8}'
+    record = ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope="PUT:/api/v1/object-storage/management/settings/",
+        idempotency_key="settings-expired-lease",
+        payload_digest=hashlib.sha256(body.encode()).hexdigest(),
+        status=ApiIdempotencyRecord.Status.IN_PROGRESS,
+        owner_token="expired-owner",
+        lease_until=timezone.now() - timedelta(seconds=1),
+        attempt_count=1,
+    )
+
+    response = client.put(
+        "/api/v1/object-storage/management/settings/",
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="settings-expired-lease",
+    )
+
+    record.refresh_from_db()
+    assert response.status_code == 200
+    assert record.status == ApiIdempotencyRecord.Status.COMPLETED
+    assert record.attempt_count == 2
+    assert record.owner_token == ""
+    assert record.lease_until is None
+
+
+def test_expired_idempotency_lease_is_reclaimed_while_row_lock_is_held(monkeypatch):
+    from contextlib import contextmanager
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from object_storage.models import ApiIdempotencyRecord
+    from object_storage.permissions import RequireIdempotencyKeyMixin
+
+    lock_state = {"held": False}
+
+    @contextmanager
+    def atomic():
+        lock_state["held"] = True
+        try:
+            yield
+        finally:
+            lock_state["held"] = False
+
+    record = SimpleNamespace(
+        payload_digest="digest",
+        status=ApiIdempotencyRecord.Status.IN_PROGRESS,
+        lease_until=timezone.now() - timedelta(seconds=1),
+        owner_token="expired-owner",
+        attempt_count=1,
+    )
+
+    def save(*, update_fields):
+        assert lock_state["held"] is True
+        assert set(update_fields) == {"owner_token", "lease_until", "attempt_count"}
+
+    record.save = save
+    queryset = Mock()
+    queryset.filter.return_value.first.return_value = record
+    monkeypatch.setattr(
+        "object_storage.permissions.transaction.atomic",
+        atomic,
+    )
+    monkeypatch.setattr(
+        ApiIdempotencyRecord.objects,
+        "select_for_update",
+        lambda: queryset,
+    )
+
+    view = RequireIdempotencyKeyMixin()
+    view.idempotency_reclaimable = True
+    request = SimpleNamespace(
+        user=SimpleNamespace(pk=1),
+        method="PUT",
+        path="/api/v1/object-storage/management/settings/",
+        idempotency_key="expired-lease-lock",
+    )
+
+    claimed = view._lookup_or_create_idempotency(request, "digest")
+
+    assert claimed is record
+    assert record.attempt_count == 2
+    assert record.owner_token != "expired-owner"
+
+
+def test_expired_sensitive_idempotency_claim_fails_as_outcome_unknown(
+    admin_client, cloud_identity_factory, access_key_factory, monkeypatch
+):
+    from datetime import timedelta
+
+    from object_storage.models import ApiIdempotencyRecord
+
+    client, admin = admin_client
+    key = access_key_factory(cloud_identity=cloud_identity_factory())
+    body = '{"reason":"incident investigation"}'
+    url = f"/api/v1/object-storage/management/access-keys/{key.id}/reveal/"
+    record = ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope=f"POST:{url}",
+        idempotency_key="sensitive-expired-lease",
+        payload_digest=hashlib.sha256(body.encode()).hexdigest(),
+        status=ApiIdempotencyRecord.Status.IN_PROGRESS,
+        owner_token="expired-sensitive-owner",
+        lease_until=timezone.now() - timedelta(seconds=1),
+        attempt_count=1,
+    )
+    calls = []
+    monkeypatch.setattr(
+        "object_storage.views_admin.reveal_access_key",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    response = client.post(
+        url,
+        body,
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="sensitive-expired-lease",
+    )
+
+    record.refresh_from_db()
+    assert response.status_code == 409
+    assert response.json()["data"]["error_code"] == "IDEMPOTENCY_OUTCOME_UNKNOWN"
+    assert calls == []
+    assert record.status == ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN
+    assert record.response_body is None
+
+
+def test_admin_can_resolve_unknown_idempotency_record_for_reconciliation(
+    admin_client,
+):
+    from datetime import timedelta
+
+    from object_storage.models import ApiIdempotencyRecord
+    from object_storage.services.idempotency import resolve_idempotency_outcome
+
+    _client, admin = admin_client
+    record = ApiIdempotencyRecord.objects.create(
+        actor=admin,
+        scope="POST:/api/v1/object-storage/unknown/",
+        idempotency_key="admin-resolution",
+        payload_digest="0" * 64,
+        status=ApiIdempotencyRecord.Status.OUTCOME_UNKNOWN,
+        lease_until=timezone.now() - timedelta(seconds=1),
+    )
+
+    resolve_idempotency_outcome(record=record, actor=admin, resolution="retry")
+
+    assert not ApiIdempotencyRecord.objects.filter(pk=record.pk).exists()
 
 
 def test_uncertainty_views_are_sensitive_idempotency_endpoints():
@@ -237,6 +400,8 @@ def test_sensitive_idempotency_never_persists_response_body(
 def test_sensitive_idempotency_in_progress_fails_closed(
     admin_client, cloud_identity_factory, access_key_factory, monkeypatch
 ):
+    from datetime import timedelta
+
     from object_storage.models import ApiIdempotencyRecord
 
     client, admin = admin_client
@@ -248,6 +413,8 @@ def test_sensitive_idempotency_in_progress_fails_closed(
         scope=f"POST:{url}",
         idempotency_key="sensitive-in-progress",
         payload_digest=hashlib.sha256(body.encode()).hexdigest(),
+        owner_token="active-sensitive-owner",
+        lease_until=timezone.now() + timedelta(minutes=5),
     )
     calls = []
     monkeypatch.setattr(

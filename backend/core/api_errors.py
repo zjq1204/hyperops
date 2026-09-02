@@ -149,6 +149,7 @@ def _exception_error_code(exc, status_code: int) -> str:
         "IDEMPOTENCY_KEY_REUSED",
         "IDEMPOTENCY_IN_PROGRESS",
         "IDEMPOTENCY_RESULT_NOT_REPLAYABLE",
+        "IDEMPOTENCY_OUTCOME_UNKNOWN",
     }:
         return explicit_code
     if isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
@@ -176,6 +177,7 @@ def _exception_detail(error_code: str) -> str:
         "IDEMPOTENCY_KEY_REUSED": "幂等键已用于其他请求内容",
         "IDEMPOTENCY_IN_PROGRESS": "相同幂等键的操作正在处理中",
         "IDEMPOTENCY_RESULT_NOT_REPLAYABLE": "敏感操作已完成，结果不可再次返回",
+        "IDEMPOTENCY_OUTCOME_UNKNOWN": "上一次操作结果未知，请先完成对账或清理",
         "NOT_FOUND": "请求的资源不存在或已被删除",
         "VALIDATION_ERROR": "请检查填写内容",
         "RATE_LIMITED": "操作过于频繁，请稍后重试",

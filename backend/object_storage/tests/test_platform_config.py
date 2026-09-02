@@ -110,6 +110,44 @@ def test_validate_and_save_platform_config_persists_allowlisted_storage_fields(d
     assert config.pause_key_operations is True
 
 
+def test_combined_platform_validation_failure_rolls_back_object_config(
+    storage_resource_pool_factory,
+):
+    from object_storage.models import PlatformFeishuConfig
+    from object_storage.services.platform import (
+        PlatformConfigurationError,
+        get_feishu_config,
+        get_object_storage_config,
+        validate_and_save_platform_config,
+    )
+
+    storage = get_object_storage_config()
+    feishu = get_feishu_config()
+    pool = storage_resource_pool_factory(config=storage, cloud_account_id="account-1")
+    original_quota = storage.default_bucket_quota
+    original_feishu_status = feishu.validation_status
+    original_pool_status = pool.validation_status
+
+    with pytest.raises(PlatformConfigurationError, match="FEISHU_VALIDATION_FAILED"):
+        validate_and_save_platform_config(
+            object_storage_config=storage,
+            object_storage_fields={"default_bucket_quota": original_quota + 5},
+            feishu_config=feishu,
+            resource_pool=pool,
+            feishu_validator=lambda _config: (_ for _ in ()).throw(
+                PlatformConfigurationError("FEISHU_VALIDATION_FAILED")
+            ),
+            pool_validator=lambda _pool: {"account_id": "account-1"},
+        )
+
+    storage.refresh_from_db()
+    feishu.refresh_from_db()
+    pool.refresh_from_db()
+    assert storage.default_bucket_quota == original_quota
+    assert feishu.validation_status == original_feishu_status
+    assert pool.validation_status == original_pool_status
+
+
 def test_validate_and_save_platform_config_rejects_fields_outside_allowlist(db):
     from object_storage.services.platform import (
         PlatformConfigurationError,
