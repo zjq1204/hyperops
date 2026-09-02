@@ -113,6 +113,18 @@
     box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035);
   }
 
+  .admin-form-field {
+    @apply grid min-w-0 gap-1.5;
+  }
+
+  .admin-form-label {
+    @apply block text-sm font-medium leading-5 text-slate-800;
+  }
+
+  .admin-form-help {
+    @apply block text-xs leading-5 text-slate-500;
+  }
+
   .admin-settings-group {
     @apply grid gap-0;
   }

@@ -26,7 +26,7 @@
               <div class="grid gap-5 p-5 sm:grid-cols-2">
                 <label class="admin-form-field">
                   <span class="admin-form-label">{{ t('adminPages.objectStorage.provider') }}</span>
-                  <input class="admin-filter-control" value="Alibaba Cloud OSS" readonly />
+                  <input class="admin-filter-control" :value="t('adminPages.objectStorage.providerName')" readonly />
                 </label>
                 <label class="admin-form-field">
                   <span class="admin-form-label">{{ t('adminPages.objectStorage.enabledPool') }}</span>
