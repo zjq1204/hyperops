@@ -13,98 +13,200 @@
         </template>
 
         <AdminPageState :loading="loading" :error="loadError">
-          <form class="space-y-5" @submit.prevent="saveSettings">
-            <section class="admin-workbench-panel overflow-hidden">
-              <div class="border-b border-slate-200 px-5 py-4">
-                <h2 class="text-sm font-semibold text-slate-950">
+          <form class="admin-workbench-panel overflow-hidden p-0" @submit.prevent="saveSettings">
+            <div class="border-b border-slate-200/80 px-5 py-4 sm:px-6">
+              <h2 class="text-base font-semibold text-slate-950">
+                {{ t('adminPages.objectStorage.platformSettings') }}
+              </h2>
+              <p class="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+                {{ t('adminPages.objectStorage.platformSettingsHint') }}
+              </p>
+            </div>
+
+            <section class="px-5 py-5 sm:px-6">
+              <div class="admin-settings-group">
+                <h2 class="admin-settings-title">
                   {{ t('adminPages.objectStorage.connectionSection') }}
                 </h2>
-                <p class="mt-1 text-xs leading-5 text-slate-500">
-                  {{ t('adminPages.objectStorage.connectionHint') }}
-                </p>
-              </div>
-              <div class="grid gap-5 p-5 sm:grid-cols-2">
-                <label class="admin-form-field">
-                  <span class="admin-form-label">{{ t('adminPages.objectStorage.provider') }}</span>
-                  <input class="admin-filter-control" :value="t('adminPages.objectStorage.providerName')" readonly />
-                </label>
-                <label class="admin-form-field">
-                  <span class="admin-form-label">{{ t('adminPages.objectStorage.enabledPool') }}</span>
-                  <div class="admin-filter-control flex items-center" aria-live="polite">
-                    {{ currentPool ? `${currentPool.cloud_account_id} · ${currentPool.region}` : t('adminPages.objectStorage.noPool') }}
+
+                <div class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <h3 class="admin-settings-row-title">
+                      {{ t('adminPages.objectStorage.provider') }}
+                    </h3>
+                    <p class="admin-settings-row-copy">
+                      {{ t('adminPages.objectStorage.connectionHint') }}
+                    </p>
                   </div>
-                </label>
+                  <dl class="w-full min-w-0 space-y-3 md:max-w-72">
+                    <div class="flex items-start justify-between gap-4">
+                      <dt class="text-sm text-slate-500">{{ t('adminPages.objectStorage.provider') }}</dt>
+                      <dd class="text-right text-sm font-medium text-slate-900">
+                        {{ t('adminPages.objectStorage.providerName') }}
+                      </dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-4">
+                      <dt class="text-sm text-slate-500">{{ t('adminPages.objectStorage.enabledPool') }}</dt>
+                      <dd class="min-w-0 text-right text-sm font-medium text-slate-900" aria-live="polite">
+                        {{ currentPool ? `${currentPool.cloud_account_id} · ${currentPool.region}` : t('adminPages.objectStorage.noPool') }}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
               </div>
             </section>
 
-            <section class="admin-workbench-panel overflow-hidden">
-              <div class="border-b border-slate-200 px-5 py-4">
-                <h2 class="text-sm font-semibold text-slate-950">
+            <section class="border-t border-slate-200/80 px-5 py-5 sm:px-6">
+              <div class="admin-settings-group">
+                <h2 class="admin-settings-title">
                   {{ t('adminPages.objectStorage.policySection') }}
                 </h2>
-                <p class="mt-1 text-xs leading-5 text-slate-500">
-                  {{ t('adminPages.objectStorage.policyHint') }}
-                </p>
-              </div>
-              <div class="grid gap-5 p-5 sm:grid-cols-2">
-                <label class="admin-form-field sm:col-span-2">
-                  <span class="admin-form-label">{{ t('adminPages.objectStorage.namingTemplate') }}</span>
-                  <input v-model.trim="form.naming_template" class="admin-filter-control font-mono" required />
-                  <span class="admin-form-help">{{ t('adminPages.objectStorage.namingTemplateHint') }}</span>
-                </label>
-                <label class="admin-form-field">
-                  <span class="admin-form-label">{{ t('adminPages.objectStorage.bucketQuota') }}</span>
-                  <input v-model.number="form.default_bucket_quota" class="admin-filter-control" type="number" min="1" max="100" required />
-                </label>
-                <label class="admin-form-field">
-                  <span class="admin-form-label">{{ t('adminPages.objectStorage.deliveryLifetime') }}</span>
-                  <input v-model.number="form.delivery_lifetime_seconds" class="admin-filter-control" type="number" min="300" required />
-                </label>
-                <label class="admin-form-field">
-                  <span class="admin-form-label">{{ t('adminPages.objectStorage.auditRetention') }}</span>
-                  <input v-model.number="form.audit_retention_days" class="admin-filter-control" type="number" min="1" required />
-                </label>
+
+                <div class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <label for="object-storage-naming-template" class="admin-settings-row-title">
+                      {{ t('adminPages.objectStorage.namingTemplate') }}
+                    </label>
+                    <p class="admin-settings-row-copy">
+                      {{ t('adminPages.objectStorage.namingTemplateHint') }}
+                    </p>
+                  </div>
+                  <div class="admin-settings-row-control">
+                    <input
+                      id="object-storage-naming-template"
+                      v-model.trim="form.naming_template"
+                      class="admin-modal-control font-mono"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <label for="object-storage-bucket-quota" class="admin-settings-row-title">
+                      {{ t('adminPages.objectStorage.bucketQuota') }}
+                    </label>
+                    <p class="admin-settings-row-copy">
+                      {{ t('adminPages.objectStorage.bucketQuotaHint') }}
+                    </p>
+                  </div>
+                  <div class="admin-settings-row-control">
+                    <input
+                      id="object-storage-bucket-quota"
+                      v-model.number="form.default_bucket_quota"
+                      class="admin-modal-control w-28"
+                      type="number"
+                      min="1"
+                      max="100"
+                      required
+                    />
+                    <span class="admin-settings-unit">{{ t('adminPages.objectStorage.bucketUnit') }}</span>
+                  </div>
+                </div>
+
+                <div class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <label for="object-storage-delivery-lifetime" class="admin-settings-row-title">
+                      {{ t('adminPages.objectStorage.deliveryLifetime') }}
+                    </label>
+                    <p class="admin-settings-row-copy">
+                      {{ t('adminPages.objectStorage.deliveryLifetimeHint') }}
+                    </p>
+                  </div>
+                  <div class="admin-settings-row-control">
+                    <input
+                      id="object-storage-delivery-lifetime"
+                      v-model.number="deliveryLifetimeMinutes"
+                      class="admin-modal-control w-28"
+                      type="number"
+                      min="5"
+                      required
+                    />
+                    <span class="admin-settings-unit">{{ t('adminPages.objectStorage.minuteUnit') }}</span>
+                  </div>
+                </div>
+
+                <div class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <label for="object-storage-audit-retention" class="admin-settings-row-title">
+                      {{ t('adminPages.objectStorage.auditRetention') }}
+                    </label>
+                    <p class="admin-settings-row-copy">
+                      {{ t('adminPages.objectStorage.auditRetentionSettingHint') }}
+                    </p>
+                  </div>
+                  <div class="admin-settings-row-control">
+                    <input
+                      id="object-storage-audit-retention"
+                      v-model.number="form.audit_retention_days"
+                      class="admin-modal-control w-28"
+                      type="number"
+                      min="1"
+                      required
+                    />
+                    <span class="admin-settings-unit">{{ t('adminPages.objectStorage.dayUnit') }}</span>
+                  </div>
+                </div>
               </div>
             </section>
 
-            <section class="admin-workbench-panel overflow-hidden">
-              <div class="border-b border-slate-200 px-5 py-4">
-                <h2 class="text-sm font-semibold text-slate-950">
+            <section class="border-t border-slate-200/80 px-5 py-5 sm:px-6">
+              <div class="admin-settings-group">
+                <h2 class="admin-settings-title">
                   {{ t('adminPages.objectStorage.defaultSection') }}
                 </h2>
-              </div>
-              <div class="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-                <label v-for="item in defaults" :key="item.key" class="flex items-start gap-3 text-sm text-slate-700">
-                  <input v-model="form[item.key]" type="checkbox" class="mt-0.5" :disabled="item.disabled" />
-                  <span>{{ t(item.label) }}</span>
-                </label>
-                <p class="sm:col-span-2 lg:col-span-4 text-xs text-slate-500">
+
+                <div v-for="item in defaults" :key="item.key" class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <h3 class="admin-settings-row-title">{{ t(item.label) }}</h3>
+                    <p class="admin-settings-row-copy">{{ t(item.hint) }}</p>
+                  </div>
+                  <div class="admin-settings-row-control">
+                    <label class="inline-flex min-h-11 cursor-pointer items-center gap-3">
+                      <input
+                        v-model="form[item.key]"
+                        type="checkbox"
+                        class="admin-modal-checkbox"
+                        :disabled="item.disabled"
+                      />
+                      <span class="text-sm font-medium text-slate-700">
+                        {{ form[item.key] ? t('common.enabled') : t('common.disabled') }}
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <p class="border-t border-slate-200/70 pt-4 text-sm leading-6 text-slate-500">
                   {{ t('adminPages.objectStorage.privateAclHint') }}
                 </p>
               </div>
             </section>
 
-            <section class="admin-workbench-panel overflow-hidden">
-              <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
-                <div>
-                  <h2 class="text-sm font-semibold text-slate-950">{{ t('adminPages.objectStorage.operationSection') }}</h2>
-                  <p class="mt-1 text-xs leading-5 text-slate-500">{{ t('adminPages.objectStorage.operationHint') }}</p>
+            <section class="border-t border-slate-200/80 px-5 py-5 sm:px-6">
+              <div class="admin-settings-group">
+                <h2 class="admin-settings-title">
+                  {{ t('adminPages.objectStorage.operationSection') }}
+                </h2>
+
+                <div v-for="item in operationControls" :key="item.key" class="admin-settings-row">
+                  <div class="admin-settings-row-main">
+                    <h3 class="admin-settings-row-title">{{ t(item.label) }}</h3>
+                    <p class="admin-settings-row-copy">{{ t(item.hint) }}</p>
+                  </div>
+                  <div class="admin-settings-row-control">
+                    <label class="inline-flex min-h-11 cursor-pointer items-center gap-3">
+                      <input v-model="form[item.key]" type="checkbox" class="admin-modal-checkbox" />
+                      <span class="text-sm font-medium" :class="form[item.key] ? 'text-amber-700' : 'text-slate-700'">
+                        {{ form[item.key] ? t('adminPages.objectStorage.paused') : t('adminPages.objectStorage.running') }}
+                      </span>
+                    </label>
+                  </div>
                 </div>
-                <StatusBadge :status="settings?.pause_new_applications ? 'disabled' : 'success'" />
-              </div>
-              <div class="grid gap-4 p-5 sm:grid-cols-2">
-                <label class="flex items-start gap-3 text-sm text-slate-700">
-                  <input v-model="form.pause_new_applications" type="checkbox" class="mt-0.5" />
-                  <span>{{ t('adminPages.objectStorage.pauseApplications') }}</span>
-                </label>
-                <label class="flex items-start gap-3 text-sm text-slate-700">
-                  <input v-model="form.pause_key_operations" type="checkbox" class="mt-0.5" />
-                  <span>{{ t('adminPages.objectStorage.pauseKeys') }}</span>
-                </label>
               </div>
             </section>
 
-            <div class="flex justify-end border-t border-slate-200 pt-4">
+            <div class="flex items-center justify-between gap-4 border-t border-slate-200/80 bg-slate-50/60 px-5 py-4 sm:px-6">
+              <p class="text-sm text-slate-500">{{ t('adminPages.objectStorage.policyHint') }}</p>
               <BaseButton type="submit" :loading="saving">{{ t('common.save') }}</BaseButton>
             </div>
           </form>
@@ -173,11 +275,42 @@ const form = reactive({
 })
 const poolForm = reactive({ cloud_account_id: '', region: '', management_access_key: '', management_secret_key: '' })
 const defaults = [
-  { key: 'default_encryption', label: 'adminPages.objectStorage.encryption', disabled: false },
-  { key: 'default_versioning', label: 'adminPages.objectStorage.versioning', disabled: false },
-  { key: 'default_lifecycle', label: 'adminPages.objectStorage.lifecycle', disabled: false }
+  {
+    key: 'default_encryption',
+    label: 'adminPages.objectStorage.encryption',
+    hint: 'adminPages.objectStorage.encryptionHint',
+    disabled: false
+  },
+  {
+    key: 'default_versioning',
+    label: 'adminPages.objectStorage.versioning',
+    hint: 'adminPages.objectStorage.versioningHint',
+    disabled: false
+  },
+  {
+    key: 'default_lifecycle',
+    label: 'adminPages.objectStorage.lifecycle',
+    hint: 'adminPages.objectStorage.lifecycleHint',
+    disabled: false
+  }
+]
+const operationControls = [
+  {
+    key: 'pause_new_applications',
+    label: 'adminPages.objectStorage.pauseApplications',
+    hint: 'adminPages.objectStorage.pauseApplicationsHint'
+  },
+  {
+    key: 'pause_key_operations',
+    label: 'adminPages.objectStorage.pauseKeys',
+    hint: 'adminPages.objectStorage.pauseKeysHint'
+  }
 ]
 const currentPool = computed(() => pools.value.find((pool) => pool.enabled))
+const deliveryLifetimeMinutes = computed({
+  get: () => form.delivery_lifetime_seconds / 60,
+  set: (value) => { form.delivery_lifetime_seconds = Number(value) * 60 }
+})
 const statusBadge = (status, enabled) => enabled ? 'success' : status === 'invalid' ? 'failed' : 'pending'
 
 function copySettings(data) {
