@@ -348,6 +348,10 @@ export const adminRoutes = [
     }
   },
   {
+    path: '/management/object-storage/settings/:legacyStep(connection|policy|controls)',
+    redirect: '/management/object-storage/settings'
+  },
+  {
     path: '/management/object-storage/buckets',
     name: 'AdminObjectStorageBuckets',
     component: () => import('@/admin/pages/ObjectStorage/Buckets.vue'),
