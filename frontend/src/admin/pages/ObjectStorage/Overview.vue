@@ -38,7 +38,14 @@ const stats = computed(() => [
   { key: 'applications', value: applications.value.filter((item) => ['pending', 'running', 'manual_required'].includes(item.status)).length, label: 'adminPages.objectStorage.pendingCount', hint: 'adminPages.objectStorage.pendingCountHint' },
   { key: 'pools', value: pools.value.filter((pool) => pool.enabled).length, label: 'adminPages.objectStorage.poolCount', hint: 'adminPages.objectStorage.poolCountHint' }
 ])
-const links = [{ to: '/management/object-storage/settings', label: 'adminPages.objectStorage.settingsTitle' }, { to: '/management/object-storage/buckets', label: 'adminPages.objectStorage.bucketsTitle' }, { to: '/management/object-storage/access-keys', label: 'adminPages.objectStorage.accessKeysTitle' }, { to: '/management/object-storage/applications', label: 'adminPages.objectStorage.applicationsTitle' }]
+const links = [
+  { to: '/management/object-storage/settings/connection', label: 'adminPages.objectStorage.connectionSection' },
+  { to: '/management/object-storage/settings/policy', label: 'adminPages.objectStorage.policySection' },
+  { to: '/management/object-storage/settings/controls', label: 'adminPages.objectStorage.operationSection' },
+  { to: '/management/object-storage/buckets', label: 'adminPages.objectStorage.bucketsTitle' },
+  { to: '/management/object-storage/access-keys', label: 'adminPages.objectStorage.accessKeysTitle' },
+  { to: '/management/object-storage/applications', label: 'adminPages.objectStorage.applicationsTitle' }
+]
 const InfoCell = defineComponent({ props: { label: String, value: [String, Number] }, setup: (props) => () => h('div', [h('dt', { class: 'text-xs font-medium text-slate-500' }, props.label), h('dd', { class: 'mt-1 break-all text-sm font-medium text-slate-900' }, props.value || '-')]) })
 async function load() { loading.value = true; error.value = ''; try { [settings.value, pools.value, buckets.value, keys.value, applications.value] = await Promise.all([objectStorageAdminApi.getSettings(), objectStorageAdminApi.listResourcePools(), objectStorageAdminApi.listBuckets(), objectStorageAdminApi.listAccessKeys(), objectStorageAdminApi.listApplications()]) } catch (err) { error.value = extractErrorMessage(err, t('adminPages.objectStorage.loadFailed')) } finally { loading.value = false } }
 onMounted(load)

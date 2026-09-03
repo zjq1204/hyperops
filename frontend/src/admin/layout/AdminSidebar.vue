@@ -474,9 +474,19 @@ const allNavSections = computed(() => [
         iconPaths: ['M4 13a8 8 0 0116 0', 'M12 13l3-3', 'M5 19h14']
       },
       {
-        path: '/management/object-storage/settings',
+        path: '/management/object-storage/settings/connection',
         label: t('adminNav.objectStorageSettings'),
         iconPaths: ['M4 5h16v14H4z', 'M8 9h8', 'M8 13h5']
+      },
+      {
+        path: '/management/object-storage/settings/policy',
+        label: t('adminNav.objectStoragePolicy'),
+        iconPaths: ['M5 4h14v16H5z', 'M8 8h8', 'M8 12h5', 'M8 16h8']
+      },
+      {
+        path: '/management/object-storage/settings/controls',
+        label: t('adminNav.objectStorageControls'),
+        iconPaths: ['M12 3v18', 'M5 7h14', 'M5 17h14', 'M8 4v6', 'M16 14v6']
       },
       {
         path: '/management/object-storage/buckets',
