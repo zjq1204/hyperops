@@ -339,40 +339,7 @@ export const adminRoutes = [
   {
     path: '/management/object-storage/settings',
     name: 'AdminObjectStorageSettings',
-    redirect: '/management/object-storage/settings/connection',
-    meta: {
-      requiresAuth: true,
-      requiresSuperuser: true,
-      requiredFeature: 'admin_object_storage',
-      requiresModuleFlag: 'enable_object_storage'
-    }
-  },
-  {
-    path: '/management/object-storage/settings/connection',
-    name: 'AdminObjectStorageConnection',
     component: () => import('@/admin/pages/ObjectStorage/StorageSettings.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresSuperuser: true,
-      requiredFeature: 'admin_object_storage',
-      requiresModuleFlag: 'enable_object_storage'
-    }
-  },
-  {
-    path: '/management/object-storage/settings/policy',
-    name: 'AdminObjectStoragePolicy',
-    component: () => import('@/admin/pages/ObjectStorage/StoragePolicy.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresSuperuser: true,
-      requiredFeature: 'admin_object_storage',
-      requiresModuleFlag: 'enable_object_storage'
-    }
-  },
-  {
-    path: '/management/object-storage/settings/controls',
-    name: 'AdminObjectStorageControls',
-    component: () => import('@/admin/pages/ObjectStorage/StorageControls.vue'),
     meta: {
       requiresAuth: true,
       requiresSuperuser: true,
