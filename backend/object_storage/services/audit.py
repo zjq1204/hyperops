@@ -25,6 +25,7 @@ SAFE_METADATA_KEYS = frozenset(
         "failed_count",
         "user_id",
         "bucket_id",
+        "resource_pool_id",
         "application_id",
         "item_id",
     }

@@ -70,6 +70,48 @@ def test_platform_settings_are_singleton_and_mutations_require_idempotency(
     assert _payload(updated)["default_storage_class"] == "IA"
 
 
+def test_platform_enable_endpoint_requires_valid_dependencies(
+    admin_client, storage_resource_pool_factory
+):
+    from object_storage.models import PlatformFeishuConfig, StorageResourcePool
+
+    client, _admin = admin_client
+    feishu = PlatformFeishuConfig.objects.create(singleton_key="default")
+    pool = storage_resource_pool_factory(
+        validation_status=StorageResourcePool.ValidationStatus.PENDING
+    )
+
+    rejected = client.post(
+        "/api/v1/object-storage/management/enable/",
+        {"resource_pool_id": pool.id},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="platform-enable-rejected",
+    )
+
+    assert rejected.status_code == 400
+    assert _payload(rejected)["error_code"] == "CONFIG_NOT_VALIDATED"
+
+    feishu.validation_status = PlatformFeishuConfig.ValidationStatus.VALID
+    feishu.save(update_fields=("validation_status", "updated_at"))
+    pool.validation_status = StorageResourcePool.ValidationStatus.VALID
+    pool.save(update_fields=("validation_status", "updated_at"))
+
+    enabled = client.post(
+        "/api/v1/object-storage/management/enable/",
+        {"resource_pool_id": pool.id},
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="platform-enable-valid",
+    )
+
+    feishu.refresh_from_db()
+    pool.refresh_from_db()
+    assert enabled.status_code == 200
+    assert _payload(enabled)["enabled"] is True
+    assert _payload(enabled)["resource_pool_id"] == pool.id
+    assert feishu.enabled is True
+    assert pool.enabled is True
+
+
 def test_platform_feishu_settings_encrypt_secret_and_preserve_group_intent(
     admin_client,
 ):

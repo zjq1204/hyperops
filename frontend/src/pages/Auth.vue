@@ -458,19 +458,6 @@ onMounted(loadLdapProviders)
   line-height: 1.55;
 }
 
-.auth-card__lang :deep(button) {
-  border-radius: 0.85rem;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  background: rgba(248, 250, 252, 0.94);
-  padding: 0.45rem 0.65rem;
-  color: #64748b;
-}
-
-.auth-card__lang :deep(button:hover) {
-  background: #ffffff;
-  color: #334155;
-}
-
 .auth-form {
   margin-top: 1.9rem;
   display: grid;

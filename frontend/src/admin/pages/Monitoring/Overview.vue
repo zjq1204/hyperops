@@ -3,169 +3,198 @@
     <PageFrame
       variant="soft"
       :title="t('adminPages.monitoring.overviewTitle')"
+      :subtitle="t('adminPages.monitoring.overviewSubtitle')"
     >
       <AdminListSection>
         <template #toolbarEnd>
-          <BaseButton variant="primary" size="sm" :loading="syncing" @click="syncRealState">
+          <BaseButton
+            variant="primary"
+            size="sm"
+            :loading="syncing"
+            @click="syncRealState"
+          >
             {{ t('adminPages.monitoring.syncRealState') }}
           </BaseButton>
-          <BaseButton variant="outline" size="sm" :loading="loading" @click="load">
+          <BaseButton
+            variant="outline"
+            size="sm"
+            :loading="loading"
+            @click="load"
+          >
             {{ t('common.refresh') }}
           </BaseButton>
         </template>
 
         <AdminPageState :loading="loading" :error="error" :empty="false">
-          <section class="grid gap-4">
-            <section class="grid gap-4 xl:grid-cols-3">
-              <article class="admin-workbench-panel p-5">
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">
-                      {{ t('adminPages.monitoring.hyperopsConfigState') }}
-                    </p>
-                  </div>
-                </div>
-                <div class="mt-5 grid grid-cols-2 gap-3">
-                  <div v-for="item in hyperOpsStats" :key="item.label" class="rounded-lg bg-slate-50 px-3 py-3">
-                    <p class="text-xs font-medium text-slate-500">{{ item.label }}</p>
-                    <p class="mt-1 text-2xl font-semibold text-slate-950">{{ item.value }}</p>
-                  </div>
-                </div>
-              </article>
-
-              <article class="admin-workbench-panel p-5">
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">
-                      {{ t('adminPages.monitoring.n9eRealityState') }}
-                    </p>
-                  </div>
-                  <span :class="connectionPillClass(Boolean(n9eSummary.connected))">
-                    {{ n9eSummary.connected ? t('adminPages.monitoring.connected') : t('adminPages.monitoring.notConnected') }}
+          <section class="monitoring-overview">
+            <section
+              class="monitoring-status-list"
+              :aria-label="t('adminPages.monitoring.connectionStatus')"
+            >
+              <div class="monitoring-status-row">
+                <div class="monitoring-status-main">
+                  <h2>{{ t('adminPages.monitoring.hyperopsConfigState') }}</h2>
+                  <span
+                    class="monitoring-status-pill monitoring-status-pill--configured"
+                  >
+                    {{ t('adminPages.monitoring.connected') }}
                   </span>
                 </div>
-                <div class="mt-5 grid grid-cols-2 gap-3">
-                  <div v-for="item in n9eStats" :key="item.label" class="rounded-lg bg-slate-50 px-3 py-3">
-                    <p class="text-xs font-medium text-slate-500">{{ item.label }}</p>
-                    <p class="mt-1 text-xl font-semibold text-slate-950">{{ item.value }}</p>
-                  </div>
+                <div class="monitoring-status-metrics">
+                  <span v-for="item in hyperOpsStats" :key="item.label">
+                    <small>{{ item.label }}</small>
+                    <strong>{{ item.value }}</strong>
+                  </span>
                 </div>
-                <p v-if="n9eSummary.error" class="mt-4 text-xs leading-5 text-rose-600">
+              </div>
+
+              <div class="monitoring-status-row">
+                <div class="monitoring-status-main">
+                  <h2>{{ t('adminPages.monitoring.n9eRealityState') }}</h2>
+                  <span
+                    class="monitoring-status-pill"
+                    :class="connectionPillClass(Boolean(n9eSummary.connected))"
+                    role="status"
+                  >
+                    {{
+                      n9eSummary.connected
+                        ? t('adminPages.monitoring.connected')
+                        : t('adminPages.monitoring.notConnected')
+                    }}
+                  </span>
+                </div>
+                <div class="monitoring-status-metrics">
+                  <span v-for="item in n9eStats" :key="item.label">
+                    <small>{{ item.label }}</small>
+                    <strong>{{ item.value }}</strong>
+                  </span>
+                </div>
+                <p v-if="n9eSummary.error" class="monitoring-status-error">
                   {{ n9eSummary.error }}
                 </p>
-                <p class="mt-4 break-all text-xs text-slate-500">
-                  {{ t('adminPages.monitoring.n9eUrl') }}:
-                  <span class="font-medium text-slate-700">{{ n9eSummary.n9e_url || config.n9e_url || t('adminPages.monitoring.notConfigured') }}</span>
-                </p>
-                <p class="mt-2 text-xs text-slate-500">
-                  {{ t('adminPages.monitoring.lastSyncedAt') }}:
-                  <span class="font-medium text-slate-700">{{ n9eSummary.synced_at || t('common.emptyValue') }}</span>
-                </p>
-              </article>
+              </div>
 
-              <article class="admin-workbench-panel p-5">
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-semibold text-slate-900">
-                      {{ t('adminPages.monitoring.prometheusRealityState') }}
-                    </p>
-                  </div>
-                  <span :class="connectionPillClass(Boolean(prometheusSummary.connected))">
-                    {{ prometheusSummary.connected ? t('adminPages.monitoring.connected') : t('adminPages.monitoring.notConnected') }}
+              <div class="monitoring-status-row">
+                <div class="monitoring-status-main">
+                  <h2>
+                    {{ t('adminPages.monitoring.prometheusRealityState') }}
+                  </h2>
+                  <span
+                    class="monitoring-status-pill"
+                    :class="
+                      connectionPillClass(Boolean(prometheusSummary.connected))
+                    "
+                    role="status"
+                  >
+                    {{
+                      prometheusSummary.connected
+                        ? t('adminPages.monitoring.connected')
+                        : t('adminPages.monitoring.notConnected')
+                    }}
                   </span>
                 </div>
-                <div class="mt-5 grid grid-cols-3 gap-3">
-                  <div v-for="item in prometheusStats" :key="item.label" class="rounded-lg bg-slate-50 px-3 py-3">
-                    <p class="text-xs font-medium text-slate-500">{{ item.label }}</p>
-                    <p class="mt-1 text-2xl font-semibold text-slate-950">{{ item.value }}</p>
-                  </div>
+                <div class="monitoring-status-metrics">
+                  <span v-for="item in prometheusStats" :key="item.label">
+                    <small>{{ item.label }}</small>
+                    <strong>{{ item.value }}</strong>
+                  </span>
                 </div>
-                <p v-if="prometheusSummary.error" class="mt-4 text-xs leading-5 text-rose-600">
+                <p
+                  v-if="prometheusSummary.error"
+                  class="monitoring-status-error"
+                >
                   {{ prometheusSummary.error }}
                 </p>
-                <p class="mt-4 break-all text-xs text-slate-500">
-                  {{ t('adminPages.monitoring.prometheusUrl') }}:
-                  <span class="font-medium text-slate-700">{{ prometheusSummary.prometheus_url || config.prometheus_url || t('adminPages.monitoring.notConfigured') }}</span>
-                </p>
-                <p class="mt-2 text-xs text-slate-500">
-                  {{ t('adminPages.monitoring.lastSyncedAt') }}:
-                  <span class="font-medium text-slate-700">{{ prometheusSummary.synced_at || t('common.emptyValue') }}</span>
-                </p>
-              </article>
+              </div>
             </section>
 
-            <section class="admin-workbench-panel p-5">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p class="text-sm font-semibold text-slate-900">
-                    {{ t('adminPages.monitoring.governanceFindingsTitle') }}
-                  </p>
+            <section class="monitoring-main-grid">
+              <section
+                class="monitoring-findings"
+                :aria-labelledby="'monitoring-findings-title'"
+              >
+                <div class="monitoring-section-heading">
+                  <div>
+                    <h2 id="monitoring-findings-title">
+                      {{ t('adminPages.monitoring.governanceFindingsTitle') }}
+                    </h2>
+                    <p>
+                      {{ t('adminPages.monitoring.openFindings') }}
+                      {{ governanceFindingCounts.open || 0 }} ·
+                      {{ t('adminPages.monitoring.criticalFindings') }}
+                      {{ governanceFindingCounts.critical || 0 }} ·
+                      {{ t('adminPages.monitoring.warningFindings') }}
+                      {{ governanceFindingCounts.warning || 0 }}
+                    </p>
+                  </div>
+                  <router-link
+                    class="btn btn-outline btn-sm"
+                    to="/management/monitoring/probes"
+                  >
+                    {{ t('adminPages.monitoring.fixProbeTargets') }}
+                  </router-link>
                 </div>
-                <router-link class="btn btn-outline btn-sm" to="/management/monitoring/probes">
-                  {{ t('adminPages.monitoring.fixProbeTargets') }}
-                </router-link>
-              </div>
-              <div class="mt-4 grid gap-3 sm:grid-cols-3">
-                <div v-for="item in governanceFindingStats" :key="item.label" class="rounded-lg bg-slate-50 px-3 py-3">
-                  <p class="text-xs font-medium text-slate-500">{{ item.label }}</p>
-                  <p class="mt-1 text-2xl font-semibold text-slate-950">{{ item.value }}</p>
-                </div>
-              </div>
-              <div class="mt-4 grid gap-2">
-                <p v-if="!governanceFindings.length" class="text-xs text-slate-400">
+                <p
+                  v-if="!governanceFindings.length"
+                  class="monitoring-empty-line"
+                >
                   {{ t('adminPages.monitoring.noRiskItems') }}
                 </p>
                 <article
                   v-for="item in governanceFindings"
                   :key="item.id"
-                  class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-4 py-3"
+                  class="monitoring-finding-row"
                 >
                   <div class="min-w-0">
-                    <p class="truncate text-sm font-semibold text-slate-900">{{ findingTitle(item) }}</p>
-                    <p class="mt-1 truncate text-xs text-slate-500">
-                      {{ findingCategoryLabel(item.category) }} / {{ findingSubjectLabel(item) }}
+                    <p class="monitoring-finding-title">
+                      {{ findingTitle(item) }}
+                    </p>
+                    <p class="monitoring-finding-meta">
+                      {{ findingCategoryLabel(item.category) }} /
+                      {{ findingSubjectLabel(item) }}
                     </p>
                   </div>
-                  <div class="flex items-center gap-2">
+                  <div class="monitoring-finding-actions">
                     <span
-                      class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"
+                      class="monitoring-finding-severity"
                       :class="findingSeverityClass(item.severity)"
                     >
                       {{ findingSeverityLabel(item.severity) }}
                     </span>
-                    <router-link class="btn btn-outline btn-sm" :to="findingTargetRoute(item)">
+                    <router-link
+                      class="monitoring-view-link"
+                      :to="findingTargetRoute(item)"
+                    >
                       {{ t('common.view') }}
                     </router-link>
                   </div>
                 </article>
-              </div>
-            </section>
+              </section>
 
-            <section class="grid gap-4">
-              <div class="admin-workbench-panel p-5">
-                <div class="flex flex-wrap items-center justify-between gap-3">
+              <aside
+                class="monitoring-quick-actions"
+                :aria-labelledby="'monitoring-actions-title'"
+              >
+                <div class="monitoring-section-heading">
                   <div>
-                    <p class="text-sm font-semibold text-slate-900">
+                    <h2 id="monitoring-actions-title">
                       {{ t('adminPages.monitoring.quickActionsTitle') }}
-                    </p>
+                    </h2>
+                    <p>{{ syncStatusText }}</p>
                   </div>
-                  <span class="text-xs font-medium text-slate-500">
-                    {{ syncStatusText }}
-                  </span>
                 </div>
-                <div class="mt-4 grid gap-3 md:grid-cols-3">
-                  <div
-                    v-for="item in pendingItems"
-                    :key="item.title"
-                    class="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-4 py-3"
+                <router-link
+                  v-for="item in pendingItems"
+                  :key="item.title"
+                  class="monitoring-action-row"
+                  :to="item.to"
+                >
+                  <span>{{ item.title }}</span>
+                  <small
+                    >{{ item.action }} <span aria-hidden="true">→</span></small
                   >
-                    <p class="text-sm font-semibold text-slate-900">{{ item.title }}</p>
-                    <router-link class="btn btn-outline btn-sm" :to="item.to">
-                      {{ item.action }}
-                    </router-link>
-                  </div>
-                </div>
-              </div>
+                </router-link>
+              </aside>
             </section>
           </section>
         </AdminPageState>
@@ -213,7 +242,10 @@ function n9eMetric(value) {
 }
 
 function n9eUnavailableReason(field) {
-  return n9eSummary.value?.[`${field}_unavailable_reason`] || t('adminPages.monitoring.n9eVersionNotExposed')
+  return (
+    n9eSummary.value?.[`${field}_unavailable_reason`] ||
+    t('adminPages.monitoring.n9eVersionNotExposed')
+  )
 }
 
 const hyperOpsStats = computed(() => [
@@ -250,22 +282,12 @@ const prometheusStats = computed(() => [
   }
 ])
 
-const governanceFindings = computed(() => governanceOverview.value?.top_findings || [])
-const governanceFindingCounts = computed(() => governanceOverview.value?.finding_counts || {})
-const governanceFindingStats = computed(() => [
-  {
-    label: t('adminPages.monitoring.openFindings'),
-    value: governanceFindingCounts.value.open || 0
-  },
-  {
-    label: t('adminPages.monitoring.criticalFindings'),
-    value: governanceFindingCounts.value.critical || 0
-  },
-  {
-    label: t('adminPages.monitoring.warningFindings'),
-    value: governanceFindingCounts.value.warning || 0
-  }
-])
+const governanceFindings = computed(
+  () => governanceOverview.value?.top_findings || []
+)
+const governanceFindingCounts = computed(
+  () => governanceOverview.value?.finding_counts || {}
+)
 
 const n9eStats = computed(() => [
   {
@@ -316,12 +338,9 @@ const syncStatusText = computed(() => {
 })
 
 function connectionPillClass(connected) {
-  return [
-    'inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold',
-    connected
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : 'border-slate-200 bg-slate-50 text-slate-500'
-  ].join(' ')
+  return connected
+    ? 'monitoring-status-pill--connected'
+    : 'monitoring-status-pill--unavailable'
 }
 
 function findingSeverityLabel(severity) {
@@ -334,20 +353,30 @@ function findingSeverityLabel(severity) {
 }
 
 function findingSeverityClass(severity) {
-  if (severity === 'critical') return 'border-rose-200 bg-rose-50 text-rose-700'
-  if (severity === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700'
-  return 'border-slate-200 bg-white text-slate-600'
+  if (severity === 'critical') return 'monitoring-finding-severity--critical'
+  if (severity === 'warning') return 'monitoring-finding-severity--warning'
+  return 'monitoring-finding-severity--info'
 }
 
 function findingCategoryLabel(category) {
   const labels = {
     host_not_in_n9e: t('adminPages.monitoring.categoryHostNotInN9e'),
-    host_not_scraped_by_prometheus: t('adminPages.monitoring.categoryHostNotScrapedByPrometheus'),
-    categraf_not_installed: t('adminPages.monitoring.categoryCategrafNotInstalled'),
-    blackbox_not_installed: t('adminPages.monitoring.categoryBlackboxNotInstalled'),
+    host_not_scraped_by_prometheus: t(
+      'adminPages.monitoring.categoryHostNotScrapedByPrometheus'
+    ),
+    categraf_not_installed: t(
+      'adminPages.monitoring.categoryCategrafNotInstalled'
+    ),
+    blackbox_not_installed: t(
+      'adminPages.monitoring.categoryBlackboxNotInstalled'
+    ),
     install_job_failed: t('adminPages.monitoring.categoryInstallJobFailed'),
-    probe_configured_not_discovered: t('adminPages.monitoring.configuredNotDiscovered'),
-    probe_discovered_not_configured: t('adminPages.monitoring.discoveredNotConfigured'),
+    probe_configured_not_discovered: t(
+      'adminPages.monitoring.configuredNotDiscovered'
+    ),
+    probe_discovered_not_configured: t(
+      'adminPages.monitoring.discoveredNotConfigured'
+    ),
     probe_abnormal: t('adminPages.monitoring.abnormalProbeTargets')
   }
   return labels[category] || category || t('common.emptyValue')
@@ -363,7 +392,9 @@ function findingTitle(item) {
 
 function findingSubjectLabel(item) {
   if (item.category === 'install_job_failed') {
-    return item.details?.job_id ? `#${item.details.job_id}` : t('common.emptyValue')
+    return item.details?.job_id
+      ? `#${item.details.job_id}`
+      : t('common.emptyValue')
   }
   return item.subject_key
 }

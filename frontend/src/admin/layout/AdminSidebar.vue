@@ -83,7 +83,8 @@
                   </div>
                   <div class="min-w-0 flex-1 text-left">
                     <p
-                      class="truncate text-[0.98rem] font-semibold text-slate-900"
+                      :title="section.title"
+                      class="break-words text-[0.98rem] font-semibold leading-5 text-slate-900"
                     >
                       {{ section.title }}
                     </p>
@@ -151,9 +152,12 @@
                         />
                       </svg>
                     </span>
-                    <span class="min-w-0 flex-1 truncate">{{
-                      item.label
-                    }}</span>
+                    <span
+                      :title="item.label"
+                      class="min-w-0 flex-1 break-words leading-5"
+                    >
+                      {{ item.label }}
+                    </span>
                   </router-link>
                 </div>
               </Transition>

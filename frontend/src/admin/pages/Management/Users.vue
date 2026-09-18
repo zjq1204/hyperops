@@ -6,30 +6,62 @@
       :subtitle="t('management.usersSubtitle')"
     >
       <AdminListSection>
-        <template #toolbarStart>
-          <span class="admin-summary-pill">{{
-            t('management.totalUsers', { count: totalCount })
-          }}</span>
-        </template>
-        <template #toolbarEnd>
-          <BaseButton
-            variant="outline"
-            size="sm"
-            :loading="loading"
-            @click="fetchUsers"
-          >
-            {{ t('common.refresh') }}
-          </BaseButton>
-          <BaseButton variant="primary" size="sm" @click="openCreateModal">
-            {{ t('management.createUser') }}
-          </BaseButton>
+        <template #toolbar>
+          <div class="user-list-toolbar">
+            <div class="user-list-toolbar-main">
+              <span class="user-list-count">
+                {{ t('management.totalUsers', { count: totalCount }) }}
+              </span>
+              <label class="user-list-search">
+                <span class="sr-only">{{ t('management.searchUsers') }}</span>
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                    d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"
+                  />
+                </svg>
+                <input
+                  v-model="searchQuery"
+                  type="search"
+                  :placeholder="t('management.userSearchPlaceholder')"
+                />
+              </label>
+            </div>
+            <div class="user-list-toolbar-actions">
+              <BaseButton
+                variant="outline"
+                size="sm"
+                :loading="loading"
+                @click="fetchUsers"
+              >
+                {{ t('common.refresh') }}
+              </BaseButton>
+              <BaseButton variant="primary" size="sm" @click="openCreateModal">
+                {{ t('management.createUser') }}
+              </BaseButton>
+            </div>
+          </div>
         </template>
 
         <AdminPageState
           :loading="loading && !users.length"
           :error="error"
           :empty="!loading && !error && !users.length"
-          :empty-title="t('common.noData')"
+          :empty-title="
+            searchQuery.trim()
+              ? t('management.userSearchEmptyTitle')
+              : t('common.noData')
+          "
+          :empty-description="
+            searchQuery.trim() ? t('management.userSearchEmptyDescription') : ''
+          "
         >
           <template #emptyIcon>
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -41,65 +73,73 @@
               />
             </svg>
           </template>
+          <template v-if="searchQuery.trim()" #emptyActions>
+            <BaseButton variant="outline" size="sm" @click="clearUserSearch">
+              {{ t('management.clearUserSearch') }}
+            </BaseButton>
+          </template>
 
-          <AdminTable>
+          <AdminTable class="user-list-table">
             <thead>
               <tr>
-                <th class="admin-table-head">{{ t('common.id') }}</th>
                 <th class="admin-table-head">
-                  {{ t('dashboard.username') }}
+                  {{ t('management.userIdentity') }}
                 </th>
-                <th class="admin-table-head">{{ t('dashboard.email') }}</th>
                 <th class="admin-table-head">
                   {{ t('management.authSource') }}
                 </th>
                 <th class="admin-table-head">
-                  {{ t('management.ldapLastSyncedAt') }}
+                  {{ t('management.accessOverview') }}
                 </th>
-                <th class="admin-table-head">{{ t('management.groups') }}</th>
-                <th class="admin-table-head">{{ t('management.roles') }}</th>
                 <th class="admin-table-head">
                   {{ t('management.defaultPlatform') }}
                 </th>
-                <th class="admin-table-head">{{ t('dashboard.isStaff') }}</th>
-                <th class="admin-table-head">
-                  {{ t('management.isActive') }}
-                </th>
-                <th class="admin-table-head">
-                  {{ t('management.dateJoined') }}
-                </th>
+                <th class="admin-table-head">{{ t('management.status') }}</th>
                 <th class="admin-table-head">{{ t('common.actions') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="user in users" :key="user.id" class="admin-table-row">
-                <td class="admin-table-cell text-slate-900">{{ user.id }}</td>
-                <td class="admin-table-cell">
-                  <div class="font-medium text-slate-900">
-                    {{ user.username }}
-                  </div>
-                  <div class="text-xs text-slate-500">
-                    {{ user.display_name || t('common.emptyValue') }}
+                <td class="admin-table-cell user-list-identity">
+                  <div class="user-list-identity-main">
+                    <span class="user-list-avatar" aria-hidden="true">
+                      {{
+                        (user.display_name || user.username || '?')
+                          .charAt(0)
+                          .toUpperCase()
+                      }}
+                    </span>
+                    <div class="min-w-0">
+                      <div class="user-list-name">{{ user.username }}</div>
+                      <div class="user-list-secondary">
+                        {{
+                          user.display_name ||
+                          user.email ||
+                          t('common.emptyValue')
+                        }}
+                      </div>
+                    </div>
                   </div>
                 </td>
-                <td class="admin-table-cell text-slate-500">
-                  {{ user.email || t('common.emptyValue') }}
-                </td>
-                <td class="admin-table-cell">
+                <td class="admin-table-cell user-list-auth">
                   <span :class="authSourceBadgeClass(user.auth_source)">
                     {{ formatAuthSource(user.auth_source) }}
                   </span>
                 </td>
-                <td class="admin-table-cell text-slate-500">
-                  {{ formatLdapSync(user.ldap_last_synced_at) }}
+                <td class="admin-table-cell user-list-access">
+                  <div class="user-access-summary">
+                    {{
+                      t('management.accessSummary', {
+                        groups: user.groups?.length || 0,
+                        roles: (user.effective_roles || user.roles)?.length || 0
+                      })
+                    }}
+                  </div>
+                  <div class="user-access-detail">
+                    {{ joinNames(user.effective_roles || user.roles) }}
+                  </div>
                 </td>
-                <td class="admin-table-cell text-slate-500">
-                  {{ joinNames(user.groups) }}
-                </td>
-                <td class="admin-table-cell text-slate-500">
-                  {{ joinNames(user.effective_roles || user.roles) }}
-                </td>
-                <td class="admin-table-cell text-slate-500">
+                <td class="admin-table-cell user-list-platform">
                   {{
                     formatPlatform(
                       user.preferred_platform ||
@@ -107,43 +147,37 @@
                     )
                   }}
                 </td>
-                <td class="admin-table-cell">
-                  <span
-                    :class="
-                      user.is_staff
-                        ? 'admin-status-badge admin-status-badge--info'
-                        : 'admin-status-badge admin-status-badge--muted'
-                    "
-                  >
-                    {{ user.is_staff ? t('common.yes') : t('common.no') }}
-                  </span>
+                <td class="admin-table-cell user-list-status">
+                  <div class="user-list-status-items">
+                    <span
+                      :class="
+                        user.is_active !== false
+                          ? 'admin-status-badge admin-status-badge--success'
+                          : 'admin-status-badge admin-status-badge--muted'
+                      "
+                    >
+                      {{
+                        user.is_active !== false
+                          ? t('management.isActive')
+                          : t('management.inactive')
+                      }}
+                    </span>
+                    <span
+                      v-if="user.is_staff"
+                      class="admin-status-badge admin-status-badge--info"
+                    >
+                      {{ t('management.adminUser') }}
+                    </span>
+                  </div>
                 </td>
                 <td class="admin-table-cell">
-                  <span
-                    :class="
-                      user.is_active !== false
-                        ? 'admin-status-badge admin-status-badge--success'
-                        : 'admin-status-badge admin-status-badge--muted'
-                    "
-                  >
-                    {{
-                      user.is_active !== false
-                        ? t('common.yes')
-                        : t('common.no')
-                    }}
-                  </span>
-                </td>
-                <td class="admin-table-cell text-slate-500">
-                  {{ formatDate(user.date_joined) }}
-                </td>
-                <td class="admin-table-cell">
-                  <BaseButton
-                    variant="outline"
-                    size="sm"
+                  <button
+                    type="button"
+                    class="user-list-edit"
                     @click="openEditModal(user)"
                   >
                     {{ t('common.edit') }}
-                  </BaseButton>
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -308,7 +342,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
 import AdminPageState from '@/admin/components/AdminPageState.vue'
@@ -329,6 +363,7 @@ const error = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalCount = ref(0)
+const searchQuery = ref('')
 
 const showModal = ref(false)
 const mode = ref('create')
@@ -338,6 +373,8 @@ const submitError = ref(null)
 
 const groupOptions = ref([])
 const roleOptions = ref([])
+let searchTimer = null
+let userRequestId = 0
 
 const createEmptyForm = () => ({
   username: '',
@@ -375,12 +412,6 @@ function joinNames(items) {
     : t('common.emptyValue')
 }
 
-function formatDate(value) {
-  if (!value) return t('common.emptyValue')
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
 function formatPlatform(value) {
   const match = platformOptions.value.find((item) => item.key === value)
   return match?.label || t('common.emptyValue')
@@ -400,10 +431,6 @@ function authSourceBadgeClass(value) {
     return 'admin-status-badge admin-status-badge--success'
   }
   return 'admin-status-badge admin-status-badge--muted'
-}
-
-function formatLdapSync(value) {
-  return value ? formatDate(value) : t('management.neverSynced')
 }
 
 function closeModal() {
@@ -507,24 +534,32 @@ async function submitUser() {
 }
 
 async function fetchUsers() {
+  const requestId = ++userRequestId
   loading.value = true
   error.value = null
   try {
     const data = await managementApi.getUsers({
       page: currentPage.value,
-      page_size: pageSize.value
+      page_size: pageSize.value,
+      search: searchQuery.value.trim() || undefined
     })
+    if (requestId !== userRequestId) return
     users.value = Array.isArray(data) ? data : (data?.results ?? [])
     totalCount.value = Array.isArray(data)
       ? data.length
       : Number(data?.count ?? users.value.length)
   } catch (e) {
+    if (requestId !== userRequestId) return
     users.value = []
     totalCount.value = 0
     error.value = e?.response?.data?.detail || e?.message || t('common.error')
   } finally {
-    loading.value = false
+    if (requestId === userRequestId) loading.value = false
   }
+}
+
+function clearUserSearch() {
+  searchQuery.value = ''
 }
 
 function handlePageSizeChange(size) {
@@ -544,6 +579,18 @@ function goNextPage() {
   currentPage.value += 1
   fetchUsers()
 }
+
+watch(searchQuery, () => {
+  if (searchTimer) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => {
+    currentPage.value = 1
+    fetchUsers()
+  }, 250)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer) window.clearTimeout(searchTimer)
+})
 
 onMounted(async () => {
   await Promise.all([fetchUsers(), loadOptions()])

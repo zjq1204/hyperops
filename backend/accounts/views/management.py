@@ -5,7 +5,7 @@ from functools import partial
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.http import Http404
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from platformkit.api import build_paginated_payload, parse_bounded_int
 from platformkit.management import (
     build_group_payload,
@@ -141,6 +141,15 @@ class ManagementUserListView(APIView):
             groups_prefetch,
             user_role_prefetch,
         ).order_by('id')
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(username__icontains=search)
+                | Q(email__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(profile__nickname__icontains=search)
+            )
         total = qs.count()
         start = (page - 1) * page_size
         end = start + page_size

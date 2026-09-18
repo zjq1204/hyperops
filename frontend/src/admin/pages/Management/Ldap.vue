@@ -6,9 +6,17 @@
       :subtitle="t('adminPages.ldap.subtitle')"
     >
       <template #actions>
-        <BaseButton @click="openCreateInstanceModal">
-          {{ t('adminPages.ldap.addInstance') }}
-        </BaseButton>
+        <div class="flex flex-wrap items-center gap-3">
+          <RouterLink
+            class="text-sm font-medium text-sky-700 hover:text-sky-900"
+            to="/management/authentication"
+          >
+            {{ t('adminPages.authentication.backToSources') }}
+          </RouterLink>
+          <BaseButton @click="openCreateInstanceModal">
+            {{ t('adminPages.ldap.addInstance') }}
+          </BaseButton>
+        </div>
       </template>
 
       <div class="ldap-admin-page">
@@ -284,8 +292,7 @@
                         </td>
                         <td class="admin-table-cell text-slate-600">
                           {{
-                            mapping.target_group?.name ||
-                            t('common.emptyValue')
+                            mapping.target_group?.name || t('common.emptyValue')
                           }}
                         </td>
                         <td class="admin-table-cell">
@@ -743,22 +750,26 @@
                   <dl class="ldap-preview-list">
                     <div>
                       <dt>uid</dt>
-                      <dd>{{
-                        userPreview.user?.username || t('common.emptyValue')
-                      }}</dd>
+                      <dd>
+                        {{
+                          userPreview.user?.username || t('common.emptyValue')
+                        }}
+                      </dd>
                     </div>
                     <div>
                       <dt>{{ t('dashboard.email') }}</dt>
-                      <dd>{{
-                        userPreview.user?.email || t('common.emptyValue')
-                      }}</dd>
+                      <dd>
+                        {{ userPreview.user?.email || t('common.emptyValue') }}
+                      </dd>
                     </div>
                     <div>
                       <dt>{{ t('management.displayName') }}</dt>
-                      <dd>{{
-                        userPreview.user?.display_name ||
-                        t('common.emptyValue')
-                      }}</dd>
+                      <dd>
+                        {{
+                          userPreview.user?.display_name ||
+                          t('common.emptyValue')
+                        }}
+                      </dd>
                     </div>
                   </dl>
                 </article>
@@ -795,7 +806,9 @@
 
           <div class="ldap-mapping-instance-note">
             <span>{{ t('adminPages.ldap.mappingInstance') }}</span>
-            <strong>{{ selectedInstance?.name || t('common.emptyValue') }}</strong>
+            <strong>{{
+              selectedInstance?.name || t('common.emptyValue')
+            }}</strong>
           </div>
 
           <label class="admin-filter-field">
@@ -895,6 +908,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { managementApi } from '@/admin/api/management'
 import AdminPageState from '@/admin/components/AdminPageState.vue'
 import AdminTable from '@/admin/components/AdminTable.vue'
@@ -907,6 +921,8 @@ import PageFrame from '@/components/ui/PageFrame.vue'
 import { useConfirmDialog } from '@/composables/useConfirmDialog'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const {
   confirmDialog,
   requestConfirm,
@@ -1119,6 +1135,12 @@ function resetMappingForm() {
 
 function selectInstance(instanceId) {
   selectedInstanceId.value = instanceId
+  router.replace({
+    query: {
+      ...route.query,
+      instance: String(instanceId)
+    }
+  })
 }
 
 async function loadGroups() {
@@ -1139,9 +1161,13 @@ async function loadInstances() {
   const stillSelected = instances.some(
     (item) => item.id === selectedInstanceId.value
   )
-  if (!stillSelected) {
-    selectedInstanceId.value = instances[0].id
-  }
+  if (stillSelected) return
+
+  const requestedInstanceId = Number(route.query.instance)
+  const requestedInstance = instances.find(
+    (item) => item.id === requestedInstanceId
+  )
+  selectedInstanceId.value = requestedInstance?.id ?? instances[0].id
 }
 
 async function loadMappings() {

@@ -38,6 +38,9 @@ export const objectStorageAdminApi = {
   updateSettings(body) {
     return read(apiClient.patch(`${endpoint}/settings/`, body, mutationConfig()))
   },
+  enablePlatform(resourcePoolId) {
+    return action('enable', { resource_pool_id: resourcePoolId })
+  },
   listAccessGroups() {
     return readList(apiClient.get(`${endpoint}/access-groups/`))
   },

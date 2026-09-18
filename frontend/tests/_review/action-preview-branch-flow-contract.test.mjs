@@ -24,11 +24,13 @@ assert(
   'conditional branch preview should show split and merge structure'
 )
 
-const canvasBlock = source.match(/\.action-flow-canvas\s*\{[\s\S]*?\n\}/)?.[0]
-assert(canvasBlock, 'action flow canvas styles should be defined')
+const canvasInnerBlock = source.match(
+  /\.action-flow-canvas-inner\s*\{[\s\S]*?\n\}/
+)?.[0]
+assert(canvasInnerBlock, 'action flow canvas inner styles should be defined')
 
 assert(
-  canvasBlock.includes('align-items: center'),
+  canvasInnerBlock.includes('align-items: center'),
   'preview flow nodes should be vertically centered in the canvas'
 )
 
@@ -96,9 +98,12 @@ assert(
 )
 
 const conditionalLabelBlock = source.match(
-  /\.action-flow-connection-label\s*\{[\s\S]*?\n\}/
+  /^\.action-flow-connection-label\s*\{[\s\S]*?\n\}/m
 )?.[0]
-assert(conditionalLabelBlock, 'global connection label styles should be defined')
+assert(
+  conditionalLabelBlock,
+  'global connection label styles should be defined'
+)
 
 assert(
   conditionalLabelBlock.includes('font-family:') &&
@@ -113,9 +118,9 @@ assert(
 )
 
 assert(
-  source.includes("!currentIsBranch && !nextIsBranch") &&
-    source.includes("!currentIsBranch && nextIsBranch") &&
-    source.includes("currentIsBranch && !nextIsBranch") &&
+  source.includes('!currentIsBranch && !nextIsBranch') &&
+    source.includes('!currentIsBranch && nextIsBranch') &&
+    source.includes('currentIsBranch && !nextIsBranch') &&
     source.includes('previewBranchCases(nextStep).forEach'),
   'connection topology should cover standard, split, merge, and branch cascade routes'
 )

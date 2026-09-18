@@ -68,3 +68,40 @@ test('authentication pages use the platform-wide Feishu contract', () => {
   assert.match(authentication, /feishuSources\.value = \[null\]/)
   assert.doesNotMatch(combined, /listTenants|tenantId|query:\s*\{\s*tenant/)
 })
+
+test('storage settings use a summary and modal setup workflow', () => {
+  const settings = read('admin/pages/ObjectStorage/StorageSettings.vue')
+  const api = read('admin/api/objectStorage.js')
+
+  assert.match(settings, /BaseModal/)
+  assert.match(settings, /isConfigured/)
+  assert.match(settings, /startSetup/)
+  assert.match(settings, /activeStep/)
+  assert.match(settings, /saveAndFinish/)
+  assert.match(settings, /const totalSteps = 3/)
+  assert.doesNotMatch(settings, /<nav :aria-label="t\('adminPages\.objectStorage\.setupTitle'\)/)
+  assert.doesNotMatch(settings, /key: 'review'/)
+  assert.match(settings, /feishuReady[^\n]+validation_status === 'valid'/)
+  assert.match(settings, /isConfigured[^\n]+feishu\.value\?\.enabled/)
+  assert.match(api, /enablePlatform/)
+})
+
+test('storage overview does not show a persistent pause warning', () => {
+  const overview = read('admin/pages/ObjectStorage/Overview.vue')
+
+  assert.doesNotMatch(overview, /applicationsPaused|pause_new_applications|InlineAlert/)
+})
+
+test('storage overview statistics stay compact', () => {
+  const overview = read('admin/pages/ObjectStorage/Overview.vue')
+
+  assert.doesNotMatch(overview, /stat\.hint|bucketCountHint|keyCountHint|pendingCountHint|poolCountHint/)
+})
+
+test('storage platform status uses a readable row summary', () => {
+  const overview = read('admin/pages/ObjectStorage/Overview.vue')
+
+  assert.match(overview, /platformDetails/)
+  assert.match(overview, /divide-y divide-slate-200/)
+  assert.doesNotMatch(overview, /InfoCell|platformStateHint/)
+})

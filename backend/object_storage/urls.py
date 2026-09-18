@@ -35,6 +35,7 @@ from object_storage.views_admin import (
     CredentialUncertaintyObserveView,
     PlatformFeishuSettingsView,
     PlatformFeishuValidationView,
+    PlatformEnableView,
     PlatformSettingsView,
     StorageResourcePoolDetailView,
     StorageResourcePoolListCreateView,
@@ -163,6 +164,11 @@ urlpatterns = [
         "management/settings/",
         PlatformSettingsView.as_view(),
         name="management_settings",
+    ),
+    path(
+        "management/enable/",
+        PlatformEnableView.as_view(),
+        name="management_enable",
     ),
     path(
         "management/feishu-settings/",

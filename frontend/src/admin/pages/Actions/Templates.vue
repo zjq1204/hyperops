@@ -2,133 +2,170 @@
   <AdminLayout>
     <PageFrame
       variant="soft"
-      :eyebrow="t('adminPages.actionTemplates.eyebrow')"
       :title="t('adminPages.actionTemplates.title')"
       :subtitle="t('adminPages.actionTemplates.subtitle')"
     >
-      <template #actions>
-        <BaseButton @click="openCreateModal">{{
-          t('adminPages.actionTemplates.actions.newTemplate')
-        }}</BaseButton>
-      </template>
-
       <AdminListSection>
-        <template #filters>
-          <div class="admin-filter-grid">
-            <div class="admin-filter-field min-w-[18rem]">
-              <label class="admin-filter-label">{{
-                t('adminPages.actionTemplates.search.label')
-              }}</label>
-              <input
-                v-model="searchQuery"
-                class="admin-filter-control"
-                :placeholder="
-                  t('adminPages.actionTemplates.search.placeholder')
-                "
-              />
+        <template #toolbar>
+          <div class="action-template-toolbar">
+            <div class="action-template-toolbar-main">
+              <span class="action-template-count">{{ listSummary }}</span>
+              <label class="action-template-search">
+                <span class="sr-only">{{
+                  t('adminPages.actionTemplates.search.label')
+                }}</span>
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                    d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"
+                  />
+                </svg>
+                <input
+                  v-model="searchQuery"
+                  type="search"
+                  :placeholder="
+                    t('adminPages.actionTemplates.search.placeholder')
+                  "
+                />
+              </label>
             </div>
-          </div>
-          <div class="admin-toolbar-end">
-            <BaseButton variant="secondary" size="sm" @click="loadTemplates">
-              {{ t('adminPages.actionTemplates.actions.refresh') }}
-            </BaseButton>
+            <div class="action-template-toolbar-actions">
+              <BaseButton
+                variant="outline"
+                size="sm"
+                :loading="loadingTemplates"
+                @click="loadTemplates"
+              >
+                {{ t('adminPages.actionTemplates.actions.refresh') }}
+              </BaseButton>
+              <BaseButton variant="primary" size="sm" @click="openCreateModal">
+                {{ t('adminPages.actionTemplates.actions.newTemplate') }}
+              </BaseButton>
+            </div>
           </div>
         </template>
 
-        <AdminTable v-if="filteredTemplates.length">
-          <thead>
-            <tr>
-              <th class="admin-table-head">
-                {{ t('adminPages.actionTemplates.table.template') }}
-              </th>
-              <th class="admin-table-head">
-                {{ t('adminPages.actionTemplates.table.authorization') }}
-              </th>
-              <th class="admin-table-head">
-                {{ t('adminPages.actionTemplates.table.status') }}
-              </th>
-              <th class="admin-table-head text-right">
-                {{ t('adminPages.actionTemplates.table.actions') }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="template in filteredTemplates"
-              :key="template.id"
-              class="admin-table-row"
-            >
-              <td class="admin-table-cell">
-                <div class="font-semibold text-slate-900">
-                  {{ template.name }}
-                </div>
-                <div class="mt-1 max-w-xl truncate text-sm text-slate-500">
-                  {{
-                    template.description ||
-                    t('adminPages.actionTemplates.table.noDescription')
-                  }}
-                </div>
-              </td>
-              <td class="admin-table-cell">
-                <div class="text-sm text-slate-600">
-                  {{
-                    t('adminPages.actionTemplates.table.usersAndGroups', {
-                      users: template.visible_users?.length || 0,
-                      groups: template.visible_groups?.length || 0
-                    })
-                  }}
-                </div>
-              </td>
-              <td class="admin-table-cell">
-                <span
-                  :class="
-                    template.is_active
-                      ? 'admin-status-badge admin-status-badge--success'
-                      : 'admin-status-badge admin-status-badge--muted'
-                  "
-                >
-                  {{
-                    template.is_active
-                      ? t('adminPages.actionTemplates.table.active')
-                      : t('adminPages.actionTemplates.table.inactive')
-                  }}
-                </span>
-              </td>
-              <td class="admin-table-cell">
-                <div class="admin-row-actions justify-end">
-                  <BaseButton
-                    variant="secondary"
-                    size="sm"
-                    @click="openPreviewModal(template)"
-                  >
-                    {{ t('adminPages.actionTemplates.actions.preview') }}
-                  </BaseButton>
-                  <BaseButton
-                    variant="secondary"
-                    size="sm"
-                    @click="openEditModal(template)"
-                  >
-                    {{ t('adminPages.actionTemplates.actions.edit') }}
-                  </BaseButton>
-                  <BaseButton
-                    variant="danger"
-                    size="sm"
-                    @click="deleteTemplate(template)"
-                  >
-                    {{ t('adminPages.actionTemplates.actions.delete') }}
-                  </BaseButton>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </AdminTable>
+        <AdminPageState
+          :loading="loadingTemplates && !templates.length"
+          :error="!templates.length ? templateLoadError : ''"
+          :empty="!loadingTemplates && !templateLoadError && !templates.length"
+          :empty-title="t('adminPages.actionTemplates.empty.title')"
+          :empty-description="t('adminPages.actionTemplates.empty.description')"
+        >
+          <template #emptyActions>
+            <BaseButton variant="primary" size="sm" @click="openCreateModal">
+              {{ t('adminPages.actionTemplates.actions.newTemplate') }}
+            </BaseButton>
+          </template>
 
-        <EmptyState
-          v-else
-          variant="admin"
-          :title="t('adminPages.actionTemplates.empty.title')"
-          :description="t('adminPages.actionTemplates.empty.description')"
-        />
+          <AdminTable v-if="filteredTemplates.length">
+            <thead>
+              <tr>
+                <th class="admin-table-head">
+                  {{ t('adminPages.actionTemplates.table.template') }}
+                </th>
+                <th class="admin-table-head hidden lg:table-cell">
+                  {{ t('adminPages.actionTemplates.table.authorization') }}
+                </th>
+                <th class="admin-table-head">
+                  {{ t('adminPages.actionTemplates.table.status') }}
+                </th>
+                <th class="admin-table-head text-right">
+                  {{ t('adminPages.actionTemplates.table.actions') }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="template in filteredTemplates"
+                :key="template.id"
+                class="admin-table-row action-template-row"
+              >
+                <td class="admin-table-cell action-template-identity">
+                  <div class="action-template-name">{{ template.name }}</div>
+                  <div class="action-template-description">
+                    {{
+                      template.description ||
+                      t('adminPages.actionTemplates.table.noDescription')
+                    }}
+                  </div>
+                </td>
+                <td class="admin-table-cell hidden lg:table-cell">
+                  <span class="action-template-authorization">
+                    {{
+                      t('adminPages.actionTemplates.table.usersAndGroups', {
+                        users: template.visible_users?.length || 0,
+                        groups: template.visible_groups?.length || 0
+                      })
+                    }}
+                  </span>
+                </td>
+                <td class="admin-table-cell">
+                  <span
+                    :class="
+                      template.is_active
+                        ? 'admin-status-badge admin-status-badge--success'
+                        : 'admin-status-badge admin-status-badge--muted'
+                    "
+                  >
+                    {{
+                      template.is_active
+                        ? t('adminPages.actionTemplates.table.active')
+                        : t('adminPages.actionTemplates.table.inactive')
+                    }}
+                  </span>
+                </td>
+                <td class="admin-table-cell">
+                  <div class="action-template-row-actions">
+                    <button
+                      type="button"
+                      class="action-template-row-action"
+                      @click="openPreviewModal(template)"
+                    >
+                      {{ t('adminPages.actionTemplates.actions.preview') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="action-template-row-action action-template-row-action--primary"
+                      @click="openEditModal(template)"
+                    >
+                      {{ t('adminPages.actionTemplates.actions.edit') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="action-template-row-action action-template-row-action--danger"
+                      @click="deleteTemplate(template)"
+                    >
+                      {{ t('adminPages.actionTemplates.actions.delete') }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </AdminTable>
+
+          <EmptyState
+            v-else
+            variant="admin"
+            :title="t('adminPages.actionTemplates.search.emptyTitle')"
+            :description="
+              t('adminPages.actionTemplates.search.emptyDescription')
+            "
+          >
+            <template #actions>
+              <BaseButton variant="outline" size="sm" @click="searchQuery = ''">
+                {{ t('adminPages.actionTemplates.actions.clearSearch') }}
+              </BaseButton>
+            </template>
+          </EmptyState>
+        </AdminPageState>
       </AdminListSection>
 
       <BaseModal
@@ -4198,6 +4235,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AdminLayout from '@/admin/layout/AdminLayout.vue'
 import AdminListSection from '@/admin/components/AdminListSection.vue'
+import AdminPageState from '@/admin/components/AdminPageState.vue'
 import AdminTable from '@/admin/components/AdminTable.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -4213,6 +4251,8 @@ const { t } = useI18n()
 const { showToast } = useToast()
 
 const templates = ref([])
+const loadingTemplates = ref(true)
+const templateLoadError = ref('')
 const users = ref([])
 const groups = ref([])
 const jenkinsEntries = ref([])
@@ -4280,6 +4320,18 @@ const filteredTemplates = computed(() => {
       .toLowerCase()
       .includes(keyword)
   )
+})
+
+const listSummary = computed(() => {
+  if (searchQuery.value.trim()) {
+    return t('adminPages.actionTemplates.search.filteredSummary', {
+      count: filteredTemplates.value.length,
+      total: templates.value.length
+    })
+  }
+  return t('adminPages.actionTemplates.listSummary', {
+    count: templates.value.length
+  })
 })
 
 const previewSteps = computed(() => {
@@ -4559,15 +4611,24 @@ function normalizeList(payload) {
 }
 
 async function loadTemplates() {
+  loadingTemplates.value = true
+  templateLoadError.value = ''
   try {
     templates.value = normalizeList(await actionsApi.listAdminTemplates())
   } catch (error) {
+    templateLoadError.value =
+      error.message ||
+      t('adminPages.actionTemplates.toast.loadTemplatesFailed', {
+        message: ''
+      })
     showToast(
       t('adminPages.actionTemplates.toast.loadTemplatesFailed', {
         message: error.message || ''
       }),
       'error'
     )
+  } finally {
+    loadingTemplates.value = false
   }
 }
 
@@ -4937,11 +4998,6 @@ function syncStepOrders() {
   })
 }
 
-function openStepEditor(index) {
-  selectedStepIndex.value = index
-  stepEditorOpen.value = true
-}
-
 function closeStepEditor() {
   stepEditorOpen.value = false
 }
@@ -4970,17 +5026,6 @@ function openFlowEditor() {
     scheduleFlowEditorMeasure()
     window.setTimeout(() => fitFlowCanvas('editor'), 100)
   })
-}
-
-function openFlowEditorForStep(index) {
-  selectedStepIndex.value = index
-  selectedFlowTarget.value = {
-    kind: 'step',
-    stepIndex: index,
-    branchIndex: null,
-    nestedIndex: null
-  }
-  openFlowEditor()
 }
 
 function closeFlowEditor() {
@@ -5022,32 +5067,6 @@ function handleFlowEditorCanvasClick(event) {
   if (!flowEditorSuppressClick) return
   event.preventDefault()
   event.stopPropagation()
-}
-
-function centerFlowEditorSelectedNode() {
-  const canvas = flowEditorCanvasRef.value
-  if (!canvas) return
-  window.requestAnimationFrame(() => {
-    const targetNode =
-      canvas.querySelector('.action-flow-editor-node.selected') ||
-      canvas.querySelector('.action-flow-editor-node')
-    if (!targetNode) return
-    const canvasRect = canvas.getBoundingClientRect()
-    const nodeRect = targetNode.getBoundingClientRect()
-    canvas.scrollLeft += Math.round(
-      nodeRect.left +
-        nodeRect.width / 2 -
-        canvasRect.left -
-        canvas.clientWidth / 2
-    )
-    canvas.scrollTop += Math.round(
-      nodeRect.top +
-        nodeRect.height / 2 -
-        canvasRect.top -
-        canvas.clientHeight / 2
-    )
-    scheduleFlowEditorMeasure()
-  })
 }
 
 function centerFlowEditorGraph() {
@@ -5720,14 +5739,6 @@ function flowCanvasState(kind) {
     zoomRef: previewCanvasZoom,
     measure: schedulePreviewFlowMeasure
   }
-}
-
-function setFlowCanvasZoom(kind, value) {
-  const state = flowCanvasState(kind)
-  state.zoomRef.value = clampFlowCanvasZoom(value)
-  nextTick(() => {
-    state.measure()
-  })
 }
 
 function zoomFlowCanvas(kind, direction, anchorEvent = null) {

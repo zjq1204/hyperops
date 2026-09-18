@@ -80,6 +80,7 @@ from object_storage.services.lifecycle import (
 )
 from object_storage.services.platform import (
     PlatformConfigurationError,
+    enable_platform,
     get_feishu_config,
     get_object_storage_config,
     validate_and_save_platform_config,
@@ -234,6 +235,44 @@ class PlatformSettingsView(AdminMutationAPIView):
         return Response(PlatformObjectStorageConfigAdminSerializer(config).data)
 
     put = patch
+
+
+class PlatformEnableView(AdminMutationAPIView):
+    def post(self, request):
+        config = get_object_storage_config()
+        pool = get_object_or_404(
+            StorageResourcePool,
+            pk=request.data.get("resource_pool_id"),
+            config=config,
+        )
+        action = "storage.api.platform.enable"
+        if _mutation_seen(request, action, "PlatformObjectStorageConfig", config.pk):
+            return Response(
+                {
+                    "enabled": pool.enabled,
+                    "resource_pool_id": pool.pk,
+                }
+            )
+        try:
+            _feishu, enabled_pool = enable_platform(
+                object_storage_config=config,
+                resource_pool=pool,
+            )
+        except PlatformConfigurationError as error:
+            return _error(_service_error(error), status.HTTP_400_BAD_REQUEST)
+        _record_mutation(
+            request,
+            action,
+            "PlatformObjectStorageConfig",
+            config.pk,
+            resource_pool_id=enabled_pool.pk,
+        )
+        return Response(
+            {
+                "enabled": True,
+                "resource_pool_id": enabled_pool.pk,
+            }
+        )
 
 
 class PlatformFeishuSettingsView(AdminMutationAPIView):

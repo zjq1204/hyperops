@@ -17,6 +17,39 @@ def _payload(response):
 
 @pytest.mark.django_db
 class TestManagementUsersPagination:
+    def test_users_list_searches_username_email_and_display_name(self):
+        admin = User.objects.create_user(
+            username="admin_for_user_search",
+            password="x",
+            is_staff=True,
+        )
+        matching = User.objects.create_user(
+            username="platform_user",
+            email="platform@example.com",
+            password="x",
+        )
+        matching.profile.nickname = "Platform Operator"
+        matching.profile.save(update_fields=["nickname"])
+        User.objects.create_user(
+            username="unrelated_user",
+            email="other@example.com",
+            password="x",
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=admin)
+
+        for keyword in ("platform_user", "platform@example.com", "Operator"):
+            response = client.get(
+                "/api/v1/management/users/",
+                {"search": keyword},
+            )
+
+            assert response.status_code == 200
+            data = _payload(response)
+            assert data["count"] == 1
+            assert data["results"][0]["id"] == matching.id
+
     def test_users_list_supports_page_and_page_size(self):
         admin = User.objects.create_user(
             username="admin_for_users",

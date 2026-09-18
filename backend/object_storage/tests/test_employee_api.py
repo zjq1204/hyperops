@@ -18,6 +18,21 @@ def stable_secret(settings):
     settings.SECRET_KEY = "employee-api-contract-stable-secret"
 
 
+def test_employee_without_storage_membership_gets_not_configured_state(
+    client, django_user_model
+):
+    user = django_user_model.objects.create_user(
+        username="storage-unconfigured-user",
+        password="secret123",
+    )
+    client.force_login(user)
+
+    response = client.get("/api/v1/object-storage/workspace/overview/")
+
+    assert response.status_code == 403
+    assert _payload(response)["error_code"] == "OBJECT_STORAGE_NOT_CONFIGURED"
+
+
 @pytest.fixture
 def employee_context(
     client,
